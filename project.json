@@ -14,6 +14,10 @@
 		"pbr": {
 			"type": "executable",
 			"sources-add": ["examples/pbr/main.c3"]
+		},
+		"basic": {
+			"type": "executable",
+			"sources-add": ["examples/basic/main.c3"]
 		}
 	},
 	"output": "./build"

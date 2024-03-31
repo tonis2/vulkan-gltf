@@ -12,7 +12,7 @@ import std::time;
 
 const WIDTH = 1200;
 const HEIGHT = 800;
-const ENABLE_VALIDATION_LAYERS = false;
+const ENABLE_VALIDATION_LAYERS = true;
 const MAX_FRAMES_IN_FLIGHT = 2;
 const SCENE_INDEX = 0;
 
@@ -22,7 +22,6 @@ struct Vertex {
     Vec3f pos;
     Vec3f normal;
     Vec2f tex_cord;
-    Vec4f tangent;
     Vec4f skin_pos;
     Vec4f skin_weight;
 }
@@ -40,11 +39,6 @@ struct PushConstantData {
     ichar has_skin;
 }
 
-struct ForwardConstantData {
-    DeviceAddress lights;
-    uint count;
-}
-
 struct PipelineInfo {
     DescriptorSetLayout descriptor_layout;
     Pipeline pipeline;
@@ -55,11 +49,8 @@ struct PipelineInfo {
     List(<WriteDescriptorSet>) descriptor_sets;
 }
 
-char[*] g_vertex_shader_data = $embed("shaders/gbuffer_vert.spv");
-char[*] g_fragment_shader_data = $embed("shaders/gbuffer_frag.spv");
-
-char[*] f_vertex_shader_data = $embed("shaders/forward_vert.spv");
-char[*] f_fragment_shader_data = $embed("shaders/forward_frag.spv");
+char[*] vertex_shader_data = $embed("shaders/vertex.spv");
+char[*] fragment_shader_data = $embed("shaders/fragment.spv");
 
 vk::Allocation device_allocation;
 vk::Allocation local_allocation;
@@ -70,7 +61,6 @@ MemoryBlock uniform_buffer;
 MemoryBlock address_buffer;
 MemoryBlock joint_buffer;
 MemoryBlock material_buffer;
-MemoryBlock lights_buffer;
 
 ZStringList validations;
 ZStringList extensions;
@@ -81,11 +71,10 @@ List(<ushort>) indices;
 List(<Matrix4f>) joint_data;
 
 TextureList material_textures;
-TextureList gbuffer_textures;
-ImageList gbuffer_images;
+DescriptorImageInfo depth_texture;
+vk::Format depth_format = vk::FORMAT_D32_SFLOAT_S8_UINT;
 
-PipelineInfo gbuffer_pipeline;
-PipelineInfo forward_pipeline;
+PipelineInfo pipeline;
 
 vk::Device device;
 PhysicalDevice physical_device;
@@ -96,14 +85,6 @@ DebugUtilsMessengerEXT debug_messenger;
 Gltf gltf;
 camera::Camera camera;
 Animations animations;
-
-vk::Format[5] gbuffer_formats = {
-    vk::FORMAT_B8G8R8A8_UNORM,
-    vk::FORMAT_R16G16B16A16_SFLOAT,
-    vk::FORMAT_R16G16B16A16_SFLOAT,
-    vk::FORMAT_R16G16B16A16_SFLOAT,
-    vk::FORMAT_D32_SFLOAT_S8_UINT
-};
 
 Extent2D extent = { WIDTH, HEIGHT };
 
@@ -130,7 +111,7 @@ fn void! main()
         return;
     }
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!;
+    gltf = gltf::loadFile("assets/duck.gltf")!;
     defer gltf.free();
 
     foreach (&buffer: gltf.buffers) {
@@ -196,13 +177,6 @@ fn void! main()
                     return gltf.@castBuffer(accessor, i, Vec3f);
                 |};
 
-                Vec4f tangent = {|
-                    usz! attribute = primitive.attributes["TANGENT"];
-                    if (catch err = attribute) return Vec4f {0,0,0,0};
-                    Accessor accessor = gltf.accessors[attribute];
-                    return gltf.@castBuffer(accessor, i, Vec4f);
-                |};
-
                 Vec4f skin_pos = {|
                     usz! attribute = primitive.attributes["JOINTS_0"];
                     if (catch err = attribute) return Vec4f {0,0,0,0};
@@ -234,7 +208,6 @@ fn void! main()
                     .pos = position,
                     .normal = normal,
                     .tex_cord = tex_cord,
-                    .tangent = tangent,
                     .skin_pos = skin_pos,
                     .skin_weight = skin_weight
                 });
@@ -466,56 +439,7 @@ fn void! main()
     loadBuffers()!;
     loadTextures()!;
 
-    gbuffer_pipeline.render_info = vk::renderingInfoBuilder()
-    .setLayerCount(1)
-    .setRenderArea({
-        .offset = Offset2D{ .x = 0, .y = 0 },
-        .extent = extent,
-    })
-    .setColorAttachments({
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[0].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        }),
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[1].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        }),
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[2].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        }),
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[3].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        })
-    })
-    .setDepthAttachment(&&vk::renderingAttachmentInfoBuilder()
-        .setImageView(gbuffer_textures[4].imageView)
-        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-        .setClearValue({
-            .depthStencil = { 1.0f, 0 }
-    }));
-
-    gbuffer_pipeline.descriptor_sets.init_wrapping_array({
+    pipeline.descriptor_sets.init_wrapping_array({
         vk::writeDescriptorSetBuilder()
             .setDstBinding(0)
            .setDescriptorType(vk::DESCRIPTOR_TYPE_STORAGE_BUFFER)
@@ -532,7 +456,7 @@ fn void! main()
             .setImageInfo(material_textures.array_view())
     });
 
-    gbuffer_pipeline.descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
+    pipeline.descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
     .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
     .setBindings({
         {
@@ -551,7 +475,7 @@ fn void! main()
     })
     .build(device)!;
 
-    gbuffer_pipeline.pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
+    pipeline.pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
     .setPushConstantRanges({
         {
             .offset = 0,
@@ -559,10 +483,10 @@ fn void! main()
             .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
         },
     })
-    .setSetLayouts({ gbuffer_pipeline.descriptor_layout }).build(device)!;
+    .setSetLayouts({ pipeline.descriptor_layout }).build(device)!;
 
-    gbuffer_pipeline.vertex = device.createShaderModule(&g_vertex_shader_data)!;
-    gbuffer_pipeline.fragment = device.createShaderModule(&g_fragment_shader_data)!;
+    pipeline.vertex = device.createShaderModule(&vertex_shader_data)!;
+    pipeline.fragment = device.createShaderModule(&fragment_shader_data)!;
 
     vk::PipelineColorBlendAttachmentState color_write_mask = {
         .colorWriteMask =
@@ -572,12 +496,12 @@ fn void! main()
             vk::COLOR_COMPONENT_A_BIT,
     };
 
-    gbuffer_pipeline.pipeline = vk::graphicsPipelineCreateInfoBuilder()
+    pipeline.pipeline = vk::graphicsPipelineCreateInfoBuilder()
     .setStages({
-        gbuffer_pipeline.vertex.info(vk::SHADER_STAGE_VERTEX_BIT),
-        gbuffer_pipeline.fragment.info(vk::SHADER_STAGE_FRAGMENT_BIT)
+        pipeline.vertex.info(vk::SHADER_STAGE_VERTEX_BIT),
+        pipeline.fragment.info(vk::SHADER_STAGE_FRAGMENT_BIT)
     })
-    .setLayout(gbuffer_pipeline.pipeline_layout)
+    .setLayout(pipeline.pipeline_layout)
     .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfoBuilder()
         .setVertexBindingDescriptionCount(0))
     .setDynamicState(
@@ -614,172 +538,16 @@ fn void! main()
         .setLogicOp(vk::LOGIC_OP_COPY)
         .setAttachments({
             color_write_mask,
-            color_write_mask,
-            color_write_mask,
-            color_write_mask,
         }))
     .setViewportState(&&vk::pipelineViewportStateCreateInfoBuilder()
         .setViewports({{ .x = 0.0, .y = 0.0, .width = 0.0, .height = 0.0, .minDepth = 0.0, .maxDepth = 1.0 }})
         .setScissors({{ .offset = { .x = 0, .y = 0 }, .extent = extent }}))
     .setNext(
         &&vk::pipelineRenderingCreateInfoBuilder()
-        .setColorAttachmentFormats({
-                gbuffer_formats[0],
-                gbuffer_formats[1],
-                gbuffer_formats[2],
-                gbuffer_formats[3],
-            })
-        .setDepthAttachmentFormat(gbuffer_formats[4])
-        .setStencilAttachmentFormat(gbuffer_formats[4])
-    ).build(device)!;
-
-    // Forward pipeline
-
-   forward_pipeline.descriptor_sets.init_wrapping_array({
-        vk::writeDescriptorSetBuilder()
-            .setDstBinding(0)
-            .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-            .setImageInfo(gbuffer_textures.array_view()),
-   });
-
-    forward_pipeline.descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
-    .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
-    .setBindings({
-        {
-            .binding = 0,
-            .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = (uint)gbuffer_textures.len(),
-            .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
-        },
-    })
-    .build(device)!;
-
-    forward_pipeline.pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
-        .setPushConstantRanges({
-            {
-                .offset = 0,
-                .size = ForwardConstantData.sizeof,
-                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT,
-            },
-        })
-        .setSetLayouts({ forward_pipeline.descriptor_layout }).build(device)!;
-
-    forward_pipeline.vertex = device.createShaderModule(&f_vertex_shader_data)!;
-    forward_pipeline.fragment = device.createShaderModule(&f_fragment_shader_data)!;
-
-    forward_pipeline.pipeline = vk::graphicsPipelineCreateInfoBuilder()
-    .setStages({
-        forward_pipeline.vertex.info(vk::SHADER_STAGE_VERTEX_BIT),
-        forward_pipeline.fragment.info(vk::SHADER_STAGE_FRAGMENT_BIT)
-    })
-    .setLayout(forward_pipeline.pipeline_layout)
-    .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfoBuilder()
-                         .setVertexBindingDescriptionCount(0))
-    .setDynamicState(
-        &&vk::pipelineDynamicStateCreateInfoBuilder()
-        .setDynamicStates(
-        {
-            vk::DYNAMIC_STATE_VIEWPORT,
-            vk::DYNAMIC_STATE_LINE_WIDTH,
-        })
-    )
-    .setRasterizationState(
-        &&vk::pipelineRasterizationStateCreateInfoBuilder()
-        .setDepthClampEnable(vk::FALSE)
-        .setRasterizerDiscardEnable(vk::FALSE)
-        .setPolygonMode(vk::POLYGON_MODE_FILL)
-        .setLineWidth(1.0)
-        .setCullMode(vk::CULL_MODE_NONE)
-        .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
-        .setDepthBiasEnable(vk::FALSE)
-    )
-    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfoBuilder().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
-    .setMultisampleState(&&vk::pipelineMultisampleStateCreateInfoBuilder()
-                    .setSampleShadingEnable(vk::FALSE)
-                    .setRasterizationSamples(vk::SAMPLE_COUNT_1_BIT)
-                    .setMinSampleShading(1.0)
-                    .setAlphaToCoverageEnable(vk::FALSE)
-                    .setAlphaToOneEnable(vk::FALSE))
-    .setDepthStencilState(&&vk::pipelineDepthStencilStateCreateInfoBuilder()
-                    .setDepthTestEnable(vk::TRUE)
-                    .setDepthWriteEnable(vk::TRUE)
-                    .setDepthCompareOp(vk::COMPARE_OP_LESS_OR_EQUAL)
-                    .setBack({.compareOp = vk::COMPARE_OP_ALWAYS}))
-    .setColorBlendState(&&vk::pipelineColorBlendStateCreateInfoBuilder()
-    .setBlendConstants({ 0.0, 0.0, 0.0, 0.0 })
-    .setLogicOp(vk::LOGIC_OP_COPY)
-    .setAttachments({
-    { .colorWriteMask =
-        vk::COLOR_COMPONENT_R_BIT |
-        vk::COLOR_COMPONENT_G_BIT |
-        vk::COLOR_COMPONENT_B_BIT |
-        vk::COLOR_COMPONENT_A_BIT,
-        .blendEnable = vk::TRUE,
-        .srcColorBlendFactor = vk::BLEND_FACTOR_SRC_ALPHA,
-        .dstColorBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-        .colorBlendOp = vk::BLEND_OP_ADD,
-        .srcAlphaBlendFactor = vk::BLEND_FACTOR_ONE,
-        .dstAlphaBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-        .alphaBlendOp = vk::BLEND_OP_ADD,
-    },
-    }))
-    .setViewportState(&&vk::pipelineViewportStateCreateInfoBuilder()
-        .setViewports({{ .x = 0.0, .y = 0, .width = 0, .height = 0, .minDepth = 0.0, .maxDepth = 1.0 }})
-        .setScissors({{ .offset = { .x = 0, .y = 0 }, .extent = extent }}))
-    .setNext(
-        &&vk::pipelineRenderingCreateInfoBuilder()
         .setColorAttachmentFormats({ vk::FORMAT_B8G8R8A8_UNORM })
+        .setDepthAttachmentFormat(depth_format)
+        .setStencilAttachmentFormat(depth_format)
     ).build(device)!;
-    
-    gbuffer_pipeline.render_info = vk::renderingInfoBuilder()
-        .setLayerCount(1)
-        .setRenderArea({
-        .offset = Offset2D{ .x = 0, .y = 0 },
-        .extent = extent,
-    })
-    .setColorAttachments({
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[0].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-            .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        }),
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[1].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-            .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        }),
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[2].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-            .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        }),
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[3].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-            .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        })
-    })
-    .setDepthAttachment(&&vk::renderingAttachmentInfoBuilder()
-        .setImageView(gbuffer_textures[4].imageView)
-        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-        .setClearValue({
-        .depthStencil = { 1.0f, 0 }
-    }));
-
 
     // Create syncronisation stuff
     SemaphoreList wait_semaphores;
@@ -796,49 +564,7 @@ fn void! main()
     Scene scene = gltf.scenes[SCENE_INDEX];
     uint frame = 0;
     Clock time = clock::now();
-
-    vk::ImageMemoryBarrier2[4] gbufferDrawBarriers;
-    vk::ImageMemoryBarrier2[4] gbufferRenderBarriers;
-
-    for (usz i; i < 4; i++) {
-        gbufferDrawBarriers[i] = vk::ImageMemoryBarrier2 {
-            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .srcAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            .dstAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
-            .image = gbuffer_images[i],
-            .oldLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .newLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            .subresourceRange = {
-                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-        }};
-    }
-
-    for (usz i; i < 4; i++) {
-        gbufferRenderBarriers[i] = vk::ImageMemoryBarrier2 {
-            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .srcAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            .dstAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
-            .image = gbuffer_images[i],
-            .oldLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            .newLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .subresourceRange = {
-                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-        }};
-    }
      
-
     while (!glfw::windowShouldClose(window)) {
         eventHandler.update();
 
@@ -866,7 +592,7 @@ fn void! main()
         vk::resetCommandBuffer(command_buffer, 0)!;
         vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfoBuilder())!;
 
-        vk::ImageMemoryBarrier2 forwardBarrier = {
+        vk::ImageMemoryBarrier2 drawBarrier = {
         .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .dstStageMask = vk::PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
@@ -899,20 +625,8 @@ fn void! main()
             .baseArrayLayer = 0,
             .layerCount = 1,
         }};
-        
 
-        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = -HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = HEIGHT });
-        vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = swapchain_info.imageExtent, .offset = Offset2D{ .x = 0, .y = 0 }});
-
-        // Draw Gbuffer textures
-        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, gbuffer_pipeline.pipeline);
-        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, gbuffer_pipeline.pipeline_layout, 0, (uint)gbuffer_pipeline.descriptor_sets.len(), gbuffer_pipeline.descriptor_sets.entries);
-        vk::cmdBeginRenderingKHR(command_buffer, &gbuffer_pipeline.render_info);
-
-        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, gbuffer_pipeline.pipeline_layout, device);
-        vk::cmdEndRenderingKHR(command_buffer);
-
-        RenderingInfo f_rendering_info = vk::renderingInfoBuilder()
+        RenderingInfo rendering_info = vk::renderingInfoBuilder()
             .setLayerCount(1)
             .setRenderArea({
                 .offset = { .x = 0, .y = 0 },
@@ -927,40 +641,34 @@ fn void! main()
                     .setClearValue({
                         .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
                 }),
-        });
-
-        // Wait for GBUFFER to be finished rendering
-        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
-        .setImageMemoryBarriers({ gbufferDrawBarriers[0], gbufferDrawBarriers[1], gbufferDrawBarriers[2], gbufferDrawBarriers[3], forwardBarrier }));
-
-        for (usz i; i < 4; i++) {
-            DescriptorImageInfo* image = &gbuffer_textures[i];
-            image.imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        }
-
-        // Draw forward render
-        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = 0.0 });
-        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, forward_pipeline.pipeline);
-        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, forward_pipeline.pipeline_layout, 0, (uint)forward_pipeline.descriptor_sets.len(), forward_pipeline.descriptor_sets.entries);
-        vk::cmdBeginRenderingKHR(command_buffer, &f_rendering_info);
+        })
+        .setDepthAttachment(&&vk::renderingAttachmentInfoBuilder()
+            .setImageView(depth_texture.imageView)
+            .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+            .setClearValue({
+                .depthStencil = { 1.0f, 0 }
+        }));
         
-        ForwardConstantData constant_data = {
-           .lights = lights_buffer.address,
-           .count = (uint)gltf.lights.len()
-        };
 
-        vk::cmdPushConstants(command_buffer, forward_pipeline.pipeline_layout, vk::SHADER_STAGE_FRAGMENT_BIT, 0, ForwardConstantData.sizeof, &constant_data);
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
+        .setImageMemoryBarriers({ drawBarrier }));
 
-        vk::cmdDraw(command_buffer, 3, 1, 0, 0);
+        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = -HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = HEIGHT });
+        vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = swapchain_info.imageExtent, .offset = Offset2D{ .x = 0, .y = 0 }});
+
+
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline_layout, 0, (uint)pipeline.descriptor_sets.len(), pipeline.descriptor_sets.entries);
+        vk::cmdBeginRenderingKHR(command_buffer, &rendering_info);
+
+        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline.pipeline_layout, device);
         vk::cmdEndRenderingKHR(command_buffer);
 
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
-        .setImageMemoryBarriers({ gbufferRenderBarriers[0], gbufferRenderBarriers[1], gbufferRenderBarriers[2], gbufferRenderBarriers[3], renderBarrier }));
-
-        for (usz i; i < 4; i++) {
-            DescriptorImageInfo* image = &gbuffer_textures[i];
-            image.imageLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        }
+        .setImageMemoryBarriers({ renderBarrier }));
 
         SubmitInfo submit_info = vk::submitInfoBuilder()
         .setWaitSemaphores({ wait_semaphore })
@@ -998,13 +706,9 @@ fn void! main()
     foreach (texture: material_textures) texture.free(device);
     material_textures.free();
 
-    foreach (texture: gbuffer_textures) texture.free(device);
-    gbuffer_textures.free();
-    gbuffer_images.free();
     command_pool.free(device);
     
-    gbuffer_pipeline.free(device);
-    forward_pipeline.free(device);
+    pipeline.free(device);
     
     device_allocation.free();
     local_allocation.free();
@@ -1031,9 +735,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
 
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
-        float[8] weights = {0,0,0,0,0,0,0,0};
 
-        foreach (i, weight: node.weights) weights[i] = weight;
         foreach (index, primitive: mesh.primitives) {
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
@@ -1046,7 +748,6 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             };
 
             vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdBindIndexBuffer(buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
             vk::cmdDrawIndexed(buffer, index_accessor.count, 1, (uint)primitive.attributes["first_index"] ?? 0, (uint)primitive.attributes["first_vertex"] ?? 0, 0);
         }
     }
@@ -1057,79 +758,6 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
 
 
 fn void! loadTextures() {
-    // Create GBuffer textures
-    for (usz i; i < 4; i++) {
-        vk::Format image_format = gbuffer_formats[i];
-        DescriptorImageInfo texture;
-        texture.imageLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        vk::Image image = vk::imageCreateInfoBuilder()
-            .setImageType(vk::IMAGE_TYPE_2D)
-            .setExtent({.width = WIDTH, .height = HEIGHT, .depth = 1 })
-            .setMipLevels(1)
-            .setArrayLayers(1)
-            .setSamples(vk::SAMPLE_COUNT_1_BIT)
-            .setUsage(vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
-            .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
-            .setTiling(vk::IMAGE_TILING_OPTIMAL)
-            .setFormat(image_format)
-            .build(device)!;
-             image.bind(&device_allocation)!;
-
-        texture.imageView = vk::imageViewCreateInfoBuilder()
-            .setViewType(vk::IMAGE_VIEW_TYPE_2D)
-            .setFormat(image_format)
-            .setSubresourceRange({
-              .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-              .baseMipLevel = 0,
-              .baseArrayLayer = 0,
-              .layerCount = 1,
-              .levelCount = 1,
-            })
-            .setImage(image)
-            .build(device)!;
-
-        texture.sampler = vk::samplerCreateInfoBuilder()
-                .setMagFilter(vk::FILTER_LINEAR)
-                .setMinFilter(vk::FILTER_LINEAR)
-                .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-                .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-                .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-                .setMipLodBias(0.0)
-                .setMinLod(0.0)
-                .setMaxLod(1.0)
-                .setMaxAnisotropy(1.0)
-                .setAnisotropyEnable(vk::FALSE)
-                .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
-                .build(device)!;
-
-        device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
-            vk::ImageMemoryBarrier2 finalize_barrier = {
-               .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-               .srcStageMask = vk::PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-               .dstStageMask = vk::PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-               .srcAccessMask = 0,
-               .dstAccessMask = vk::ACCESS_2_SHADER_WRITE_BIT,
-               .image = image,
-               .oldLayout = vk::IMAGE_LAYOUT_UNDEFINED,
-               .newLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-               .subresourceRange = {
-                   .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-                   .baseMipLevel = 0,
-                   .levelCount = 1,
-                   .baseArrayLayer = 0,
-                   .layerCount = 1,
-               }
-            };
-            vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
-            .setImageMemoryBarriers({ finalize_barrier }));
-        }!;
-
-        gbuffer_images.push(image);
-        gbuffer_textures.push(texture);
-    }
-
-    DescriptorImageInfo depth_texture;
     depth_texture.imageLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
     vk::Image depth_image = vk::imageCreateInfoBuilder()
@@ -1141,7 +769,7 @@ fn void! loadTextures() {
     .setUsage(vk::IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
     .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
     .setTiling(vk::IMAGE_TILING_OPTIMAL)
-    .setFormat(gbuffer_formats[4])
+    .setFormat(depth_format)
     .build(device)!;
 
     depth_image.bind(&device_allocation)!;
@@ -1161,7 +789,7 @@ fn void! loadTextures() {
         
     depth_texture.imageView = vk::imageViewCreateInfoBuilder()
         .setViewType(vk::IMAGE_VIEW_TYPE_2D)
-        .setFormat(gbuffer_formats[4])
+        .setFormat(depth_format)
         .setSubresourceRange({
           .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
           .baseMipLevel = 0,
@@ -1200,8 +828,6 @@ fn void! loadTextures() {
            &imageMemoryBarrier
        );
     }!;
-
-    gbuffer_textures.push(depth_texture);
 
     // Create texture-images from gltf buffer
     foreach (image : gltf.images) {
@@ -1379,15 +1005,8 @@ fn void! loadBuffers() {
                     .setSize(gltf.materials.byte_size())
                     .bind(&local_allocation)!;
 
-    lights_buffer = vk::bufferCreateInfoBuilder()
-                    .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-                    .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                    .setSize(gltf.lights.byte_size())
-                    .bind(&local_allocation)!;
-
     uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof, device);
     material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), device);
-    lights_buffer.upload(gltf.lights.entries, gltf.lights.byte_size(), device);
 
     // Create stage buffers and then copy the data to GPU only buffers
     MemoryBlock vertex_stage_buffer = device.staging_buffer(.size = vertices.byte_size(), .data = vertices.entries, .pdevice = physical_device)!;
