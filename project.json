@@ -15,6 +15,10 @@
 			"type": "executable",
 			"sources-add": ["examples/pbr/main.c3"]
 		},
+		"cube": {
+			"type": "executable",
+			"sources-add": ["examples/cube/main.c3"]
+		},
 		"basic": {
 			"type": "executable",
 			"sources-add": ["examples/basic/main.c3"]

@@ -471,49 +471,7 @@ fn void! main()
     .setRenderArea({
         .offset = Offset2D{ .x = 0, .y = 0 },
         .extent = extent,
-    })
-    .setColorAttachments({
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[0].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        }),
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[1].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        }),
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[2].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        }),
-        vk::renderingAttachmentInfoBuilder()
-            .setImageView(gbuffer_textures[3].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-        })
-    })
-    .setDepthAttachment(&&vk::renderingAttachmentInfoBuilder()
-        .setImageView(gbuffer_textures[4].imageView)
-        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-        .setClearValue({
-            .depthStencil = { 1.0f, 0 }
-    }));
+    });
 
     gbuffer_pipeline.descriptor_sets.init_wrapping_array({
         vk::writeDescriptorSetBuilder()
@@ -1031,9 +989,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
 
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
-        float[8] weights = {0,0,0,0,0,0,0,0};
-
-        foreach (i, weight: node.weights) weights[i] = weight;
+        
         foreach (index, primitive: mesh.primitives) {
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
