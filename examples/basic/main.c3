@@ -320,7 +320,7 @@ fn void! main()
                 .bind(&device_allocation)!;
 
     material_buffer = vk::bufferCreateInfoBuilder()
-                .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+                .setUsage(vk::BUFFER_USAGE_STORAGE_BUFFER_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(gltf.materials.byte_size())
                 .bind(&local_allocation)!;
@@ -370,7 +370,7 @@ fn void! main()
             },
             {
                 .binding = 1,
-                .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorType = vk::DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 .descriptorCount = (uint)gltf.materials.len(),
                 .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
             },
@@ -394,7 +394,7 @@ fn void! main()
                },
            }),
            vk::writeDescriptorSetBuilder()
-            .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+            .setDescriptorType(vk::DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .setDstBinding(1)
             .setBufferInfo({
               {

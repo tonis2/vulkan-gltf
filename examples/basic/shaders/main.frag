@@ -23,7 +23,7 @@ struct Material
     Texture metallicRoughnessTexture;
 };
 
-layout (binding = 1, scalar) uniform MaterialBuffer {
+layout (binding = 1, std430) buffer MaterialBuffer {
     Material materials[4];
 };
 
