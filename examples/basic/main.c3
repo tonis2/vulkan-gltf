@@ -6,6 +6,7 @@ import camera;
 import std::math;
 import std::collections::list;
 import gltf;
+import std::time;
 
 def TextureList = List(<DescriptorImageInfo>);
 
@@ -18,18 +19,20 @@ const MAX_FRAMES_IN_FLIGHT = 2;
 struct Vertex {
     Vec3f pos;
     Vec2f tex_cord;
+    Vec4f skin_pos;
+    Vec4f skin_weight;
 }
 
 struct PushConstantData {
     Matrix4f matrix;
     int material_index;
+    bool has_skin;
+    vk::DeviceAddress skins;
 }
 
 // Load shaders
 char[*] vertex_shader_data = $embed("./shaders/vertex.spv");
 char[*] fragment_shader_data = $embed("./shaders/fragment.spv");
-
-
 
 Instance instance;
 DebugUtilsMessengerEXT debug_messenger;
@@ -44,6 +47,8 @@ ZStringList extensions;
 ZStringList device_extensions;
 List(<Vertex>) vertices;
 List(<ushort>) indices;
+List(<Matrix4f>) joint_data;
+Animations animations;
 
 TextureList material_textures;
 
@@ -55,6 +60,7 @@ MemoryBlock index_buffer;
 MemoryBlock vertex_buffer;
 MemoryBlock material_buffer;
 MemoryBlock uniform_buffer;
+MemoryBlock joint_buffer;
 
 vk::Allocation local_allocation;
 vk::Allocation device_allocation;
@@ -83,8 +89,19 @@ fn void! main()
     }
 
     // Load gltf
-    gltf = gltf::loadFile("assets/truck.glb")!;
+    gltf = gltf::loadFile("assets/scene_test.glb")!;
     defer gltf.free();
+
+    foreach (&buffer: gltf.buffers) {
+        if (buffer.type == EXTERNAL_BIN) {
+            File! data = file::open("assets/".concat((String)buffer.uri), "r");
+            if (catch err = data) {
+                io::printfn("asset not found");
+                return;
+            }
+            buffer.data = buffer.from_binary(&data)!;
+        }
+    }
 
        // Preload vertex data from GLTF
     foreach (mesh: gltf.meshes) {
@@ -107,13 +124,55 @@ fn void! main()
                     return gltf.@castBuffer(accessor, i, Vec2f);
                 |};
 
+
+                Vec4f skin_pos = {|
+                    usz! attribute = primitive.attributes["JOINTS_0"];
+                    if (catch err = attribute) return Vec4f {0,0,0,0};
+                    Accessor accessor = gltf.accessors[attribute];
+
+                    if (accessor.data_type == DataType.USHORT) {
+                        short[4] array = gltf.@castBuffer(accessor, i, short[4]);
+                        return Vec4f{array[0], array[1], array[2], array[3]};
+                    };
+
+                    if (accessor.data_type == DataType.CHAR) {
+                        char[4] array = gltf.@castBuffer(accessor, i, char[4]);
+                        return Vec4f{array[0], array[1], array[2], array[3]};
+                    };
+
+                    return Vec4f {0,0,0,0};
+                |};
+
+                Vec4f skin_weight = {|
+                    usz! attribute = primitive.attributes["WEIGHTS_0"];
+                    if (catch err = attribute) return Vec4f {0,0,0,0};
+
+                    Accessor accessor = gltf.accessors[attribute];
+                    return gltf.@castBuffer(accessor, i, Vec4f);
+                |};
+
                 Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
 
                 vertices.push({
                     .pos = position,
                     .tex_cord = tex_cord,
+                    .skin_pos = skin_pos,
+                    .skin_weight = skin_weight
                 });
             }
+        }
+    }
+
+    foreach (animation: gltf.animations) {
+        animations.push(gltf.loadAnimation(animation));
+    }
+
+    foreach (&skin: gltf.skins) {
+        Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
+        for (uint i; i < skin_accessor.count; i++) {
+             Matrix4f matrix = gltf.@castBuffer(skin_accessor, i, Matrix4f).transpose();
+             skin.inverseBindMatrices.push(matrix);
+             joint_data.push(matrix);
         }
     }
 
@@ -121,14 +180,13 @@ fn void! main()
     eventHandler.init();
     camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
 
-    //"VK_LAYER_LUNARG_api_dump"
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
 
     // SETUP extensions
-    uint glfwExtensions_count = 0;
-    ZString* glfwExtensions = (ZString*)glfw::getRequiredInstanceExtensions(&glfwExtensions_count);
-    for (int i = 0; i < glfwExtensions_count; ++i) extensions.push(glfwExtensions[i]);
+    ZStringList glfw_extensions = glfw::getRequiredExtensions();
+    extensions.add_all(&glfw_extensions);
+    glfw_extensions.free();
 
     if (ENABLE_VALIDATION_LAYERS) {
      extensions.add_array({"VK_EXT_debug_utils"});
@@ -204,6 +262,7 @@ fn void! main()
        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
        .pNext = &device_indexing_feature,
        .bufferDeviceAddress = vk::TRUE,
+       .bufferDeviceAddressCaptureReplay = vk::TRUE
     };
 
     PhysicalDeviceDynamicRenderingFeatures dynamic_rendering_feature = {
@@ -231,7 +290,6 @@ fn void! main()
     device = vk::deviceCreateInfoBuilder()
       .setQueueCreateInfos({ graphicsInfo })
       .setEnabledExtensionNames(device_extensions.array_view())
-      .setEnabledLayerCount(0)
       .setNext(&device_features)
       .build(physical_device)!;
 
@@ -306,10 +364,11 @@ fn void! main()
         .device = device,
         .pdevice = physical_device,
         .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
         .size = 20_000_000
     }.build()!;
 
-    // Create buffers, using only memory of the allocator
+    // Creating buffers
     vertex_buffer = vk::bufferCreateInfoBuilder()
                .setUsage(vk::BUFFER_USAGE_VERTEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -329,12 +388,18 @@ fn void! main()
                 .bind(&local_allocation)!;
 
     uniform_buffer = vk::bufferCreateInfoBuilder()
-            .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
-            .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-            .setSize(UniformData.sizeof)
-            .bind(&local_allocation)!;
+                .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(UniformData.sizeof)
+                .bind(&local_allocation)!;
 
-    // Add data for uniform buffer
+    joint_buffer = vk::bufferCreateInfoBuilder()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(joint_data.byte_size())
+                .bind(&local_allocation)!;
+
+    // Upload data to buffer
     uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
     material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), device);
 
@@ -459,6 +524,18 @@ fn void! main()
                .location = 1,
                .format = vk::FORMAT_R32G32_SFLOAT,
                .offset = Vertex.tex_cord.offsetof
+            },
+            {
+               .binding = 0,
+               .location = 2,
+               .format = vk::FORMAT_R32G32B32A32_SFLOAT,
+               .offset = Vertex.skin_pos.offsetof
+            },
+            {
+               .binding = 0,
+               .location = 3,
+               .format = vk::FORMAT_R32G32B32A32_SFLOAT,
+               .offset = Vertex.skin_weight.offsetof
             }
         })
     )
@@ -516,7 +593,6 @@ fn void! main()
     .setNext(&&vk::pipelineRenderingCreateInfoBuilder()
                 .setColorAttachmentFormats({swapchain_info.imageFormat})
                 .setDepthAttachmentFormat(depth_format)
-                .setStencilAttachmentFormat(depth_format)
             )
     .build(device)!;
 
@@ -532,12 +608,15 @@ fn void! main()
     }
 
     Scene scene = gltf.scenes[0];
+    Clock time = clock::now();
 
     // Rendering loop
     uint frame = 0;
     while(!glfw::windowShouldClose(window)) {
         eventHandler.update();
 
+        if (animations.len() > 0) gltf.animate(.animation = &animations[0], .time = time.mark());
+        
         if (eventHandler.scrolling) {
             camera.zoom((float)eventHandler.scrollY * 5);
             uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
@@ -682,7 +761,8 @@ fn void! main()
 
     foreach (texture: material_textures) texture.free(device);
     material_textures.free();
-
+    joint_data.free();
+    animations.release();
     swapchain_images.free();
     swapchain_views.free();
     vertices.free();
@@ -709,6 +789,15 @@ fn void! main()
 
 fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout, Device device) {
 
+    if (node.hasSkin()) {
+        Skin skin = gltf.skins[node.skin];
+        foreach (joint_index, joint: skin.joints) {
+           Node joint_node = gltf.nodes[joint];
+           joint_data[joint_index] = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
+        }
+        joint_buffer.upload(joint_data.entries, joint_data.byte_size(), device);
+    }
+
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
         foreach (index, primitive: mesh.primitives) {
@@ -718,6 +807,8 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             PushConstantData constant_data = {
                 .matrix = node.globalMatrix().transpose(),
                 .material_index = (int)primitive.attributes["material"] ?? -1,
+                .has_skin = node.hasSkin(),
+                .skins = joint_buffer.address,
             };
 
             vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
@@ -919,7 +1010,7 @@ fn void! loadTextures() {
        ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrierBuilder()
        .setImage(depth_image)
        .setSubresourceRange({
-          .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT | vk::IMAGE_ASPECT_STENCIL_BIT,
+          .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
           .baseMipLevel = 0,
           .baseArrayLayer = 0,
           .layerCount = 1,
