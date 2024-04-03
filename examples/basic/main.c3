@@ -12,7 +12,7 @@ def TextureList = List(<DescriptorImageInfo>);
 const WIDTH = 800;
 const HEIGHT = 600;
 const VK_API_VERSION_1_3 = vk::@makeApiVersion(0,1,3,0);
-const ENABLE_VALIDATION_LAYERS = true;
+const ENABLE_VALIDATION_LAYERS = false;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
 struct Vertex {
@@ -29,7 +29,6 @@ struct PushConstantData {
 char[*] vertex_shader_data = $embed("./shaders/vertex.spv");
 char[*] fragment_shader_data = $embed("./shaders/fragment.spv");
 
-vk::Format depth_format = vk::FORMAT_D32_SFLOAT_S8_UINT;
 
 
 Instance instance;
@@ -47,7 +46,10 @@ List(<Vertex>) vertices;
 List(<ushort>) indices;
 
 TextureList material_textures;
+
+vk::Format depth_format;
 DescriptorImageInfo depth_texture;
+vk::Image depth_image;
 
 MemoryBlock index_buffer;
 MemoryBlock vertex_buffer;
@@ -244,7 +246,8 @@ fn void! main()
       surface_formats.free();
       present_modes.free();
     }
-
+    
+    depth_format = vk::findDepthFormat(.device = physical_device, .features = vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
     SurfaceFormatKHR format = SurfaceFormatKHR {.format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR};
 
     uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
@@ -266,31 +269,31 @@ fn void! main()
     vk::ImageList swapchain_images = swapchain.getImages(device, swapchain_info.minImageCount)!;
 
     for (int i = 0; i < swapchain_info.minImageCount; ++i) {
-    ImageView view = vk::imageViewCreateInfoBuilder()
-      .setViewType(vk::IMAGE_VIEW_TYPE_2D)
-      .setFormat(format.format)
-      .setComponents({
-         .r = vk::COMPONENT_SWIZZLE_IDENTITY,
-         .g = vk::COMPONENT_SWIZZLE_IDENTITY,
-         .b = vk::COMPONENT_SWIZZLE_IDENTITY,
-         .a = vk::COMPONENT_SWIZZLE_IDENTITY,
-      })
-      .setSubresourceRange({
-         .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-         .baseMipLevel = 0,
-         .baseArrayLayer = 0,
-         .layerCount = 1,
-         .levelCount = 1,
-      })
-      .setImage(swapchain_images[i])
-      .build(device)!;
-      swapchain_views.push(view);
+        ImageView view = vk::imageViewCreateInfoBuilder()
+        .setViewType(vk::IMAGE_VIEW_TYPE_2D)
+        .setFormat(format.format)
+        .setComponents({
+            .r = vk::COMPONENT_SWIZZLE_IDENTITY,
+            .g = vk::COMPONENT_SWIZZLE_IDENTITY,
+            .b = vk::COMPONENT_SWIZZLE_IDENTITY,
+            .a = vk::COMPONENT_SWIZZLE_IDENTITY,
+        })
+        .setSubresourceRange({
+            .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+            .levelCount = 1,
+        })
+        .setImage(swapchain_images[i])
+        .build(device)!;
+        swapchain_views.push(view);
     }
 
     CommandPool command_pool = device.createCommandPool(.queue = queue_family.graphics)!;
     CommandBufferList command_buffers = device.createCommandBuffers(command_pool, swapchain_info.minImageCount)!;
 
-    // Create allocator of 10MB - DEVICE_ONLY memory
+    // Create allocator of 50MB - DEVICE_ONLY memory
     device_allocation = vk::Allocation {
         .device = device,
         .pdevice = physical_device,
@@ -429,7 +432,7 @@ fn void! main()
     .setSetLayouts({ descriptor_set_layout }).build(device)!;
 
     // Create Renderpipeline info
-    GraphicsPipelineCreateInfo pipeline_info = vk::graphicsPipelineCreateInfoBuilder()
+    Pipeline pipeline = vk::graphicsPipelineCreateInfoBuilder()
     .setStages({
         vertex_module.info(vk::SHADER_STAGE_VERTEX_BIT),
         frag_module.info(vk::SHADER_STAGE_FRAGMENT_BIT)
@@ -473,7 +476,7 @@ fn void! main()
         .setRasterizerDiscardEnable(vk::FALSE)
         .setPolygonMode(vk::POLYGON_MODE_FILL)
         .setLineWidth(1.0)
-        .setCullMode(vk::CULL_MODE_FRONT_BIT)
+        .setCullMode(vk::CULL_MODE_NONE)
         .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
         .setDepthBiasEnable(vk::FALSE)
     )
@@ -485,10 +488,10 @@ fn void! main()
                       .setAlphaToCoverageEnable(vk::FALSE)
                       .setAlphaToOneEnable(vk::FALSE))
     .setDepthStencilState(&&vk::pipelineDepthStencilStateCreateInfoBuilder()
-                        .setDepthTestEnable(vk::FALSE)
-                        .setDepthWriteEnable(vk::FALSE)
-                        .setDepthCompareOp(vk::COMPARE_OP_LESS_OR_EQUAL)
-                        .setBack({.compareOp = vk::COMPARE_OP_ALWAYS}))
+        .setDepthTestEnable(vk::TRUE)
+        .setDepthWriteEnable(vk::TRUE)
+        .setDepthCompareOp(vk::COMPARE_OP_LESS)
+        .setBack({.compareOp = vk::COMPARE_OP_ALWAYS}))
     .setColorBlendState(&&vk::pipelineColorBlendStateCreateInfoBuilder()
                     .setBlendConstants({ 0.0, 0.0, 0.0, 0.0 })
                     .setLogicOp(vk::LOGIC_OP_COPY)
@@ -510,10 +513,12 @@ fn void! main()
     .setViewportState(&&vk::pipelineViewportStateCreateInfoBuilder()
                    .setViewports({{ .x = 0.0, .y = 0.0, .width = swapchain_info.imageExtent.width, .height = swapchain_info.imageExtent.height, .minDepth = 0.0, .maxDepth = 1.0 }})
                    .setScissors({{ .offset = { .x = 0, .y = 0 }, .extent = swapchain_info.imageExtent }}))
-    .setNext(&&vk::pipelineRenderingCreateInfoBuilder().setColorAttachmentFormats({swapchain_info.imageFormat}));
-
-    Pipeline pipeline;
-    vk::createGraphicsPipelines(device, null, 1, &pipeline_info, null, &pipeline)!;
+    .setNext(&&vk::pipelineRenderingCreateInfoBuilder()
+                .setColorAttachmentFormats({swapchain_info.imageFormat})
+                .setDepthAttachmentFormat(depth_format)
+                .setStencilAttachmentFormat(depth_format)
+            )
+    .build(device)!;
 
     // Create syncronisation stuff
     SemaphoreList wait_semaphores;
@@ -569,7 +574,15 @@ fn void! main()
             .setClearValue({
                 .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
             })
-        });
+        })
+        .setDepthAttachment(&&vk::renderingAttachmentInfoBuilder()
+            .setImageView(depth_texture.imageView)
+            .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+            .setClearValue({
+            .depthStencil = { 1.0f, 0 }
+        }));
 
         CommandBuffer command_buffer = command_buffers[next_image];
         vk::resetCommandBuffer(command_buffer, 0)!;
@@ -604,7 +617,7 @@ fn void! main()
         vk::cmdBeginRenderingKHR(command_buffer, &rendering_info);
 
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = -HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = HEIGHT });
-        vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = swapchain_info.imageExtent, .offset = Offset2D{ .x = 0, .y = 0 }});
+        vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = swapchain_info.imageExtent, .offset = { .x = 0, .y = 0 }});
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
@@ -859,74 +872,75 @@ fn void! loadTextures() {
         material_textures.push(texture);
     }
 
-    // depth_texture.imageLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    depth_texture.imageLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
-    // vk::Image depth_image = vk::imageCreateInfoBuilder()
-    // .setImageType(vk::IMAGE_TYPE_2D)
-    // .setExtent({.width = WIDTH, .height = HEIGHT, .depth = 1 })
-    // .setMipLevels(1)
-    // .setArrayLayers(1)
-    // .setSamples(vk::SAMPLE_COUNT_1_BIT)
-    // .setUsage(vk::IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
-    // .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
-    // .setTiling(vk::IMAGE_TILING_OPTIMAL)
-    // .setFormat(depth_)
-    // .build(device)!;
+    depth_image = vk::imageCreateInfoBuilder()
+    .setImageType(vk::IMAGE_TYPE_2D)
+    .setExtent({.width = WIDTH, .height = HEIGHT, .depth = 1 })
+    .setMipLevels(1)
+    .setArrayLayers(1)
+    .setSamples(vk::SAMPLE_COUNT_1_BIT)
+    .setUsage(vk::IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
+    .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
+    .setTiling(vk::IMAGE_TILING_OPTIMAL)
+    .setFormat(depth_format)
+    .build(device)!;
 
-    // depth_image.bind(&device_allocation)!;
-    // depth_texture.sampler = vk::samplerCreateInfoBuilder()
-    //     .setMagFilter(vk::FILTER_LINEAR)
-    //     .setMinFilter(vk::FILTER_LINEAR)
-    //     .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-    //     .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-    //     .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-    //     .setMipLodBias(0.0)
-    //     .setMinLod(0.0)
-    //     .setMaxLod(1.0)
-    //     .setMaxAnisotropy(1.0)
-    //     .setAnisotropyEnable(vk::FALSE)
-    //     .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
-    //     .build(device)!;
+    depth_image.bind(&device_allocation)!;
+
+    depth_texture.sampler = vk::samplerCreateInfoBuilder()
+        .setMagFilter(vk::FILTER_LINEAR)
+        .setMinFilter(vk::FILTER_LINEAR)
+        .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+        .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+        .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+        .setMipLodBias(0.0)
+        .setMinLod(0.0)
+        .setMaxLod(1.0)
+        .setMaxAnisotropy(1.0)
+        .setAnisotropyEnable(vk::FALSE)
+        .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
+        .build(device)!;
         
-    // depth_texture.imageView = vk::imageViewCreateInfoBuilder()
-    //     .setViewType(vk::IMAGE_VIEW_TYPE_2D)
-    //     .setFormat(depth_)
-    //     .setSubresourceRange({
-    //       .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
-    //       .baseMipLevel = 0,
-    //       .baseArrayLayer = 0,
-    //       .layerCount = 1,
-    //       .levelCount = 1,
-    //     })
-    //     .setImage(depth_image)
-    //     .build(device)!;
+    depth_texture.imageView = vk::imageViewCreateInfoBuilder()
+        .setViewType(vk::IMAGE_VIEW_TYPE_2D)
+        .setFormat(depth_format)
+        .setSubresourceRange({
+          .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
+          .baseMipLevel = 0,
+          .baseArrayLayer = 0,
+          .layerCount = 1,
+          .levelCount = 1,
+        })
+        .setImage(depth_image)
+        .build(device)!;
 
-    // device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
-    //    ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrierBuilder()
-    //    .setImage(depth_image)
-    //    .setSubresourceRange({
-    //       .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT | vk::IMAGE_ASPECT_STENCIL_BIT,
-    //       .baseMipLevel = 0,
-    //       .baseArrayLayer = 0,
-    //       .layerCount = 1,
-    //       .levelCount = 1,
-    //    })
-    //    .setSrcAccessMask(0)
-    //    .setDstAccessMask(vk::ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
-    //    .setOldLayout(vk::IMAGE_LAYOUT_UNDEFINED)
-    //    .setNewLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
+       ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrierBuilder()
+       .setImage(depth_image)
+       .setSubresourceRange({
+          .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT | vk::IMAGE_ASPECT_STENCIL_BIT,
+          .baseMipLevel = 0,
+          .baseArrayLayer = 0,
+          .layerCount = 1,
+          .levelCount = 1,
+       })
+       .setSrcAccessMask(0)
+       .setDstAccessMask(vk::ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
+       .setOldLayout(vk::IMAGE_LAYOUT_UNDEFINED)
+       .setNewLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
 
-    //    vk::cmdPipelineBarrier(
-    //        command_buffer,
-    //        vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-    //        vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-    //        0,
-    //        0,
-    //        null,
-    //        0,
-    //        null,
-    //        1,
-    //        &imageMemoryBarrier
-    //    );
-    // }!;
+       vk::cmdPipelineBarrier(
+           command_buffer,
+           vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+           vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+           0,
+           0,
+           null,
+           0,
+           null,
+           1,
+           &imageMemoryBarrier
+       );
+    }!;
 }
