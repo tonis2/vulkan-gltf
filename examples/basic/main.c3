@@ -426,7 +426,7 @@ fn void! main()
 
     loadTextures()!;
 
-    // Set-up descriptor info for uniform buffer usage
+    // Set-up descriptor info
     DescriptorSetLayout descriptor_set_layout = vk::descriptorSetLayoutCreateInfoBuilder()
         .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
         .setBindings({
@@ -450,6 +450,7 @@ fn void! main()
             },
         }).build(device)!;
 
+    // Descriptor sets for push descriptors
     WriteDescriptorSet[] descriptorSets = {
             vk::writeDescriptorSetBuilder()
             .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
@@ -812,7 +813,6 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             };
 
             vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdBindIndexBuffer(buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
             vk::cmdDrawIndexed(buffer, index_accessor.count, 1, (uint)primitive.attributes["first_index"] ?? 0, (uint)primitive.attributes["first_vertex"] ?? 0, 0);
         }
     }
