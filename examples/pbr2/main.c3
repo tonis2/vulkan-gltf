@@ -12,8 +12,8 @@ def TextureList = List(<DescriptorImageInfo>);
 
 const WIDTH = 800;
 const HEIGHT = 600;
-const VK_API_VERSION_1_3 = vk::@makeApiVersion(0,1,3,0);
-const ENABLE_VALIDATION_LAYERS = false;
+
+const ENABLE_VALIDATION_LAYERS = true;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
 struct Vertex {
@@ -36,17 +36,12 @@ struct PushConstantData {
 char[*] vertex_shader_data = $embed("./shaders/vertex.spv");
 char[*] fragment_shader_data = $embed("./shaders/fragment.spv");
 
-Instance instance;
-DebugUtilsMessengerEXT debug_messenger;
-PhysicalDevice physical_device;
-QueueFamily queue_family;
-Device device;
+char[*] cube_vert_data = $embed("./shaders/cubemap_v.spv");
+char[*] cube_frag_data = $embed("./shaders/cubemap_f.spv");
 
-Gltf gltf;
+Gltf gltf_scene;
+Gltf cube;
 
-ZStringList validations;
-ZStringList extensions;
-ZStringList device_extensions;
 List(<Vertex>) vertices;
 List(<ushort>) indices;
 List(<Matrix4f>) joint_data;
@@ -61,6 +56,19 @@ vk::Image depth_image;
 DescriptorImageInfo cube_texture;
 vk::Image cube_image;
 vk::Format cube_format = vk::FORMAT_R8G8B8A8_UNORM;
+
+Pipeline pipeline;
+Pipeline cube_pipeline;
+
+Instance instance;
+DebugUtilsMessengerEXT debug_messenger;
+PhysicalDevice physical_device;
+QueueFamily queue_family;
+Device device;
+
+ZStringList validations;
+ZStringList extensions;
+ZStringList device_extensions;
 
 MemoryBlock index_buffer;
 MemoryBlock vertex_buffer;
@@ -95,10 +103,13 @@ fn void! main()
     }
 
     // Load gltf
-    gltf = gltf::loadFile("assets/scene_test.glb")!;
-    defer gltf.free();
+    gltf_scene = gltf::loadFile("assets/scene_test.glb")!;
+    defer gltf_scene.free();
 
-    foreach (&buffer: gltf.buffers) {
+    cube = gltf::loadFile("assets/cube.glb")!;
+    defer cube.free();
+
+    foreach (&buffer: gltf_scene.buffers) {
         if (buffer.type == EXTERNAL_BIN) {
             File! data = file::open("assets/".concat((String)buffer.uri), "r");
             if (catch err = data) {
@@ -110,15 +121,15 @@ fn void! main()
     }
 
        // Preload vertex data from GLTF
-    foreach (mesh: gltf.meshes) {
+    foreach (mesh: gltf_scene.meshes) {
         foreach (prim_index, &primitive: mesh.primitives) {
-            Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
-            Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+            Accessor pos_accessor = gltf_scene.accessors[primitive.attributes["POSITION"]!!];
+            Accessor index_accessor = gltf_scene.accessors[primitive.attributes["indices"]!!];
             primitive.attributes["first_index"] = indices.len();
             primitive.attributes["first_vertex"] = vertices.len();
 
             for (usz i; i < index_accessor.count; i++) {
-                indices.push(gltf.@castBuffer(index_accessor, i, ushort));
+                indices.push(gltf_scene.@castBuffer(index_accessor, i, ushort));
             }
 
             for (usz i; i < pos_accessor.count; i++) {
@@ -126,23 +137,23 @@ fn void! main()
                     usz! attribute = primitive.attributes["TEXCOORD_0"];
                     if (catch err = attribute) return Vec2f {0,0};
 
-                    Accessor accessor = gltf.accessors[attribute];
-                    return gltf.@castBuffer(accessor, i, Vec2f);
+                    Accessor accessor = gltf_scene.accessors[attribute];
+                    return gltf_scene.@castBuffer(accessor, i, Vec2f);
                 |};
 
 
                 Vec4f skin_pos = {|
                     usz! attribute = primitive.attributes["JOINTS_0"];
                     if (catch err = attribute) return Vec4f {0,0,0,0};
-                    Accessor accessor = gltf.accessors[attribute];
+                    Accessor accessor = gltf_scene.accessors[attribute];
 
                     if (accessor.data_type == DataType.USHORT) {
-                        short[4] array = gltf.@castBuffer(accessor, i, short[4]);
+                        short[4] array = gltf_scene.@castBuffer(accessor, i, short[4]);
                         return Vec4f{array[0], array[1], array[2], array[3]};
                     };
 
                     if (accessor.data_type == DataType.CHAR) {
-                        char[4] array = gltf.@castBuffer(accessor, i, char[4]);
+                        char[4] array = gltf_scene.@castBuffer(accessor, i, char[4]);
                         return Vec4f{array[0], array[1], array[2], array[3]};
                     };
 
@@ -153,11 +164,11 @@ fn void! main()
                     usz! attribute = primitive.attributes["WEIGHTS_0"];
                     if (catch err = attribute) return Vec4f {0,0,0,0};
 
-                    Accessor accessor = gltf.accessors[attribute];
-                    return gltf.@castBuffer(accessor, i, Vec4f);
+                    Accessor accessor = gltf_scene.accessors[attribute];
+                    return gltf_scene.@castBuffer(accessor, i, Vec4f);
                 |};
 
-                Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
+                Vec3f position = gltf_scene.@castBuffer(pos_accessor, i, Vec3f);
 
                 vertices.push({
                     .pos = position,
@@ -169,14 +180,14 @@ fn void! main()
         }
     }
 
-    foreach (animation: gltf.animations) {
-        animations.push(gltf.loadAnimation(animation));
+    foreach (animation: gltf_scene.animations) {
+        animations.push(gltf_scene.loadAnimation(animation));
     }
 
-    foreach (&skin: gltf.skins) {
-        Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
+    foreach (&skin: gltf_scene.skins) {
+        Accessor skin_accessor = gltf_scene.accessors[skin.inverseBindAccessor];
         for (uint i; i < skin_accessor.count; i++) {
-             Matrix4f matrix = gltf.@castBuffer(skin_accessor, i, Matrix4f).transpose();
+             Matrix4f matrix = gltf_scene.@castBuffer(skin_accessor, i, Matrix4f).transpose();
              skin.inverseBindMatrices.push(matrix);
              joint_data.push(matrix);
         }
@@ -211,7 +222,7 @@ fn void! main()
       .pEngineName = "Super engine",
       .applicationVersion = vk::@makeApiVersion(0,1,0,0),
       .engineVersion = vk::@makeApiVersion(0,1,0,0),
-      .apiVersion = VK_API_VERSION_1_3
+      .apiVersion = vk::@makeApiVersion(0,1,3,0)
     })
     .setFlags(env::os_is_darwin() ? vk::INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0)
     .setEnabledExtensionNames(extensions.array_view());
@@ -288,6 +299,13 @@ fn void! main()
     };
 
     vk::getPhysicalDeviceFeatures2(physical_device, &device_features);
+
+
+    // Required for using push descriptors
+    PhysicalDeviceProperties2 deviceProps2 = vk::physicalDeviceProperties2Builder()
+                                                .setNext(&&vk::physicalDevicePushDescriptorPropertiesKHRBuilder().setMaxPushDescriptors(1));
+
+    vk::getPhysicalDeviceProperties2(physical_device, &deviceProps2);
 
     DeviceQueueCreateInfo graphicsInfo = vk::deviceQueueCreateInfoBuilder()
     .setQueueFamilyIndex(queue_family.graphics)
@@ -376,10 +394,10 @@ fn void! main()
 
     // Creating buffers
     vertex_buffer = vk::bufferCreateInfoBuilder()
-               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-               .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-               .setSize(vertices.byte_size())
-               .bind(&device_allocation)!;
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(vertices.byte_size())
+                .bind(&device_allocation)!;
 
     index_buffer = vk::bufferCreateInfoBuilder()
                 .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
@@ -396,7 +414,7 @@ fn void! main()
     material_buffer = vk::bufferCreateInfoBuilder()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(gltf.materials.byte_size())
+                .setSize(gltf_scene.materials.byte_size())
                 .bind(&local_allocation)!;
 
     joint_buffer = vk::bufferCreateInfoBuilder()
@@ -407,7 +425,7 @@ fn void! main()
 
     // Upload data to buffer
     uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
-    material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), device);
+    material_buffer.upload(gltf_scene.materials.entries, gltf_scene.materials.byte_size(), device);
 
     // Create stage buffers and then copy the data to GPU only buffers
     MemoryBlock vertex_stage_buffer = device.staging_buffer(.size = vertices.byte_size(), .data = vertices.entries, .pdevice = physical_device)!;
@@ -432,30 +450,6 @@ fn void! main()
 
     loadTextures()!;
 
-    // Set-up descriptor info
-    DescriptorSetLayout descriptor_set_layout = vk::descriptorSetLayoutCreateInfoBuilder()
-        .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
-        .setBindings({
-            {
-                .binding = 0,
-                .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                .descriptorCount = 1,
-                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
-            },
-            {
-                .binding = 1,
-                .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = (uint)material_textures.len(),
-                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
-            },
-            {
-                .binding = 2,
-                .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 1,
-                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
-            },
-        }).build(device)!;
-
     // Descriptor sets for push descriptors
     WriteDescriptorSet[] descriptorSets = {
         vk::writeDescriptorSetBuilder()
@@ -472,17 +466,58 @@ fn void! main()
         .setDstBinding(1)
         .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
         .setImageInfo(material_textures.array_view()),
+    };
+
+    WriteDescriptorSet[] cubeDescriptorSets = {
+        vk::writeDescriptorSetBuilder()
+        .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+        .setDstBinding(0)
+        .setBufferInfo({
+            {
+                .buffer = uniform_buffer.buffer,
+                .offset = 0,
+                .range = UniformData.sizeof,
+            },
+        }),
         vk::writeDescriptorSetBuilder()
         .setDstBinding(2)
         .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-        .setImageInfo({cube_texture})
+        .setImageInfo({ cube_texture })
     };
 
-    // Required for using push descriptors
-    PhysicalDeviceProperties2 deviceProps2 = vk::physicalDeviceProperties2Builder()
-                                                .setNext(&&vk::physicalDevicePushDescriptorPropertiesKHRBuilder().setMaxPushDescriptors(1));
+   DescriptorSetLayout render_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
+        .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
+        .setBindings({
+            {
+                .binding = 0,
+                .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
+            },
+            {
+                .binding = 1,
+                .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = (uint)material_textures.len(),
+                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
+            },
+    }).build(device)!;
 
-    vk::getPhysicalDeviceProperties2(physical_device, &deviceProps2);
+    DescriptorSetLayout cube_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
+        .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
+        .setBindings({
+            {
+                .binding = 0,
+                .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
+            },
+            {
+                .binding = 1,
+                .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
+            },
+    }).build(device)!;
 
 
     PipelineLayout pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
@@ -493,7 +528,18 @@ fn void! main()
             .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
         },
     })
-    .setSetLayouts({ descriptor_set_layout }).build(device)!;
+    .setSetLayouts({ render_descriptor_layout }).build(device)!;
+
+
+    PipelineLayout cube_pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
+    .setPushConstantRanges({
+        {
+            .offset = 0,
+            .size = PushConstantData.sizeof,
+            .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
+        },
+    })
+    .setSetLayouts({ cube_descriptor_layout }).build(device)!;
 
     PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfoBuilder()
                    .setViewports({{ .x = 0.0, .y = 0.0, .width = swapchain_info.imageExtent.width, .height = swapchain_info.imageExtent.height, .minDepth = 0.0, .maxDepth = 1.0 }})
@@ -506,8 +552,6 @@ fn void! main()
         .setAlphaToCoverageEnable(vk::FALSE)
         .setAlphaToOneEnable(vk::FALSE);
 
-    PipelineInputAssemblyStateCreateInfo assembly_state = vk::pipelineInputAssemblyStateCreateInfoBuilder().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-    PipelineVertexInputStateCreateInfo vertex_state = vk::pipelineVertexInputStateCreateInfoBuilder().setVertexBindingDescriptionCount(0);
     PipelineRasterizationStateCreateInfo rasterization_state = vk::pipelineRasterizationStateCreateInfoBuilder()
         .setDepthClampEnable(vk::FALSE)
         .setRasterizerDiscardEnable(vk::FALSE)
@@ -521,13 +565,13 @@ fn void! main()
     ShaderModule frag_module = device.createShaderModule(&fragment_shader_data)!;
 
     // Create Renderpipeline info
-    Pipeline pipeline = vk::graphicsPipelineCreateInfoBuilder()
+    GraphicsPipelineCreateInfo pipeline_info = vk::graphicsPipelineCreateInfoBuilder()
     .setStages({
         vertex_module.info(vk::SHADER_STAGE_VERTEX_BIT),
         frag_module.info(vk::SHADER_STAGE_FRAGMENT_BIT)
     })
      .setLayout(pipeline_layout)
-     .setVertexInputState(&vertex_state)
+     .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfoBuilder().setVertexBindingDescriptionCount(0))
     .setDynamicState(
        &&vk::pipelineDynamicStateCreateInfoBuilder()
         .setDynamicStates(
@@ -537,7 +581,7 @@ fn void! main()
         })
     )
     .setRasterizationState(&rasterization_state)
-    .setInputAssemblyState(&assembly_state)
+    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfoBuilder().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
     .setMultisampleState(&multi_sample_state)
     .setDepthStencilState(&&vk::pipelineDepthStencilStateCreateInfoBuilder()
         .setDepthTestEnable(vk::TRUE)
@@ -566,8 +610,16 @@ fn void! main()
     .setNext(&&vk::pipelineRenderingCreateInfoBuilder()
                 .setColorAttachmentFormats({swapchain_info.imageFormat})
                 .setDepthAttachmentFormat(depth_format)
-            )
-    .build(device)!;
+    );
+
+    pipeline = pipeline_info.build(device)!;
+
+
+    // Cubemap pipeline
+    pipeline_info.pNext = null;
+    pipeline_info.setLayout(cube_pipeline_layout);
+    cube_pipeline = pipeline_info.build(device)!;
+
 
     // Create syncronisation stuff
     SemaphoreList wait_semaphores;
@@ -580,7 +632,6 @@ fn void! main()
         frame_fences.push(vk::fenceCreateInfoBuilder().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(device))!;
     }
 
-    Scene scene = gltf.scenes[0];
     Clock time = clock::now();
 
     // Rendering loop
@@ -588,7 +639,7 @@ fn void! main()
     while(!glfw::windowShouldClose(window)) {
         eventHandler.update();
 
-        if (animations.len() > 0) gltf.animate(.animation = &animations[0], .time = time.mark());
+        if (animations.len() > 0) gltf_scene.animate(.animation = &animations[0], .time = time.mark());
         
         if (eventHandler.scrolling) {
             camera.zoom((float)eventHandler.scrollY * 5);
@@ -674,10 +725,9 @@ fn void! main()
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
 
-        vk::cmdBindVertexBuffers(command_buffer, 0, 1, &&vk::Buffer[1]{vertex_buffer.buffer}, &&vk::DeviceSize[1]{0});
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
-        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout, device);
+        foreach (node: gltf_scene.scenes[0].nodes) drawNode(gltf_scene.nodes[node], command_buffer, pipeline_layout, device, gltf_scene);
 
         vk::cmdEndRenderingKHR(command_buffer);
 
@@ -729,26 +779,37 @@ fn void! main()
     device.waitIdle();
     if (ENABLE_VALIDATION_LAYERS) debug_messenger.free(instance);
 
+    device_allocation.free();
+    local_allocation.free();
+
     swapchain.free(device);
     foreach (view : swapchain_views) view.free(device);
-
     foreach (texture: material_textures) texture.free(device);
+
     material_textures.free();
+    cube_texture.free(device);
+    depth_texture.free(device);
+
     joint_data.free();
     animations.release();
     swapchain_images.free();
     swapchain_views.free();
-    vertices.free();
-    indices.free();
-    uniform_buffer.free(device);
-    vertex_buffer.free(device);
+
     command_pool.free(device);
 
-    descriptor_set_layout.free(device);
+    render_descriptor_layout.free(device);
+    cube_descriptor_layout.free(device);
+
     vertex_module.free(device);
     frag_module.free(device);
     pipeline.free(device);
     pipeline_layout.free(device);
+
+    cube_pipeline.free(device);
+    cube_pipeline_layout.free(device);
+
+    vertices.free();
+    indices.free();
 
     wait_semaphores.release(device);
     signal_semaphores.release(device);
@@ -760,7 +821,7 @@ fn void! main()
 }
 
 
-fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout, Device device) {
+fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout, Device device, Gltf gltf) {
 
     if (node.hasSkin()) {
         Skin skin = gltf.skins[node.skin];
@@ -792,14 +853,14 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
     }
 
     // Draw child nodes
-    foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout, device);
+    foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout, device, gltf);
 }
 
 
 
 fn void! loadTextures() {
     // Create texture-images from gltf buffer
-    foreach (image : gltf.images) {
+    foreach (image : gltf_scene.images) {
         Format image_format = vk::FORMAT_R8G8B8A8_UNORM;
         DescriptorImageInfo texture = { .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
@@ -810,8 +871,8 @@ fn void! loadTextures() {
                 image_data = stb::loadFromBuffer(image.data, image.data.len, stb::Channel.STBI_RGB_ALPHA);
             };
             case ENCODED_BIN: {
-                gltf::BufferView buffer_view = gltf.bufferViews[image.view];
-                image_data = stb::loadFromBuffer(gltf.buffers[buffer_view.buffer].data[buffer_view.offset..], (uint)buffer_view.byteLength, stb::Channel.STBI_RGB_ALPHA);
+                gltf::BufferView buffer_view = gltf_scene.bufferViews[image.view];
+                image_data = stb::loadFromBuffer(gltf_scene.buffers[buffer_view.buffer].data[buffer_view.offset..], (uint)buffer_view.byteLength, stb::Channel.STBI_RGB_ALPHA);
             };
             case EXTERNAL_BIN: io::printfn("Load image data here");
         }
@@ -1015,6 +1076,7 @@ fn void! loadTextures() {
     uint cube_map_width = cube_map_image.width / 6;
     
     cube_texture.imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
     cube_image = vk::imageCreateInfoBuilder()
             .setImageType(vk::IMAGE_TYPE_2D)
             .setExtent({.width = cube_map_width, .height = cube_map_width, .depth = 1 })

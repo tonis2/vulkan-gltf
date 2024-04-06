@@ -23,7 +23,6 @@ layout (buffer_reference, std430, buffer_reference_align = 16) readonly buffer M
 };
 
 layout(binding = 1) uniform sampler2D materialSamplers[];
-layout(binding = 2) uniform samplerCube cubeMap;
 
 layout(location = 0) in vec2 tex_cord;
 layout(location = 1) in flat int m_index;

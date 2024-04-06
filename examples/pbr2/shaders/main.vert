@@ -3,11 +3,6 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : enable
 #extension GL_EXT_scalar_block_layout : require
 
-// layout(location = 0) in vec3 vp;
-// layout(location = 1) in vec2 v_texcord;
-// layout(location = 2) in vec4 skin_pos;
-// layout(location = 3) in vec4 skin_weight;
-
 layout(location = 0) out vec2 o_texcord;
 layout(location = 1) out flat int o_m_index;
 layout(location = 2) out flat uint64_t materials;

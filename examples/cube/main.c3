@@ -577,11 +577,11 @@ fn void! main()
     foreach (view : swapchain_views) view.free(device);
     swapchain_images.free();
     swapchain_views.free();
-
-    uniform_buffer.free(device);
-    vertex_buffer.free(device);
     command_pool.free(device);
 
+    device_allocation.free();
+    local_allocation.free();
+    
     descriptor_set_layout.free(device);
     vertex_module.free(device);
     frag_module.free(device);
