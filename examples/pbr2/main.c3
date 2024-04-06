@@ -29,6 +29,7 @@ struct PushConstantData {
     bool has_skin;
     vk::DeviceAddress skins;
     vk::DeviceAddress materials;
+    vk::DeviceAddress vertices;
 }
 
 // Load shaders
@@ -375,7 +376,7 @@ fn void! main()
 
     // Creating buffers
     vertex_buffer = vk::bufferCreateInfoBuilder()
-               .setUsage(vk::BUFFER_USAGE_VERTEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                .setSize(vertices.byte_size())
                .bind(&device_allocation)!;
@@ -484,8 +485,6 @@ fn void! main()
     vk::getPhysicalDeviceProperties2(physical_device, &deviceProps2);
 
 
-    ShaderModule vertex_module = device.createShaderModule(&vertex_shader_data)!;
-    ShaderModule frag_module = device.createShaderModule(&fragment_shader_data)!;
     PipelineLayout pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
     .setPushConstantRanges({
         {
@@ -496,6 +495,31 @@ fn void! main()
     })
     .setSetLayouts({ descriptor_set_layout }).build(device)!;
 
+    PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfoBuilder()
+                   .setViewports({{ .x = 0.0, .y = 0.0, .width = swapchain_info.imageExtent.width, .height = swapchain_info.imageExtent.height, .minDepth = 0.0, .maxDepth = 1.0 }})
+                   .setScissors({{ .offset = { .x = 0, .y = 0 }, .extent = swapchain_info.imageExtent }});
+
+    PipelineMultisampleStateCreateInfo multi_sample_state = vk::pipelineMultisampleStateCreateInfoBuilder()
+        .setSampleShadingEnable(vk::FALSE)
+        .setRasterizationSamples(vk::SAMPLE_COUNT_1_BIT)
+        .setMinSampleShading(1.0)
+        .setAlphaToCoverageEnable(vk::FALSE)
+        .setAlphaToOneEnable(vk::FALSE);
+
+    PipelineInputAssemblyStateCreateInfo assembly_state = vk::pipelineInputAssemblyStateCreateInfoBuilder().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    PipelineVertexInputStateCreateInfo vertex_state = vk::pipelineVertexInputStateCreateInfoBuilder().setVertexBindingDescriptionCount(0);
+    PipelineRasterizationStateCreateInfo rasterization_state = vk::pipelineRasterizationStateCreateInfoBuilder()
+        .setDepthClampEnable(vk::FALSE)
+        .setRasterizerDiscardEnable(vk::FALSE)
+        .setPolygonMode(vk::POLYGON_MODE_FILL)
+        .setLineWidth(1.0)
+        .setCullMode(vk::CULL_MODE_NONE)
+        .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
+        .setDepthBiasEnable(vk::FALSE);
+
+    ShaderModule vertex_module = device.createShaderModule(&vertex_shader_data)!;
+    ShaderModule frag_module = device.createShaderModule(&fragment_shader_data)!;
+
     // Create Renderpipeline info
     Pipeline pipeline = vk::graphicsPipelineCreateInfoBuilder()
     .setStages({
@@ -503,42 +527,7 @@ fn void! main()
         frag_module.info(vk::SHADER_STAGE_FRAGMENT_BIT)
     })
      .setLayout(pipeline_layout)
-     .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfoBuilder()
-        .setVertexBindingDescriptions(
-        {
-            {
-             .binding = 0,
-             .stride = Vertex.sizeof,
-             .inputRate = vk::VERTEX_INPUT_RATE_VERTEX,
-            }
-        })
-        .setVertexAttributeDescriptions({
-            {
-               .binding = 0,
-               .location = 0,
-               .format = vk::FORMAT_R32G32B32_SFLOAT,
-               .offset = Vertex.pos.offsetof
-            },
-            {
-               .binding = 0,
-               .location = 1,
-               .format = vk::FORMAT_R32G32_SFLOAT,
-               .offset = Vertex.tex_cord.offsetof
-            },
-            {
-               .binding = 0,
-               .location = 2,
-               .format = vk::FORMAT_R32G32B32A32_SFLOAT,
-               .offset = Vertex.skin_pos.offsetof
-            },
-            {
-               .binding = 0,
-               .location = 3,
-               .format = vk::FORMAT_R32G32B32A32_SFLOAT,
-               .offset = Vertex.skin_weight.offsetof
-            }
-        })
-    )
+     .setVertexInputState(&vertex_state)
     .setDynamicState(
        &&vk::pipelineDynamicStateCreateInfoBuilder()
         .setDynamicStates(
@@ -547,23 +536,9 @@ fn void! main()
             vk::DYNAMIC_STATE_LINE_WIDTH,
         })
     )
-    .setRasterizationState(
-        &&vk::pipelineRasterizationStateCreateInfoBuilder()
-        .setDepthClampEnable(vk::FALSE)
-        .setRasterizerDiscardEnable(vk::FALSE)
-        .setPolygonMode(vk::POLYGON_MODE_FILL)
-        .setLineWidth(1.0)
-        .setCullMode(vk::CULL_MODE_NONE)
-        .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
-        .setDepthBiasEnable(vk::FALSE)
-    )
-    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfoBuilder().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
-    .setMultisampleState(&&vk::pipelineMultisampleStateCreateInfoBuilder()
-        .setSampleShadingEnable(vk::FALSE)
-        .setRasterizationSamples(vk::SAMPLE_COUNT_1_BIT)
-        .setMinSampleShading(1.0)
-        .setAlphaToCoverageEnable(vk::FALSE)
-        .setAlphaToOneEnable(vk::FALSE))
+    .setRasterizationState(&rasterization_state)
+    .setInputAssemblyState(&assembly_state)
+    .setMultisampleState(&multi_sample_state)
     .setDepthStencilState(&&vk::pipelineDepthStencilStateCreateInfoBuilder()
         .setDepthTestEnable(vk::TRUE)
         .setDepthWriteEnable(vk::TRUE)
@@ -587,9 +562,7 @@ fn void! main()
                 .dstAlphaBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
                 .alphaBlendOp = vk::BLEND_OP_ADD,
             }}))
-    .setViewportState(&&vk::pipelineViewportStateCreateInfoBuilder()
-                   .setViewports({{ .x = 0.0, .y = 0.0, .width = swapchain_info.imageExtent.width, .height = swapchain_info.imageExtent.height, .minDepth = 0.0, .maxDepth = 1.0 }})
-                   .setScissors({{ .offset = { .x = 0, .y = 0 }, .extent = swapchain_info.imageExtent }}))
+    .setViewportState(&view_port_state)
     .setNext(&&vk::pipelineRenderingCreateInfoBuilder()
                 .setColorAttachmentFormats({swapchain_info.imageFormat})
                 .setDepthAttachmentFormat(depth_format)
@@ -810,6 +783,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
                 .has_skin = node.hasSkin(),
                 .skins = joint_buffer.address,
                 .materials = material_buffer.address,
+                .vertices = vertex_buffer.address
             };
 
             vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
@@ -1037,6 +1011,7 @@ fn void! loadTextures() {
 
     stb::Image cube_map_image = stb::loadImage("assets/cube_map.png", stb::Channel.STBI_RGB_ALPHA)!;
     defer cube_map_image.free();
+    
     uint cube_map_width = cube_map_image.width / 6;
     
     cube_texture.imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1075,7 +1050,7 @@ fn void! loadTextures() {
         .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
         .baseMipLevel = 0,
         .baseArrayLayer = 0,
-        .layerCount = 1,
+        .layerCount = 6,
         .levelCount = 1,
     })
     .setImage(cube_image)
