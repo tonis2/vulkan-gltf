@@ -8,6 +8,7 @@
 *.elf
 
 build/c3l/
+build/
 
 # Linker output
 *.ilk
