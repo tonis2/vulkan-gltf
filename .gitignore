@@ -7,6 +7,8 @@
 *.obj
 *.elf
 
+build/c3l/
+
 # Linker output
 *.ilk
 *.map
