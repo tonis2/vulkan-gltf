@@ -13,10 +13,6 @@
 	"targets": {
 		"pbr": {
 			"type": "executable",
-			"sources-add": ["examples/pbr/main.c3"]
-		},
-		"pbr2": {
-			"type": "executable",
 			"sources-add": ["examples/pbr2/main.c3"]
 		},
 		"cube": {

@@ -337,16 +337,13 @@ fn void! main()
     char[*] vertex_shader_data = $embed("./shaders/shader_vert.spv");
     char[*] fragment_shader_data = $embed("./shaders/shader_frag.spv");
 
-    ShaderModule vertex_module = device.createShaderModule(&vertex_shader_data)!;
-    ShaderModule frag_module = device.createShaderModule(&fragment_shader_data)!;
+    Shader draw_shaders = device.createShader(.vertex = &vertex_shader_data, .fragment = &fragment_shader_data)!;
+
     PipelineLayout pipeline_layout = vk::pipelineLayoutCreateInfoBuilder().setSetLayouts({ descriptor_set_layout }).build(device)!;
 
     // Create Renderpipeline info
     GraphicsPipelineCreateInfo pipeline_info = vk::graphicsPipelineCreateInfoBuilder()
-    .setStages({
-        vertex_module.info(vk::SHADER_STAGE_VERTEX_BIT),
-        frag_module.info(vk::SHADER_STAGE_FRAGMENT_BIT)
-    })
+    .setStages(&draw_shaders.stages)
      .setLayout(pipeline_layout)
      .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfoBuilder()
         .setVertexBindingDescriptions(
@@ -583,8 +580,7 @@ fn void! main()
     local_allocation.free();
     
     descriptor_set_layout.free(device);
-    vertex_module.free(device);
-    frag_module.free(device);
+    draw_shaders.free(device);
     pipeline.free(device);
     pipeline_layout.free(device);
 

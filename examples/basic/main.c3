@@ -254,6 +254,12 @@ fn void! main()
       return;
     }
 
+    // Required for using push descriptors
+    PhysicalDeviceProperties2 deviceProps2 = vk::physicalDeviceProperties2Builder()
+                                                .setNext(&&vk::physicalDevicePushDescriptorPropertiesKHRBuilder().setMaxPushDescriptors(1));
+
+    vk::getPhysicalDeviceProperties2(physical_device, &deviceProps2);
+
     PhysicalDeviceDescriptorIndexingFeatures device_indexing_feature = {
        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
     };
@@ -478,15 +484,8 @@ fn void! main()
             .setImageInfo(material_textures.array_view())
     };
 
-    // Required for using push descriptors
-    PhysicalDeviceProperties2 deviceProps2 = vk::physicalDeviceProperties2Builder()
-                                                .setNext(&&vk::physicalDevicePushDescriptorPropertiesKHRBuilder().setMaxPushDescriptors(1));
-
-    vk::getPhysicalDeviceProperties2(physical_device, &deviceProps2);
-
-
-    ShaderModule vertex_module = device.createShaderModule(&vertex_shader_data)!;
-    ShaderModule frag_module = device.createShaderModule(&fragment_shader_data)!;
+    Shader draw_shaders = device.createShader(.vertex = &vertex_shader_data, .fragment = &fragment_shader_data)!;
+    
     PipelineLayout pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
     .setPushConstantRanges({
         {
@@ -499,10 +498,7 @@ fn void! main()
 
     // Create Renderpipeline info
     Pipeline pipeline = vk::graphicsPipelineCreateInfoBuilder()
-    .setStages({
-        vertex_module.info(vk::SHADER_STAGE_VERTEX_BIT),
-        frag_module.info(vk::SHADER_STAGE_FRAGMENT_BIT)
-    })
+    .setStages(&draw_shaders.stages)
      .setLayout(pipeline_layout)
      .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfoBuilder()
         .setVertexBindingDescriptions(
@@ -773,8 +769,7 @@ fn void! main()
     command_pool.free(device);
 
     descriptor_set_layout.free(device);
-    vertex_module.free(device);
-    frag_module.free(device);
+    draw_shaders.free(device);
     pipeline.free(device);
     pipeline_layout.free(device);
 

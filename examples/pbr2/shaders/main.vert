@@ -35,8 +35,6 @@ layout( push_constant ) uniform constants
     VertexBuffer vertex_buffer;
 };
 
-
-
 void main() {
     VertexBuffer vertex = vertex_buffer[gl_VertexIndex];
 
