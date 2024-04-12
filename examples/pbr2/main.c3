@@ -474,7 +474,7 @@ fn void! main()
             {
                 .buffer = uniform_buffer.buffer,
                 .offset = 0,
-                .range = UniformData.sizeof,
+                .range = uniform_buffer.size,
             },
         }),
         vk::writeDescriptorSetBuilder()
@@ -491,7 +491,7 @@ fn void! main()
             {
                 .buffer = uniform_buffer.buffer,
                 .offset = 0,
-                .range = UniformData.sizeof,
+                .range = uniform_buffer.size,
             },
         }),
         vk::writeDescriptorSetBuilder()
@@ -557,8 +557,8 @@ fn void! main()
     .setSetLayouts({ cube_descriptor_layout }).build(device)!;
 
     PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfoBuilder()
-                   .setViewports({{ .x = 0.0, .y = 0.0, .width = swapchain_info.imageExtent.width, .height = swapchain_info.imageExtent.height, .minDepth = 0.0, .maxDepth = 1.0 }})
-                   .setScissors({{ .offset = { .x = 0, .y = 0 }, .extent = swapchain_info.imageExtent }});
+    .setViewports({{}})
+    .setScissors({{}});
 
     PipelineMultisampleStateCreateInfo multi_sample_state = vk::pipelineMultisampleStateCreateInfoBuilder()
         .setSampleShadingEnable(vk::FALSE)
@@ -589,6 +589,7 @@ fn void! main()
         {
             vk::DYNAMIC_STATE_VIEWPORT,
             vk::DYNAMIC_STATE_LINE_WIDTH,
+            vk::DYNAMIC_STATE_SCISSOR
         })
     )
     .setRasterizationState(&rasterization_state)
