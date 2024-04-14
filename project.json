@@ -7,7 +7,7 @@
 	"dependencies": ["glfw", "vk", "stb"],
 	"features": ["GLFW_VK"],
 	"linked-libraries": ["vulkan", "glfw"],
-	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3"],
+	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/render_state.c3"],
 	"c-sources": ["./dependencies/stb.c3l/native/*"],
 	"cflags": "-fPIE",
 	"targets": {

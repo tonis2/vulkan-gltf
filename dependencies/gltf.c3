@@ -842,10 +842,11 @@ fn void AnimationMixer.free(&self) {
 
 fn void Skin.fromJson(&self, Object* json) {
     String! name = json.get_string("name");
-    uint! skeleton = json.get_int("skeleton");
-    uint! inverseBindMatrices = json.get_int("inverseBindMatrices");
     Object*! joints = json.get("joints");
 
+    uint! skeleton = json.get_int("skeleton");
+    uint! inverseBindMatrices = json.get_int("inverseBindMatrices");
+    
     if (try name) self.name = name;
     if (try skeleton) self.skeleton = skeleton;
     if (try inverseBindMatrices) self.inverseBindAccessor = inverseBindMatrices;

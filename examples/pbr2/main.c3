@@ -6,9 +6,8 @@ import camera;
 import std::math;
 import std::collections::list;
 import gltf;
+import pipelines;
 import std::time;
-
-def TextureList = List(<DescriptorImageInfo>);
 
 const WIDTH = 800;
 const HEIGHT = 600;
@@ -465,7 +464,6 @@ fn void! main()
 
     loadTextures()!;
 
-    // Descriptor sets for push descriptors
     WriteDescriptorSet[] descriptorSets = {
         vk::writeDescriptorSetBuilder()
         .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
@@ -481,23 +479,6 @@ fn void! main()
         .setDstBinding(1)
         .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
         .setImageInfo(material_textures.array_view()),
-    };
-
-    WriteDescriptorSet[] cubeDescriptorSets = {
-        vk::writeDescriptorSetBuilder()
-        .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-        .setDstBinding(0)
-        .setBufferInfo({
-            {
-                .buffer = uniform_buffer.buffer,
-                .offset = 0,
-                .range = uniform_buffer.size,
-            },
-        }),
-        vk::writeDescriptorSetBuilder()
-        .setDstBinding(1)
-        .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-        .setImageInfo({ cube_texture })
     };
 
    DescriptorSetLayout render_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
@@ -517,122 +498,87 @@ fn void! main()
             },
     }).build(device)!;
 
-    DescriptorSetLayout cube_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
-        .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
-        .setBindings({
+    // WriteDescriptorSet[] cubeDescriptorSets = {
+    //     vk::writeDescriptorSetBuilder()
+    //     .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+    //     .setDstBinding(0)
+    //     .setBufferInfo({
+    //         {
+    //             .buffer = uniform_buffer.buffer,
+    //             .offset = 0,
+    //             .range = uniform_buffer.size,
+    //         },
+    //     }),
+    //     vk::writeDescriptorSetBuilder()
+    //     .setDstBinding(1)
+    //     .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+    //     .setImageInfo({ cube_texture })
+    // };
+
+    // DescriptorSetLayout cube_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
+    //     .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
+    //     .setBindings({
+    //         {
+    //             .binding = 0,
+    //             .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    //             .descriptorCount = 1,
+    //             .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
+    //         },
+    //         {
+    //             .binding = 1,
+    //             .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    //             .descriptorCount = 1,
+    //             .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
+    //         },
+    // }).build(device)!;
+
+
+    RenderState render_pipeline = RenderState {
+        .descriptor_layout = render_descriptor_layout,
+        .shader = device.createShader(.vertex = &vertex_shader_data, .fragment = &fragment_shader_data)!,
+        .cull_mode = vk::CULL_MODE_NONE,
+        .front_face = vk::FRONT_FACE_COUNTER_CLOCKWISE,
+        .topology = vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .enable_depth = true,
+        .push_constants = {
             {
-                .binding = 0,
-                .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                .descriptorCount = 1,
-                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
+                .offset = 0,
+                .size = PushConstantData.sizeof,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
             },
-            {
-                .binding = 1,
-                .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 1,
-                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
-            },
-    }).build(device)!;
-
-
-    PipelineLayout pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
-    .setPushConstantRanges({
-        {
-            .offset = 0,
-            .size = PushConstantData.sizeof,
-            .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
         },
-    })
-    .setSetLayouts({ render_descriptor_layout }).build(device)!;
-
-
-    PipelineLayout cube_pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
-    .setPushConstantRanges({
-        {
-            .offset = 0,
-            .size = PushConstantData.sizeof,
-            .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
-        },
-    })
-    .setSetLayouts({ cube_descriptor_layout }).build(device)!;
-
-    PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfoBuilder()
-    .setViewports({{}})
-    .setScissors({{}});
-
-    PipelineMultisampleStateCreateInfo multi_sample_state = vk::pipelineMultisampleStateCreateInfoBuilder()
-        .setSampleShadingEnable(vk::FALSE)
-        .setRasterizationSamples(vk::SAMPLE_COUNT_1_BIT)
-        .setMinSampleShading(1.0)
-        .setAlphaToCoverageEnable(vk::FALSE)
-        .setAlphaToOneEnable(vk::FALSE);
-
-    PipelineRasterizationStateCreateInfo rasterization_state = vk::pipelineRasterizationStateCreateInfoBuilder()
-        .setDepthClampEnable(vk::FALSE)
-        .setRasterizerDiscardEnable(vk::FALSE)
-        .setPolygonMode(vk::POLYGON_MODE_FILL)
-        .setLineWidth(1.0)
-        .setCullMode(vk::CULL_MODE_NONE)
-        .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
-        .setDepthBiasEnable(vk::FALSE);
-
-    Shader draw_shaders = device.createShader(.vertex = &vertex_shader_data, .fragment = &fragment_shader_data)!;
-
-    // Create Renderpipeline info
-    GraphicsPipelineCreateInfo pipeline_info = vk::graphicsPipelineCreateInfoBuilder()
-    .setStages(&draw_shaders.stages)
-     .setLayout(pipeline_layout)
-     .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfoBuilder().setVertexBindingDescriptionCount(0))
-    .setDynamicState(
-       &&vk::pipelineDynamicStateCreateInfoBuilder()
-        .setDynamicStates(
-        {
+        .dynamic_states = {
             vk::DYNAMIC_STATE_VIEWPORT,
-            vk::DYNAMIC_STATE_LINE_WIDTH,
-            vk::DYNAMIC_STATE_SCISSOR
-        })
-    )
-    .setRasterizationState(&rasterization_state)
-    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfoBuilder().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
-    .setMultisampleState(&multi_sample_state)
-    .setDepthStencilState(&&vk::pipelineDepthStencilStateCreateInfoBuilder()
-        .setDepthTestEnable(vk::TRUE)
-        .setDepthWriteEnable(vk::TRUE)
-        .setDepthCompareOp(vk::COMPARE_OP_LESS)
-        .setBack({.compareOp = vk::COMPARE_OP_ALWAYS}))
-    .setColorBlendState(&&vk::pipelineColorBlendStateCreateInfoBuilder()
-        .setBlendConstants({ 0.0, 0.0, 0.0, 0.0 })
-        .setLogicOp(vk::LOGIC_OP_COPY)
-        .setAttachments({
+            vk::DYNAMIC_STATE_SCISSOR,
+        },
+        .blend_attachments = {
             {
                 .colorWriteMask =
                     vk::COLOR_COMPONENT_R_BIT |
                     vk::COLOR_COMPONENT_G_BIT |
                     vk::COLOR_COMPONENT_B_BIT |
                     vk::COLOR_COMPONENT_A_BIT,
-                .blendEnable = vk::TRUE,
-                .srcColorBlendFactor = vk::BLEND_FACTOR_SRC_ALPHA,
-                .dstColorBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                .colorBlendOp = vk::BLEND_OP_ADD,
-                .srcAlphaBlendFactor = vk::BLEND_FACTOR_ONE,
-                .dstAlphaBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                .alphaBlendOp = vk::BLEND_OP_ADD,
-            }}))
-    .setViewportState(&view_port_state)
-    .setNext(&&vk::pipelineRenderingCreateInfoBuilder()
-                .setColorAttachmentFormats({ swapchain_info.imageFormat })
-                .setDepthAttachmentFormat(depth_format)
-    );
-
-    pipeline = pipeline_info.build(device)!;
-
-    // Cubemap pipeline
-    pipeline_info.setNext(&&vk::pipelineRenderingCreateInfoBuilder()
-        .setColorAttachmentFormats({ swapchain_info.imageFormat }));
-
-    pipeline_info.setLayout(cube_pipeline_layout);
-    cube_pipeline = pipeline_info.build(device)!;
-
+            }
+        },
+        .color_attachments = {
+           vk::FORMAT_B8G8R8A8_UNORM
+        },
+        .depth_format = depth_format,
+        .descriptors = {
+            {
+                .binding = 0,
+                .type = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .buffer = uniform_buffer,
+                .stage = vk::SHADER_STAGE_VERTEX_BIT,
+            },
+            {
+                .binding = 1,
+                .type = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .textures = material_textures,
+                .stage = vk::SHADER_STAGE_FRAGMENT_BIT,
+            }
+        }
+    }.build(device)!;
 
     // Create syncronisation stuff
     SemaphoreList wait_semaphores;
@@ -735,12 +681,13 @@ fn void! main()
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = -HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = HEIGHT });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = swapchain_info.imageExtent, .offset = { .x = 0, .y = 0 }});
 
-        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, render_pipeline.pipeline);
+
+        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, render_pipeline.pipeline_layout, 0, (uint)descriptorSets.len, descriptorSets.ptr);
 
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
-        foreach (node: gltf_scene.scenes[0].nodes) drawNode(gltf_scene.nodes[node], command_buffer, pipeline_layout, device, gltf_scene);
+        foreach (node: gltf_scene.scenes[0].nodes) drawNode(gltf_scene.nodes[node], command_buffer, render_pipeline.pipeline_layout, device, gltf_scene);
 
         //vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline);
         //vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline_layout, 0, cubeDescriptorSets.len, cubeDescriptorSets.ptr);
@@ -817,14 +764,7 @@ fn void! main()
     command_pool.free(device);
 
     render_descriptor_layout.free(device);
-    cube_descriptor_layout.free(device);
-
-    draw_shaders.free(device);
-    pipeline.free(device);
-    pipeline_layout.free(device);
-
-    cube_pipeline.free(device);
-    cube_pipeline_layout.free(device);
+    render_pipeline.free(device);
 
     vertices.free();
     indices.free();
