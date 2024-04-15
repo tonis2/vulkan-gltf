@@ -563,21 +563,7 @@ fn void! main()
         .color_attachments = {
            vk::FORMAT_B8G8R8A8_UNORM
         },
-        .depth_format = depth_format,
-        .descriptors = {
-            {
-                .binding = 0,
-                .type = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                .buffer = uniform_buffer,
-                .stage = vk::SHADER_STAGE_VERTEX_BIT,
-            },
-            {
-                .binding = 1,
-                .type = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .textures = material_textures,
-                .stage = vk::SHADER_STAGE_FRAGMENT_BIT,
-            }
-        }
+        .depth_format = depth_format
     }.build(device)!;
 
     // Create syncronisation stuff
