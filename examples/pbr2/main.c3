@@ -31,6 +31,11 @@ struct PushConstantData {
     vk::DeviceAddress vertices;
 }
 
+struct CubeConstantData {
+    Matrix4f matrix;
+    vk::DeviceAddress vertices;
+}
+
 // Load shaders
 char[*] vertex_shader_data = $embed("./shaders/vertex.spv");
 char[*] fragment_shader_data = $embed("./shaders/fragment.spv");
@@ -120,7 +125,7 @@ fn void! main()
         }
     }
 
-       // Preload vertex data from GLTF
+    // Preload vertex data from GLTF
     foreach (mesh: gltf_scene.meshes) {
         foreach (prim_index, &primitive: mesh.primitives) {
             Accessor pos_accessor = gltf_scene.accessors[primitive.attributes["POSITION"]!!];
@@ -380,6 +385,7 @@ fn void! main()
         .device = device,
         .pdevice = physical_device,
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
         .size = 50_000_000
     }.build()!;
 
@@ -481,6 +487,23 @@ fn void! main()
         .setImageInfo(material_textures.array_view()),
     };
 
+    WriteDescriptorSet[] cubeDescriptorSets = {
+        vk::writeDescriptorSetBuilder()
+        .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+        .setDstBinding(0)
+        .setBufferInfo({
+            {
+                .buffer = uniform_buffer.buffer,
+                .offset = 0,
+                .range = uniform_buffer.size,
+            },
+        }),
+        vk::writeDescriptorSetBuilder()
+        .setDstBinding(1)
+        .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+        .setImageInfo({ cube_texture }),
+    };
+
    DescriptorSetLayout render_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
         .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
         .setBindings({
@@ -498,40 +521,24 @@ fn void! main()
             },
     }).build(device)!;
 
-    // WriteDescriptorSet[] cubeDescriptorSets = {
-    //     vk::writeDescriptorSetBuilder()
-    //     .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-    //     .setDstBinding(0)
-    //     .setBufferInfo({
-    //         {
-    //             .buffer = uniform_buffer.buffer,
-    //             .offset = 0,
-    //             .range = uniform_buffer.size,
-    //         },
-    //     }),
-    //     vk::writeDescriptorSetBuilder()
-    //     .setDstBinding(1)
-    //     .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-    //     .setImageInfo({ cube_texture })
-    // };
 
-    // DescriptorSetLayout cube_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
-    //     .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
-    //     .setBindings({
-    //         {
-    //             .binding = 0,
-    //             .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-    //             .descriptorCount = 1,
-    //             .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
-    //         },
-    //         {
-    //             .binding = 1,
-    //             .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-    //             .descriptorCount = 1,
-    //             .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
-    //         },
-    // }).build(device)!;
 
+   DescriptorSetLayout cube_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
+        .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
+        .setBindings({
+            {
+                .binding = 0,
+                .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
+            },
+            {
+                .binding = 1,
+                .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
+            },
+    }).build(device)!;
 
     RenderState render_pipeline = RenderState {
         .descriptor_layout = render_descriptor_layout,
@@ -544,6 +551,41 @@ fn void! main()
             {
                 .offset = 0,
                 .size = PushConstantData.sizeof,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
+            },
+        },
+        .dynamic_states = {
+            vk::DYNAMIC_STATE_VIEWPORT,
+            vk::DYNAMIC_STATE_SCISSOR,
+        },
+        .blend_attachments = {
+            {
+                .colorWriteMask =
+                    vk::COLOR_COMPONENT_R_BIT |
+                    vk::COLOR_COMPONENT_G_BIT |
+                    vk::COLOR_COMPONENT_B_BIT |
+                    vk::COLOR_COMPONENT_A_BIT,
+            }
+        },
+        .color_attachments = {
+           vk::FORMAT_B8G8R8A8_UNORM
+        },
+        .depth_format = depth_format
+    }.build(device)!;
+
+
+    RenderState cube_pipeline = RenderState {
+        .descriptor_layout = cube_descriptor_layout,
+        .shader = device.createShader(.vertex = &cube_vert_data, .fragment = &cube_frag_data)!,
+        .cull_mode = vk::CULL_MODE_NONE,
+        .front_face = vk::FRONT_FACE_COUNTER_CLOCKWISE,
+        .topology = vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .polygon_mode = vk::POLYGON_MODE_FILL,
+        .enable_depth = true,
+        .push_constants = {
+            {
+                .offset = 0,
+                .size = CubeConstantData.sizeof,
                 .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
             },
         },
@@ -675,11 +717,18 @@ fn void! main()
 
         foreach (node: gltf_scene.scenes[0].nodes) drawNode(gltf_scene.nodes[node], command_buffer, render_pipeline.pipeline_layout, device, gltf_scene);
 
-        //vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline);
-        //vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline_layout, 0, cubeDescriptorSets.len, cubeDescriptorSets.ptr);
+        CubeConstantData constant_data = {
+            .matrix = MATRIX4F_IDENTITY,
+            .vertices = cube_buffer.address
+        };
 
-        // vk::cmdBindIndexBuffer(command_buffer, cube_buffer.buffer, 768, vk::INDEX_TYPE_UINT16);
-        // vk::cmdDrawIndexed(command_buffer, 36, 1, 0, 0, 0);
+        vk::cmdPushConstants(command_buffer, cube_pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, CubeConstantData.sizeof, &constant_data);
+
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline.pipeline);
+        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline.pipeline_layout, 0, cubeDescriptorSets.len, cubeDescriptorSets.ptr);
+
+        vk::cmdBindIndexBuffer(command_buffer, cube_buffer.buffer, 768, vk::INDEX_TYPE_UINT16);
+        vk::cmdDrawIndexed(command_buffer, 36, 1, 0, 0, 0);
 
         vk::cmdEndRenderingKHR(command_buffer);
 
@@ -1025,6 +1074,7 @@ fn void! loadTextures() {
             .setImageType(vk::IMAGE_TYPE_2D)
             .setExtent({.width = cube_map_width, .height = cube_map_width, .depth = 1 })
             .setMipLevels(1)
+            .setFlags(vk::IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
             .setArrayLayers(6)
             .setSamples(vk::SAMPLE_COUNT_1_BIT)
             .setUsage(vk::IMAGE_USAGE_TRANSFER_DST_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)

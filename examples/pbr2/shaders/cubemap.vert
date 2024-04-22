@@ -1,7 +1,8 @@
 #version 450
 #extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
 
-layout(buffer_reference, std140) readonly buffer VertexBuffer {
+layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer VertexBuffer {
   vec3 position;
 };
 
@@ -22,9 +23,9 @@ layout (location = 0) out vec3 outUVW;
 void main() 
 {
 	VertexBuffer vertex = vertex_buffer[gl_VertexIndex];	
-	// outUVW = inPos;
-	// outUVW.xy *= -1.0;
+	outUVW = vertex.position;
+	outUVW.xy *= -1.0;
 
 	mat4 viewMat = mat4(mat3(model_matrix));
-	gl_Position = projection * viewMat * vec4(vertex.position.xyz, 1.0);
+	gl_Position = projection * view * vec4(vertex.position, 1.0);
 }
