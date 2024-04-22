@@ -179,7 +179,6 @@ fn void! main()
 
     Device device = vk::deviceCreateInfoBuilder()
       .setQueueCreateInfos({graphicsInfo})
-      .setEnabledFeatures(&vk::default_device_features)
       .setEnabledExtensionNames(device_extensions.array_view())
       .setEnabledLayerCount(0)
       .setNext(&&PhysicalDeviceDynamicRenderingFeatures{
