@@ -719,7 +719,7 @@ fn void! main()
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = 0, .x = 0 });
 
         CubeConstantData constant_data = {
-            .matrix = MATRIX4F_IDENTITY
+            .matrix = MATRIX4F_IDENTITY,
             .vertices = cube_buffer.address
         };
 
