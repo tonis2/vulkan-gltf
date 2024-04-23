@@ -386,7 +386,7 @@ fn void! main()
         .pdevice = physical_device,
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 50_000_000
+        .size = 60_000_000
     }.build()!;
 
     // Allocation where data can be changed from CPU
@@ -520,7 +520,6 @@ fn void! main()
                 .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
             },
     }).build(device)!;
-
 
 
    DescriptorSetLayout cube_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
@@ -706,7 +705,7 @@ fn void! main()
 
         vk::cmdBeginRenderingKHR(command_buffer, &rendering_info);
 
-        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = -HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = HEIGHT });
+        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = -HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = HEIGHT, .x = 0 });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = swapchain_info.imageExtent, .offset = { .x = 0, .y = 0 }});
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, render_pipeline.pipeline);
@@ -717,13 +716,14 @@ fn void! main()
 
         foreach (node: gltf_scene.scenes[0].nodes) drawNode(gltf_scene.nodes[node], command_buffer, render_pipeline.pipeline_layout, device, gltf_scene);
 
+        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = 0, .x = 0 });
+
         CubeConstantData constant_data = {
-            .matrix = MATRIX4F_IDENTITY,
+            .matrix = MATRIX4F_IDENTITY
             .vertices = cube_buffer.address
         };
 
         vk::cmdPushConstants(command_buffer, cube_pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, CubeConstantData.sizeof, &constant_data);
-
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline.pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline.pipeline_layout, 0, cubeDescriptorSets.len, cubeDescriptorSets.ptr);
 
@@ -800,6 +800,7 @@ fn void! main()
 
     render_descriptor_layout.free(device);
     render_pipeline.free(device);
+    cube_pipeline.free(device);
 
     vertices.free();
     indices.free();

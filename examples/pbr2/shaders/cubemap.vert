@@ -25,7 +25,8 @@ void main()
 	VertexBuffer vertex = vertex_buffer[gl_VertexIndex];	
 	outUVW = vertex.position;
 	outUVW.xy *= -1.0;
-
-	mat4 viewMat = mat4(mat3(model_matrix));
-	gl_Position = projection * view * vec4(vertex.position, 1.0);
+	
+	mat4 viewMat = mat4(mat3(view));
+	vec4 pos = projection * viewMat * model_matrix * vec4(vertex.position, 1.0);
+	gl_Position = pos.xyww;
 }

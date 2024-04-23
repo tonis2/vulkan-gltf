@@ -99,7 +99,7 @@ fn RenderState! RenderState.build(&self, Device device) {
     PipelineDepthStencilStateCreateInfo depth_state = vk::pipelineDepthStencilStateCreateInfoBuilder()
     .setDepthTestEnable((uint)self.enable_depth)
     .setDepthWriteEnable((uint)self.enable_depth)
-    .setDepthCompareOp(vk::COMPARE_OP_LESS)
+    .setDepthCompareOp(vk::COMPARE_OP_LESS_OR_EQUAL)
     .setBack({.compareOp = vk::COMPARE_OP_ALWAYS});
     // DescriptorSetLayoutCreateInfo descriptorLayoutInfo = vk::descriptorSetLayoutCreateInfoBuilder()
     //                         .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR);
