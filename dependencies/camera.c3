@@ -16,7 +16,7 @@ struct Camera {
     Vec3f target;
     Vec3f eye;
     Matrix4f perspective;
-    Matrix4f view;
+    Matrix4f view;    
     float pitch;
     float yaw;
     float zoom_value;
@@ -27,7 +27,7 @@ fn Camera new(Vec3f target = {0.0, 0.0, 0.0}, Vec3f eye = {0.0, 0.0, 0.0}, float
         target,
         eye,
         perspective(radians(view), aspect, min_zoom, max_zoom),
-        matrix_look_at(eye, target, {0.0, 1.0, 0.0}),
+        matrix_look_at(eye, target, {0.0, 1.0, 0.0}),    
         0,
         0,
         -eye.z
@@ -44,6 +44,12 @@ fn void Camera.rotate (Camera* self, float x_offset, float y_offset) {
     self.eye = Vec3f { math::cos(radians(self.yaw)) * math::cos(radians(self.pitch)),
                        math::sin(radians(self.pitch)),
                        math::sin(radians(self.yaw)) * math::cos(radians(self.pitch))};
+
+    // if (x_offset != 0) self.eye = self.eye.rotate_axis({0, 1, 0}, x_offset * 0.1);
+    // if (y_offset != 0) self.eye.y += y_offset * 0.5;
+
+    // if (self.eye.y > 89.0) self.eye.y = 89.0;
+    // if (self.eye.y < -89.0) self.eye.y = -89.0;
 
     self.view = matrix_look_at(self.eye, self.target, {0.0, 1.0, 0.0});
     self.view.m23 = self.zoom_value;
