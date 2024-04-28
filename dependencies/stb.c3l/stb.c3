@@ -11,6 +11,8 @@ enum Channel : int
 }
 
 extern fn char* stbi_load(char*, uint*, uint*, uint*, uint) @extern("stbi_load");
+extern fn char* stbi_loadf(char*, uint*, uint*, uint*, uint) @extern("stbi_loadf");
+extern fn void flip_vertically(bool) @extern("stbi_set_flip_vertically_on_load");
 extern fn char* stbi_load_from_memory(char* buffer, uint size, uint* x, uint* y, uint* channels_in_file, uint desired_channels) @extern("stbi_load_from_memory");
 extern fn void* stbi_image_free(char*) @extern("stbi_image_free");
 
@@ -36,9 +38,15 @@ fn void Image.free(Image* self) {
     stbi_image_free(self.pixels);
 }
 
-fn Image! loadImage(char* file_path, Channel channel) {
+fn Image! loadImage(char* file_path, Channel channel, bool hdri = false) {
   Image data;
-  data.pixels = stbi_load(file_path, &data.width, &data.height, &data.channels, (uint)channel);
+
+  if (hdri == true) {
+    flip_vertically(true);
+    data.pixels = stbi_loadf(file_path, &data.width, &data.height, &data.channels, (uint)channel);
+  } else {
+    data.pixels = stbi_load(file_path, &data.width, &data.height, &data.channels, (uint)channel);
+  }
 
   if (data.pixels == null) {
      libc::printf("Image loading failed \n");
