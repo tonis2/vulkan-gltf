@@ -111,9 +111,11 @@ fn void! main()
     gltf_scene = gltf::loadFile("assets/scene_test.glb")!;
     defer gltf_scene.free();
 
+    // Load cubemap
     cube = gltf::loadFile("assets/cube.glb")!;
     defer cube.free();
 
+    // Needed if buffer data is external .bin
     foreach (&buffer: gltf_scene.buffers) {
         if (buffer.type == EXTERNAL_BIN) {
             File! data = file::open("assets/".concat((String)buffer.uri), "r");
