@@ -4,6 +4,7 @@ import glfw;
 import stb;
 import camera;
 import std::math;
+
 import std::collections::list;
 import pipelines;
 import std::time;
@@ -14,12 +15,14 @@ const HEIGHT = 600;
 const ENABLE_VALIDATION_LAYERS = false;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
+const VERTEX_WIDTH = 300;
+
 Vec2f[] vertices = {
-    {0., 0.}, 
-    {1.1, -1.},
-    {1.1, 1.},
-    {-1.1, 1.},
-    {-1.1, -1.},
+    {0.0, 0.0}, 
+    {VERTEX_WIDTH, -VERTEX_WIDTH},
+    {VERTEX_WIDTH, VERTEX_WIDTH},
+    {-VERTEX_WIDTH, VERTEX_WIDTH},
+    {-VERTEX_WIDTH, -VERTEX_WIDTH},
 };
 
 ushort[] indices = {
@@ -28,6 +31,11 @@ ushort[] indices = {
     0, 3, 4,
     0, 4, 1
 };
+
+struct PushConstantData {
+    Matrix4f matrix;
+    vk::DeviceAddress vertices;
+}
 
 // Load shaders
 char[*] vertex_shader_data = $embed("./shaders/vertex.spv");
@@ -49,6 +57,7 @@ vk::Image depth_image;
 
 MemoryBlock index_buffer;
 MemoryBlock vertex_buffer;
+MemoryBlock uniform_buffer;
 
 vk::Allocation local_allocation;
 vk::Allocation device_allocation;
@@ -65,7 +74,7 @@ fn void! main()
     glfw::windowHint(glfw::GLFW_RESIZABLE, glfw::GLFW_FALSE);
     glfw::windowHint(glfw::CONTEXT_VERSION_MAJOR, 4);
     glfw::windowHint(glfw::CONTEXT_VERSION_MINOR, 1);
-    GLFWwindow window = glfw::createWindow(WIDTH, HEIGHT, "GLTF basic", null, null);
+    GLFWwindow window = glfw::createWindow(WIDTH, HEIGHT, "Vulkan UI", null, null);
 
     if (window == null)
     {
@@ -75,8 +84,9 @@ fn void! main()
 
     EventHandler eventHandler = { .window = window };
     eventHandler.init();
-    camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
-
+    // camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
+    Matrix4f ortho_matrix = camera::ortho(0, WIDTH, HEIGHT, 0, 0.1, 1000).transpose();
+    // math::matrix4f_ortho(0, WIDTH, 0, HEIGHT, 0.1, 100)
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
@@ -197,7 +207,7 @@ fn void! main()
       .setNext(&device_features)
       .build(physical_device)!;
 
-       queue_family.graphics_handle = device.getQueue(queue_family.graphics);
+    queue_family.graphics_handle = device.getQueue(queue_family.graphics);
 
     SurfaceFormatList surface_formats = surface.getFormats(physical_device)!;
     PresentModeList present_modes = surface.getPresentModes(physical_device)!;
@@ -259,6 +269,7 @@ fn void! main()
         .device = device,
         .pdevice = physical_device,
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
         .size = 50_000_000
     }.build()!;
 
@@ -271,9 +282,8 @@ fn void! main()
         .size = 20_000_000
     }.build()!;
 
-
     vertex_buffer = vk::bufferCreateInfoBuilder()
-          .setUsage(vk::BUFFER_USAGE_VERTEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+          .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
           .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
           .setSize(vertices.len * Vec2f.sizeof)
           .bind(&device_allocation)!;
@@ -284,4 +294,348 @@ fn void! main()
           .setSize(indices.len * ushort.sizeof)
           .bind(&device_allocation)!;
 
+    uniform_buffer = vk::bufferCreateInfoBuilder()
+        .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+        .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+        .setSize(Matrix4f.sizeof)
+        .bind(&local_allocation)!;
+
+    uniform_buffer.upload(&&ortho_matrix, uniform_buffer.size, device);
+
+    MemoryBlock vertex_stage_buffer = device.staging_buffer(.size = vertices.len * Vec2f.sizeof, .data = vertices, .pdevice = physical_device)!;
+    MemoryBlock index_stage_buffer = device.staging_buffer(.size = indices.len * ushort.sizeof, .data = indices, .pdevice = physical_device)!;
+
+    device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
+         vk::cmdCopyBuffer(command_buffer, index_stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
+             .srcOffset = 0,
+             .dstOffset = 0,
+             .size = indices.len * ushort.sizeof
+         });
+
+         vk::cmdCopyBuffer(command_buffer, vertex_stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = vertices.len * Vec2f.sizeof
+         });
+    }!;
+
+    index_stage_buffer.free(device);
+    vertex_stage_buffer.free(device);
+
+    loadTextures()!;
+
+    WriteDescriptorSet[] descriptorSets = {
+        vk::writeDescriptorSetBuilder()
+        .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+        .setDstBinding(0)
+        .setBufferInfo({
+            {
+                .buffer = uniform_buffer.buffer,
+                .offset = 0,
+                .range = uniform_buffer.size,
+            },
+        }),
+    };
+
+    DescriptorSetLayout descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
+        .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
+        .setBindings({
+            {
+                .binding = 0,
+                .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
+            },
+    }).build(device)!;
+
+    RenderState pipeline = RenderState {
+        .descriptor_layout = descriptor_layout,
+        .shader = device.createShader(.vertex = &vertex_shader_data, .fragment = &fragment_shader_data)!,
+        .cull_mode = vk::CULL_MODE_NONE,
+        .front_face = vk::FRONT_FACE_COUNTER_CLOCKWISE,
+        .topology = vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .enable_depth = false,
+        .push_constants = {
+            {
+                .offset = 0,
+                .size = PushConstantData.sizeof,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
+            },
+        },
+        .dynamic_states = {
+            vk::DYNAMIC_STATE_VIEWPORT,
+            vk::DYNAMIC_STATE_SCISSOR,
+        },
+        .blend_attachments = {
+            {
+                .colorWriteMask =
+                    vk::COLOR_COMPONENT_R_BIT |
+                    vk::COLOR_COMPONENT_G_BIT |
+                    vk::COLOR_COMPONENT_B_BIT |
+                    vk::COLOR_COMPONENT_A_BIT,
+            }
+        },
+        .color_attachments = {
+           vk::FORMAT_B8G8R8A8_UNORM
+        },
+        .depth_format = depth_format
+    }.build(device)!;
+
+    SemaphoreList wait_semaphores;
+    SemaphoreList signal_semaphores;
+    FenceList frame_fences;
+
+    for (uint i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        wait_semaphores.push(vk::semaphoreCreateInfoBuilder().build(device))!;
+        signal_semaphores.push(vk::semaphoreCreateInfoBuilder().build(device))!;
+        frame_fences.push(vk::fenceCreateInfoBuilder().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(device))!;
+    }
+
+    Clock time = clock::now();
+
+    uint frame = 0;
+    while(!glfw::windowShouldClose(window)) {
+        eventHandler.update();
+        
+        // if (eventHandler.scrolling) {
+        //     camera.zoom((float)eventHandler.scrollY * 5);
+        //     uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+        // }
+
+        // // Update camera  rotation on left-mouse click
+        // if (eventHandler.left_mouse_click) {
+        //     camera.rotate((float)eventHandler.mouse_x_delta, (float)eventHandler.mouse_y_delta);
+        //     uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+        // }
+
+        Fence frame_fence = frame_fences[frame];
+        Semaphore wait_semaphore = wait_semaphores[frame];
+        Semaphore signal_semaphore = signal_semaphores[frame];
+
+        frame_fence.wait(device)!;
+        frame_fence.reset(device)!;
+
+        uint next_image = swapchain.getNextImage(device, wait_semaphore);
+
+        RenderingInfo rendering_info = vk::renderingInfoBuilder()
+        .setLayerCount(1)
+        .setRenderArea({
+            .offset = Offset2D{ .x = 0, .y = 0 },
+            .extent = swapchain_info.imageExtent,
+        })
+        .setColorAttachments({
+            vk::renderingAttachmentInfoBuilder()
+            .setImageView(swapchain_views[next_image])
+            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+            .setClearValue({
+                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
+            })
+        })
+        .setDepthAttachment(&&vk::renderingAttachmentInfoBuilder()
+            .setImageView(depth_texture.imageView)
+            .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+            .setClearValue({
+            .depthStencil = { 1.0f, 0 }
+        }));
+
+        CommandBuffer command_buffer = command_buffers[next_image];
+        vk::resetCommandBuffer(command_buffer, 0)!;
+        vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfoBuilder())!;
+
+        ImageMemoryBarrier image_memory_start = vk::imageMemoryBarrierBuilder()
+        .setDstAccessMask(vk::ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+        .setOldLayout(vk::IMAGE_LAYOUT_UNDEFINED)
+        .setNewLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+        .setImage(swapchain_images[next_image])
+        .setSubresourceRange({
+            .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        });
+
+        vk::cmdPipelineBarrier(
+            command_buffer,
+            vk::PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            0,
+            0,
+            null,
+            0,
+            null,
+            1,
+            &image_memory_start
+        );
+
+        vk::cmdBeginRenderingKHR(command_buffer, &rendering_info);
+
+        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{ .width = WIDTH, .height = -HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = HEIGHT, .x = 0 });
+        vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D { .extent = swapchain_info.imageExtent, .offset = { .x = 0, .y = 0 }});
+
+        PushConstantData constant_data = {
+            .matrix = MATRIX4F_IDENTITY,
+            .vertices = vertex_buffer.address
+        };
+
+        vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
+        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+
+        vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
+
+        vk::cmdEndRenderingKHR(command_buffer);
+
+        ImageMemoryBarrier image_memory_end = vk::imageMemoryBarrierBuilder()
+        .setSrcAccessMask(vk::ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+        .setOldLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+        .setNewLayout(vk::IMAGE_LAYOUT_PRESENT_SRC_KHR)
+        .setImage(swapchain_images[next_image])
+        .setSubresourceRange({
+            .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        });
+
+        vk::cmdPipelineBarrier(
+            command_buffer,
+            vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            vk::PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            0,
+            0,
+            null,
+            0,
+            null,
+            1,
+            &image_memory_end
+        );
+
+        SubmitInfo submit_info = vk::submitInfoBuilder()
+        .setWaitSemaphores({ wait_semaphore })
+        .setCommandBuffers({ command_buffer })
+        .setSignalSemaphores({ signal_semaphore })
+        .setWaitDstStageMask({vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT});
+
+        vk::endCommandBuffer(command_buffer)!;
+        vk::queueSubmit(queue_family.graphics_handle, 1, &submit_info, frame_fence)!;
+
+        PresentInfoKHR present_info = vk::presentInfoKHRBuilder()
+        .setWaitSemaphores({ signal_semaphore })
+        .setSwapchains({ swapchain })
+        .setImageIndices({ next_image });
+
+        vk::queuePresentKHR(queue_family.graphics_handle, &present_info)!;
+        frame = (frame + 1) % 2;
+    }
+
+
+    device.waitIdle();
+    if (ENABLE_VALIDATION_LAYERS) debug_messenger.free(instance);
+
+    device_allocation.free();
+    local_allocation.free();
+
+    swapchain.free(device);
+    foreach (view : swapchain_views) view.free(device);
+    depth_texture.free(device);
+
+    swapchain_images.free();
+    swapchain_views.free();
+
+    command_pool.free(device);
+
+    descriptor_layout.free(device);
+    pipeline.free(device);
+
+
+    wait_semaphores.release(device);
+    signal_semaphores.release(device);
+    frame_fences.release(device);
+    surface.free(instance);
+
+    device.free();
+    instance.free();
+}
+
+
+fn void! loadTextures() {
+
+    depth_texture.imageLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+    depth_image = vk::imageCreateInfoBuilder()
+    .setImageType(vk::IMAGE_TYPE_2D)
+    .setExtent({.width = WIDTH, .height = HEIGHT, .depth = 1 })
+    .setMipLevels(1)
+    .setArrayLayers(1)
+    .setSamples(vk::SAMPLE_COUNT_1_BIT)
+    .setUsage(vk::IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
+    .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
+    .setTiling(vk::IMAGE_TILING_OPTIMAL)
+    .setFormat(depth_format)
+    .build(device)!;
+
+    depth_image.bind(&device_allocation)!;
+
+    depth_texture.sampler = vk::samplerCreateInfoBuilder()
+        .setMagFilter(vk::FILTER_LINEAR)
+        .setMinFilter(vk::FILTER_LINEAR)
+        .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+        .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+        .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+        .setMipLodBias(0.0)
+        .setMinLod(0.0)
+        .setMaxLod(1.0)
+        .setMaxAnisotropy(1.0)
+        .setAnisotropyEnable(vk::FALSE)
+        .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
+        .build(device)!;
+        
+    depth_texture.imageView = vk::imageViewCreateInfoBuilder()
+        .setViewType(vk::IMAGE_VIEW_TYPE_2D)
+        .setFormat(depth_format)
+        .setSubresourceRange({
+          .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
+          .baseMipLevel = 0,
+          .baseArrayLayer = 0,
+          .layerCount = 1,
+          .levelCount = 1,
+        })
+        .setImage(depth_image)
+        .build(device)!;
+
+    device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
+       ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrierBuilder()
+       .setImage(depth_image)
+       .setSubresourceRange({
+          .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
+          .baseMipLevel = 0,
+          .baseArrayLayer = 0,
+          .layerCount = 1,
+          .levelCount = 1,
+       })
+       .setSrcAccessMask(0)
+       .setDstAccessMask(vk::ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
+       .setOldLayout(vk::IMAGE_LAYOUT_UNDEFINED)
+       .setNewLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+
+       vk::cmdPipelineBarrier(
+           command_buffer,
+           vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+           vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+           0,
+           0,
+           null,
+           0,
+           null,
+           1,
+           &imageMemoryBarrier
+       );
+    }!;
 }

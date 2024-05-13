@@ -1,13 +1,13 @@
 #version 450
 #extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
 
 layout (binding = 0) uniform uniform_matrix
 {
-  mat4 projection;
-  mat4 view;
+  mat4 ortho;
 };
 
-layout (buffer_reference, std140) readonly buffer VertexBuffer {
+layout (buffer_reference, scalar, buffer_reference_align = 4) readonly buffer VertexBuffer {
     vec2 pos;
     // vec2 dir;
     // uint type;
@@ -17,6 +17,7 @@ layout (buffer_reference, std140) readonly buffer VertexBuffer {
 
 layout( push_constant ) uniform constants
 {
+    mat4 model_matrix;
     VertexBuffer vertex_buffer;
 };
 
@@ -28,5 +29,5 @@ void main() {
     // vec4 new_pos = vec4(apos + inst_pos, 0.0, 1.0);
 
 
-    gl_Position = projection * view * vec4(vertex.pos, 1.0, 1.0);
+    gl_Position = ortho * vec4(vertex.pos, 1.0, 1.0);
 }
