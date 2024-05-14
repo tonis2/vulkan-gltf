@@ -15,7 +15,7 @@ const HEIGHT = 600;
 const ENABLE_VALIDATION_LAYERS = false;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-const VERTEX_WIDTH = 300;
+const VERTEX_WIDTH = 50;
 
 Vec2f[] vertices = {
     {0.0, 0.0}, 
@@ -85,8 +85,8 @@ fn void! main()
     EventHandler eventHandler = { .window = window };
     eventHandler.init();
     // camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
-    Matrix4f ortho_matrix = camera::ortho(0, WIDTH, HEIGHT, 0, 0.1, 1000).transpose();
-    // math::matrix4f_ortho(0, WIDTH, 0, HEIGHT, 0.1, 100)
+    Matrix4f ortho_matrix = camera::ortho(0, WIDTH, 0, HEIGHT, 0.1, 1000).transpose();
+
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});

@@ -97,13 +97,42 @@ fn Matrix4f perspective(float fov, float aspect_ratio, float near, float far)
 }
 
 
-fn Matrix4f ortho(float left, float right, float top, float bottom, float near, float far)
+fn Matrix4f ortho(float left, float right, float bottom, float top, float near, float far)
 {
+    float width = right - left;
+    float height = top - bottom;
+    float depth = far - near;
+
+    float x = right + left;
+    float y = top + bottom;
+    float z = far + near;
 
 	return {
-		2 / right - left, 0, 0, 0,
-		0, 2 / top - bottom, 0, 0,
-		0, 0, -2 / far - near, 0,
-		-(right + left) / (right - left), -(top + bottom) / (top - bottom), -(far + near) / (far - near), 1
+		2 / width, 0, 0, 0,
+		0, 2 / height, 0, 0,
+		0, 0, 1 / depth, near / (near - far),
+		0, 0, 0, 1
 	};
 }
+
+// ortho(-(800.0f / 2.0f), 800.0f / 2.0f, 
+//         600.0f / 2.0f, -(600.0f / 2.0f), 
+//       -1000.0f, 1000.0f);
+
+// fn Matrix4f ortho2(float width, float height, float near, float far, .x_offset = 0, .y_offset = 0)
+// {
+//     // float width = right - left;
+//     // float height = top - bottom;
+//     float depth = far - near;
+
+//     // float x = right + left;
+//     // float y = top + bottom;
+//     // float z = far + near;
+
+// 	return {
+// 		2 / width, 0, 0, 0,
+// 		0, 2 / height, 0, 0,
+// 		0, 0, 1 / depth, near / (near - far),
+// 		0, 0, 0, 1
+// 	};
+// }
