@@ -82,7 +82,7 @@ fn void! main()
     EventHandler eventHandler = { .window = window };
     eventHandler.init();
     // camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
-    Matrix4f ortho_matrix = camera::ortho(0, WIDTH, HEIGHT, 0, -1, 1).transpose();
+    Matrix4f ortho_matrix = camera::ortho(WIDTH, 0, HEIGHT, 0, -1, 1).transpose();
 
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
