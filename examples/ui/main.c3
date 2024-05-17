@@ -18,18 +18,15 @@ const MAX_FRAMES_IN_FLIGHT = 2;
 const VERTEX_WIDTH = 50;
 
 Vec2f[] vertices = {
-    {0.0, 0.0}, 
-    {VERTEX_WIDTH, -VERTEX_WIDTH},
-    {VERTEX_WIDTH, VERTEX_WIDTH},
-    {-VERTEX_WIDTH, VERTEX_WIDTH},
+    {0.0, 0.0},
+    {-VERTEX_WIDTH, 0.0},
+    {0.0, -VERTEX_WIDTH},
     {-VERTEX_WIDTH, -VERTEX_WIDTH},
 };
 
 ushort[] indices = {
-    0, 1, 2, 
-    0, 2, 3,
-    0, 3, 4,
-    0, 4, 1
+    0, 1, 2,
+    1, 3, 2
 };
 
 struct PushConstantData {
@@ -85,7 +82,7 @@ fn void! main()
     EventHandler eventHandler = { .window = window };
     eventHandler.init();
     // camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
-    Matrix4f ortho_matrix = camera::ortho(0, WIDTH, 0, HEIGHT, 0.1, 1000).transpose();
+    Matrix4f ortho_matrix = camera::ortho(0, WIDTH, HEIGHT, 0, -1, 1).transpose();
 
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
@@ -95,6 +92,7 @@ fn void! main()
     ZStringList glfw_extensions = glfw::getRequiredExtensions();
     extensions.add_all(&glfw_extensions);
     glfw_extensions.free();
+
 
     if (ENABLE_VALIDATION_LAYERS) {
      extensions.add_array({"VK_EXT_debug_utils"});
@@ -474,7 +472,7 @@ fn void! main()
 
         vk::cmdBeginRenderingKHR(command_buffer, &rendering_info);
 
-        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{ .width = WIDTH, .height = -HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = HEIGHT, .x = 0 });
+        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{ .width = WIDTH, .height = HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = 0, .x = 0 });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D { .extent = swapchain_info.imageExtent, .offset = { .x = 0, .y = 0 }});
 
         PushConstantData constant_data = {
