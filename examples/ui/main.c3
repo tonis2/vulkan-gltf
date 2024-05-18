@@ -15,7 +15,7 @@ const HEIGHT = 600;
 const ENABLE_VALIDATION_LAYERS = false;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-const VERTEX_WIDTH = 50;
+const VERTEX_WIDTH = 10;
 
 Vec2f[] vertices = {
     {0.0, 0.0},
@@ -29,10 +29,19 @@ ushort[] indices = {
     1, 3, 2
 };
 
+struct Rect {
+    float width;
+    Vec2f center;
+    Vec3f color;
+}
+
 struct PushConstantData {
     Matrix4f matrix;
+    uint draw_index;
     vk::DeviceAddress vertices;
+    vk::DeviceAddress canvas;
 }
+
 
 // Load shaders
 char[*] vertex_shader_data = $embed("./shaders/vertex.spv");
@@ -54,6 +63,7 @@ vk::Image depth_image;
 
 MemoryBlock index_buffer;
 MemoryBlock vertex_buffer;
+MemoryBlock canvas_buffer;
 MemoryBlock uniform_buffer;
 
 vk::Allocation local_allocation;
@@ -61,10 +71,20 @@ vk::Allocation device_allocation;
 
 fn void! main()
 {
-    List(<Line>) lines;
-    defer lines.free();
+    List(<Rect>) canvas;
+    defer canvas.free();
 
-    Line line = vge::createLine(.from = {0, 0}, .to = {10.0, 10.0}, .type = PrimType.BEZIER);
+    canvas.push({
+        .center = {100, 100},
+        .width = 200,
+        .color = {0.5, 0.5, 0.5}
+    });
+
+    canvas.push({
+        .center = {400, 400},
+        .width = 250,
+        .color = {0.5, 0.5, 0.5}
+    });
 
     glfw::init();
     glfw::windowHint(glfw::GLFW_CLIENT_API, glfw::GLFW_NO_API);
@@ -167,7 +187,7 @@ fn void! main()
     vk::getPhysicalDeviceProperties2(physical_device, &deviceProps2);
 
     PhysicalDeviceDescriptorIndexingFeatures device_indexing_feature = {
-       .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
     };
 
    PhysicalDeviceBufferDeviceAddressFeatures buffer_device_feature = {
@@ -298,7 +318,14 @@ fn void! main()
         .setSize(Matrix4f.sizeof)
         .bind(&local_allocation)!;
 
+    canvas_buffer = vk::bufferCreateInfoBuilder()
+        .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+        .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+        .setSize(canvas.byte_size())
+        .bind(&local_allocation)!;
+
     uniform_buffer.upload(&&ortho_matrix, uniform_buffer.size, device);
+    canvas_buffer.upload(canvas.entries, canvas.byte_size(), device);
 
     MemoryBlock vertex_stage_buffer = device.staging_buffer(.size = vertices.len * Vec2f.sizeof, .data = vertices, .pdevice = physical_device)!;
     MemoryBlock index_stage_buffer = device.staging_buffer(.size = indices.len * ushort.sizeof, .data = indices, .pdevice = physical_device)!;
@@ -395,17 +422,6 @@ fn void! main()
     while(!glfw::windowShouldClose(window)) {
         eventHandler.update();
         
-        // if (eventHandler.scrolling) {
-        //     camera.zoom((float)eventHandler.scrollY * 5);
-        //     uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
-        // }
-
-        // // Update camera  rotation on left-mouse click
-        // if (eventHandler.left_mouse_click) {
-        //     camera.rotate((float)eventHandler.mouse_x_delta, (float)eventHandler.mouse_y_delta);
-        //     uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
-        // }
-
         Fence frame_fence = frame_fences[frame];
         Semaphore wait_semaphore = wait_semaphores[frame];
         Semaphore signal_semaphore = signal_semaphores[frame];
@@ -475,17 +491,21 @@ fn void! main()
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{ .width = WIDTH, .height = HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = 0, .x = 0 });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D { .extent = swapchain_info.imageExtent, .offset = { .x = 0, .y = 0 }});
 
-        PushConstantData constant_data = {
-            .matrix = MATRIX4F_IDENTITY,
-            .vertices = vertex_buffer.address
-        };
-
-        vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
-        vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
+        foreach (uint index, item: canvas) {
+            PushConstantData constant_data = {
+                .matrix = MATRIX4F_IDENTITY,
+                .draw_index = index,
+                .vertices = vertex_buffer.address,
+                .canvas = canvas_buffer.address,
+            };
+
+            vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);    
+            vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
+        }
 
         vk::cmdEndRenderingKHR(command_buffer);
 
