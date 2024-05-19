@@ -15,7 +15,7 @@ const HEIGHT = 600;
 const ENABLE_VALIDATION_LAYERS = false;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-const VERTEX_WIDTH = 10;
+const VERTEX_WIDTH = 1;
 
 Vec2f[] vertices = {
     {0.0, 0.0},

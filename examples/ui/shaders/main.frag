@@ -7,9 +7,9 @@
 // layout(location = 0) in vec4 fragColor;
 layout(location = 0) out vec4 outColor;
 
-float sdBox( in vec2 p, in vec2 b )
+float sdBox( in vec2 point, in vec2 center )
 {
-    vec2 d = abs(p)-b;
+    vec2 d = abs(point)-center;
     return length(max(d,0.0)) + min(max(d.x,d.y),0.0);
 }
 
