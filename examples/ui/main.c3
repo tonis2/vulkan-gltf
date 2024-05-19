@@ -76,13 +76,13 @@ fn void! main()
 
     canvas.push({
         .center = {100, 100},
-        .width = 200,
+        .width = 50,
         .color = {0.5, 0.5, 0.5}
     });
 
     canvas.push({
         .center = {400, 400},
-        .width = 250,
+        .width = 150,
         .color = {0.5, 0.5, 0.5}
     });
 
@@ -495,16 +495,18 @@ fn void! main()
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
-        foreach (uint index, item: canvas) {
-            PushConstantData constant_data = {
-                .matrix = MATRIX4F_IDENTITY,
-                .draw_index = index,
-                .vertices = vertex_buffer.address,
-                .canvas = canvas_buffer.address,
-            };
+        PushConstantData constant_data = {
+            .matrix = MATRIX4F_IDENTITY,
+            .draw_index = 0,
+            .vertices = vertex_buffer.address,
+            .canvas = canvas_buffer.address,
+        };
 
-            vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);    
-            vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
+        foreach (uint index, item: canvas) {
+             constant_data.draw_index = index;
+             
+             vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);    
+             vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
         }
 
         vk::cmdEndRenderingKHR(command_buffer);

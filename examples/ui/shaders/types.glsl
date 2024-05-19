@@ -5,7 +5,7 @@ layout (buffer_reference, scalar, buffer_reference_align = 4) readonly buffer Ve
     vec2 pos;
 };
 
-layout (buffer_reference, std430, buffer_reference_align = 4) readonly buffer CanvasBuffer {
+layout (buffer_reference, std140) readonly buffer CanvasBuffer {
     float width;
     vec2 center;
     vec3 color;
