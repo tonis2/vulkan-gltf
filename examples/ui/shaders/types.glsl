@@ -7,7 +7,9 @@ layout (buffer_reference, scalar, buffer_reference_align = 4) readonly buffer Ve
 
 layout (buffer_reference, std140) readonly buffer CanvasBuffer {
     float width;
-    vec2 center;
+    uint type;
+    uint radius;
+    vec2 corner;
     vec3 color;
 };
 

@@ -29,9 +29,11 @@ ushort[] indices = {
     1, 3, 2
 };
 
-struct Rect {
+struct Drawing {
     float width;
-    Vec2f center;
+    uint type;
+    uint radius;
+    Vec2f corner;
     Vec3f color;
 }
 
@@ -71,20 +73,31 @@ vk::Allocation device_allocation;
 
 fn void! main()
 {
-    List(<Rect>) canvas;
+    List(<Drawing>) canvas;
     defer canvas.free();
 
     canvas.push({
-        .center = {100, 100},
-        .width = 50,
-        .color = {0.5, 0.5, 0.5}
+        .corner = {5, 5},
+        .width = 100,
+        .type = 1,
+        .color = {0.5, 0.5, 0.5},
+        .radius = 20,
     });
 
     canvas.push({
-        .center = {400, 400},
-        .width = 150,
-        .color = {0.5, 0.5, 0.5}
+        .corner = {400, 400},
+        .width = 250,
+        .type = 1,
+        .color = {0.5, 0.5, 0.5},
+        .radius = 50,
     });
+
+    // canvas.push({
+    //     .corner = {600, 400},
+    //     .width = 250,
+    //     .type = 0,
+    //     .color = {0.5, 0.5, 0.5},
+    // });
 
     glfw::init();
     glfw::windowHint(glfw::GLFW_CLIENT_API, glfw::GLFW_NO_API);
@@ -384,7 +397,7 @@ fn void! main()
             {
                 .offset = 0,
                 .size = PushConstantData.sizeof,
-                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
             },
         },
         .dynamic_states = {
@@ -398,6 +411,13 @@ fn void! main()
                     vk::COLOR_COMPONENT_G_BIT |
                     vk::COLOR_COMPONENT_B_BIT |
                     vk::COLOR_COMPONENT_A_BIT,
+                .blendEnable = vk::TRUE,
+                .srcColorBlendFactor = vk::BLEND_FACTOR_SRC_ALPHA,
+                .dstColorBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                .colorBlendOp = vk::BLEND_OP_ADD,
+                .srcAlphaBlendFactor = vk::BLEND_FACTOR_ONE,
+                .dstAlphaBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                .alphaBlendOp = vk::BLEND_OP_ADD,
             }
         },
         .color_attachments = {
@@ -505,7 +525,7 @@ fn void! main()
         foreach (uint index, item: canvas) {
              constant_data.draw_index = index;
              
-             vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);    
+             vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);    
              vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
         }
 

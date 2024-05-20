@@ -14,10 +14,8 @@ void main() {
     VertexBuffer vertex = vertex_buffer[gl_VertexIndex];
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
 
-    // vec2 n = vec2(-vertex.dir.y, vertex.dir.x) / length(dir);
-    // vec2 apos = vertex.pos.y * vertex.dir + vertex.pos.x * n * vertex.thickness;
-    // vec4 new_pos = vec4(apos + inst_pos, 0.0, 1.0);
-    vec2 new_pos = vec2(vertex.pos.x * canvas_item.width - canvas_item.center.x, vertex.pos.y * canvas_item.width - canvas_item.center.y);
+    vec2 new_size = vec2(vertex.pos.x * canvas_item.width, vertex.pos.y * canvas_item.width);
+    vec2 new_pos = vec2(new_size.x - canvas_item.corner.x, new_size.y - canvas_item.corner.y);
 
     gl_Position = ortho * vec4(new_pos, 1.0, 1.0);
 }
