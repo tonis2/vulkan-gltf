@@ -44,7 +44,6 @@ struct PushConstantData {
     vk::DeviceAddress canvas;
 }
 
-
 // Load shaders
 char[*] vertex_shader_data = $embed("./shaders/vertex.spv");
 char[*] fragment_shader_data = $embed("./shaders/fragment.spv");
@@ -81,23 +80,31 @@ fn void! main()
         .width = 100,
         .type = 1,
         .color = {0.5, 0.5, 0.5},
-        .radius = 20,
     });
 
     canvas.push({
-        .corner = {400, 400},
-        .width = 250,
+        .corner = {150, 150},
+        .width = 150,
         .type = 1,
-        .color = {0.5, 0.5, 0.5},
+        .color = {0.2, 0.2, 0.5},
         .radius = 50,
     });
 
-    // canvas.push({
-    //     .corner = {600, 400},
-    //     .width = 250,
-    //     .type = 0,
-    //     .color = {0.5, 0.5, 0.5},
-    // });
+    canvas.push({
+        .corner = {500, 300},
+        .width = 250,
+        .type = 0,
+        .radius = 50,
+        .color = {0.1, 0.5, 0.4},
+    });
+
+    canvas.push({
+        .corner = {400, 50},
+        .width = 100,
+        .type = 0,
+        .radius = 10,
+        .color = {0.5, 0.5, 0.5},
+    });
 
     glfw::init();
     glfw::windowHint(glfw::GLFW_CLIENT_API, glfw::GLFW_NO_API);
@@ -113,10 +120,10 @@ fn void! main()
     }
 
     EventHandler eventHandler = { .window = window };
+    
     eventHandler.init();
     // camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
     Matrix4f ortho_matrix = camera::ortho(WIDTH, 0, HEIGHT, 0, -1, 1).transpose();
-
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
