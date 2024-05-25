@@ -98,7 +98,7 @@ fn void! main()
         .corner = {500, 300},
         .width = 250,
         .type = 0,
-        .radius = 20,
+        .radius = 40,
         .color = {0.1, 0.5, 0.4},
     });
 
@@ -106,7 +106,7 @@ fn void! main()
         .corner = {400, 50},
         .width = 100,
         .type = 0,
-        .radius = 20,
+        .radius = 5,
         .color = {0.5, 0.5, 0.5},
     });
 

@@ -3,8 +3,9 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference2 : require
 
-#include "types.glsl"
+// Created thanks to https://thebookofshaders.com/edit.php?log=160414041142
 
+#include "types.glsl"
 
 layout(location = 0) in vec2 widget_size;
 layout(location = 1) in vec2 resolution;
@@ -16,6 +17,11 @@ layout(location = 0) out vec4 outColor;
 float roundRectSDF(vec2 p, vec2 size, float radius) {
   vec2 d = abs(p) - size;
   return min(max(d.x, d.y), 0.0) + length(max(d,0.0))- radius;
+}
+
+
+float ring(vec2 p, float radius, float width) {
+  return abs(length(p) - radius * 0.5) - width;
 }
 
 
