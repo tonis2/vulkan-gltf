@@ -13,9 +13,9 @@ layout (buffer_reference, std140) readonly buffer CanvasBuffer {
     vec3 color;
 };
 
+
 layout( push_constant ) uniform constants
 {
-    mat4 model_matrix;
     uint draw_index;
     VertexBuffer vertex_buffer;
     CanvasBuffer canvas_buffer;

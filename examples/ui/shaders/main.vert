@@ -5,17 +5,28 @@
 
 #include "types.glsl"
 
+layout(location = 0) out vec2 widget_size;
+layout(location = 1) out vec2 out_resolution;
+
 layout (binding = 0) uniform uniform_matrix
 {
   mat4 ortho;
+  vec2 resolution;
 };
 
 void main() {
     VertexBuffer vertex = vertex_buffer[gl_VertexIndex];
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
 
-    vec2 new_size = vec2(vertex.pos.x * canvas_item.width, vertex.pos.y * canvas_item.width) + vec2(-10, -10);
-    vec2 new_pos = vec2(new_size.x - canvas_item.corner.x, new_size.y - canvas_item.corner.y);
+    float aspect = resolution.x / resolution.y;
 
-    gl_Position = ortho * vec4(new_pos, 1.0, 1.0);
+    vec2 v_new_size = vec2(vertex.pos.x * canvas_item.width, vertex.pos.y * canvas_item.width);
+    vec2 v_new_pos = vec2(v_new_size.x - canvas_item.corner.x, v_new_size.y - canvas_item.corner.y);
+
+    gl_Position = ortho * vec4(v_new_pos, 1.0, 1.0);
+
+  
+    widget_size = vec2(canvas_item.width, canvas_item.width) / resolution.x / 2;
+
+    out_resolution = resolution;
 }

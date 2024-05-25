@@ -3,6 +3,7 @@ import vk;
 import glfw;
 import stb;
 import camera;
+
 import std::math;
 
 import std::collections::list;
@@ -38,10 +39,14 @@ struct Drawing {
 }
 
 struct PushConstantData {
-    Matrix4f matrix;
     uint draw_index;
     vk::DeviceAddress vertices;
     vk::DeviceAddress canvas;
+}
+
+struct UniformBuffer {
+    Matrix4f ortho_matrix;
+    Vec2f resolution;
 }
 
 // Load shaders
@@ -87,14 +92,13 @@ fn void! main()
         .width = 150,
         .type = 1,
         .color = {0.2, 0.2, 0.5},
-        .radius = 50,
     });
 
     canvas.push({
         .corner = {500, 300},
         .width = 250,
         .type = 0,
-        .radius = 50,
+        .radius = 20,
         .color = {0.1, 0.5, 0.4},
     });
 
@@ -102,7 +106,7 @@ fn void! main()
         .corner = {400, 50},
         .width = 100,
         .type = 0,
-        .radius = 10,
+        .radius = 20,
         .color = {0.5, 0.5, 0.5},
     });
 
@@ -123,7 +127,10 @@ fn void! main()
     
     eventHandler.init();
     // camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
-    Matrix4f ortho_matrix = camera::ortho(WIDTH, 0, HEIGHT, 0, -1, 1).transpose();
+    UniformBuffer uniform_data = {
+        camera::ortho(WIDTH, 0, HEIGHT, 0, -1, 1).transpose(),
+        Vec2f { WIDTH, HEIGHT },
+    };
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
@@ -335,7 +342,7 @@ fn void! main()
     uniform_buffer = vk::bufferCreateInfoBuilder()
         .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
         .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-        .setSize(Matrix4f.sizeof)
+        .setSize(UniformBuffer.sizeof)
         .bind(&local_allocation)!;
 
     canvas_buffer = vk::bufferCreateInfoBuilder()
@@ -344,7 +351,7 @@ fn void! main()
         .setSize(canvas.byte_size())
         .bind(&local_allocation)!;
 
-    uniform_buffer.upload(&&ortho_matrix, uniform_buffer.size, device);
+    uniform_buffer.upload(&&uniform_data, uniform_buffer.size, device);
     canvas_buffer.upload(canvas.entries, canvas.byte_size(), device);
 
     MemoryBlock vertex_stage_buffer = device.staging_buffer(.size = vertices.len * Vec2f.sizeof, .data = vertices, .pdevice = physical_device)!;
@@ -523,7 +530,6 @@ fn void! main()
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         PushConstantData constant_data = {
-            .matrix = MATRIX4F_IDENTITY,
             .draw_index = 0,
             .vertices = vertex_buffer.address,
             .canvas = canvas_buffer.address,

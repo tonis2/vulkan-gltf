@@ -5,8 +5,13 @@
 
 #include "types.glsl"
 
+
+layout(location = 0) in vec2 widget_size;
+layout(location = 1) in vec2 resolution;
+
 // layout(location = 0) in vec4 fragColor;
 layout(location = 0) out vec4 outColor;
+
 
 float roundRectSDF(vec2 p, vec2 size, float radius) {
   vec2 d = abs(p) - size;
@@ -25,28 +30,24 @@ float smoothedge(float v, vec2 resolution) {
 
 void main() {
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
-
-    vec2 resolution = vec2(800, 600);
     float aspect = resolution.x / resolution.y;
 
-    vec2 item_corner = canvas_item.corner / resolution.x;
-    vec2 widget_size = vec2(canvas_item.width, canvas_item.width) / resolution.x;
-
     vec2 point = gl_FragCoord.xy / resolution.x;
-
-    vec2 pos = (point - item_corner - widget_size / 2) - vec2(aspect / 100);
+    vec2 item_corner = canvas_item.corner / resolution.x;
+    vec2 pos = (point - item_corner - widget_size);
     
     float will_paint = 0;
 
     switch (canvas_item.type) {
         case 0: {
-            float radius = canvas_item.radius / 100;
-            will_paint = roundRectSDF(pos, widget_size / 2 - vec2(radius), radius);
+            // Rect
+            float radius = canvas_item.radius / 1000.0;
+            will_paint = roundRectSDF(pos, widget_size - vec2(radius), radius);
             break;
         }
         case 1: {
-            will_paint = circleSDF(pos, (widget_size.x / 2));
-          
+            // Circle
+            will_paint = circleSDF(pos, widget_size.x);
             break;
         }
     }
