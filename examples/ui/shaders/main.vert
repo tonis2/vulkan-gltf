@@ -7,6 +7,8 @@
 
 layout(location = 0) out vec2 widget_size;
 layout(location = 1) out vec2 out_resolution;
+layout(location = 2) out vec2 corner_pos;
+layout(location = 3) out vec2 frag_pos;
 
 layout (binding = 0) uniform uniform_matrix
 {
@@ -18,15 +20,13 @@ void main() {
     VertexBuffer vertex = vertex_buffer[gl_VertexIndex];
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
 
-    float aspect = resolution.x / resolution.y;
+    vec4 pos = ortho * vec4(calculatePos(vertex, canvas_item), 1.0, 1.0);
 
-    vec2 v_new_size = vec2(vertex.pos.x * canvas_item.width, vertex.pos.y * canvas_item.width);
-    vec2 v_new_pos = vec2(v_new_size.x - canvas_item.corner.x, v_new_size.y - canvas_item.corner.y);
+    gl_Position = pos;
+    
+    frag_pos = pos.xy;
+    corner_pos = canvas_item.corner / resolution.x;
 
-    gl_Position = ortho * vec4(v_new_pos, 1.0, 1.0);
-
-  
     widget_size = vec2(canvas_item.width, canvas_item.width) / resolution.x / 2;
-
     out_resolution = resolution;
 }
