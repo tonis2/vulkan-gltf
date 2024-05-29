@@ -16,31 +16,21 @@ const HEIGHT = 600;
 const ENABLE_VALIDATION_LAYERS = false;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-const VERTEX_WIDTH = 1;
-
-Vec2f[] vertices = {
-    {0.0, 0.0},
-    {-VERTEX_WIDTH, 0.0},
-    {0.0, -VERTEX_WIDTH},
-    {-VERTEX_WIDTH, -VERTEX_WIDTH},
-};
-
 ushort[] indices = {
     0, 1, 2,
     1, 3, 2
 };
 
 struct Drawing {
-    float width;
     uint type;
     uint radius;
+    Vec2f size;
     Vec2f corner;
     Vec3f color;
 }
 
 struct PushConstantData {
     uint draw_index;
-    vk::DeviceAddress vertices;
     vk::DeviceAddress canvas;
 }
 
@@ -68,7 +58,6 @@ DescriptorImageInfo depth_texture;
 vk::Image depth_image;
 
 MemoryBlock index_buffer;
-MemoryBlock vertex_buffer;
 MemoryBlock canvas_buffer;
 MemoryBlock uniform_buffer;
 
@@ -82,29 +71,29 @@ fn void! main()
 
     canvas.push({
         .corner = {5, 5},
-        .width = 100,
+        .size = {100, 100},
         .type = 1,
         .color = {0.5, 0.5, 0.5},
     });
 
     canvas.push({
         .corner = {150, 150},
-        .width = 150,
+        .size = {150, 150},
         .type = 1,
         .color = {0.2, 0.2, 0.5},
     });
 
     canvas.push({
-        .corner = {500, 300},
-        .width = 250,
+        .corner = Vec2f {500, 300},
+        .size = {250, 80},
         .type = 0,
         .radius = 40,
         .color = {0.1, 0.5, 0.4},
     });
 
     canvas.push({
-        .corner = {400, 50},
-        .width = 100,
+        .corner = Vec2f {400, 50},
+        .size = {100, 100},
         .type = 0,
         .radius = 5,
         .color = {0.5, 0.5, 0.5},
@@ -327,12 +316,6 @@ fn void! main()
         .size = 20_000_000
     }.build()!;
 
-    vertex_buffer = vk::bufferCreateInfoBuilder()
-          .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-          .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-          .setSize(vertices.len * Vec2f.sizeof)
-          .bind(&device_allocation)!;
-
     index_buffer = vk::bufferCreateInfoBuilder()
           .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
           .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -354,7 +337,6 @@ fn void! main()
     uniform_buffer.upload(&&uniform_data, uniform_buffer.size, device);
     canvas_buffer.upload(canvas.entries, canvas.byte_size(), device);
 
-    MemoryBlock vertex_stage_buffer = device.staging_buffer(.size = vertices.len * Vec2f.sizeof, .data = vertices, .pdevice = physical_device)!;
     MemoryBlock index_stage_buffer = device.staging_buffer(.size = indices.len * ushort.sizeof, .data = indices, .pdevice = physical_device)!;
 
     device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
@@ -363,17 +345,9 @@ fn void! main()
              .dstOffset = 0,
              .size = indices.len * ushort.sizeof
          });
-
-         vk::cmdCopyBuffer(command_buffer, vertex_stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
-            .dstOffset = 0,
-            .size = vertices.len * Vec2f.sizeof
-         });
     }!;
 
     index_stage_buffer.free(device);
-    vertex_stage_buffer.free(device);
-
     loadTextures()!;
 
     WriteDescriptorSet[] descriptorSets = {
@@ -531,7 +505,6 @@ fn void! main()
 
         PushConstantData constant_data = {
             .draw_index = 0,
-            .vertices = vertex_buffer.address,
             .canvas = canvas_buffer.address,
         };
 
