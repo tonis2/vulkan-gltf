@@ -18,9 +18,3 @@ layout( push_constant ) uniform constants
 // vec2 v_new_size = vec2(vertex.pos.x * canvas_item.width, vertex.pos.y * canvas_item.width);
 // vec2 v_new_pos = vec2(v_new_size.x - canvas_item.corner.x, v_new_size.y - canvas_item.corner.y);
 
-vec2 calculatePos(vec2 vertex, CanvasBuffer item) {
-    vec2 size = vec2(vertex.x * item.size.x, vertex.y * item.size.y);
-    vec2 pos = vec2(size.x - item.corner.x, size.y - item.corner.y);
-
-    return pos;
-}

@@ -36,21 +36,22 @@ float smoothedge(float v, vec2 resolution) {
 void main() {
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
 
-    vec2 point = gl_FragCoord.xy / resolution.x;
-    vec2 pos = (point - corner_pos - widget_size);
-    
     float will_paint = 0;
 
     switch (canvas_item.type) {
         case 0: {
+            vec2 point = gl_FragCoord.xy / resolution;
+            vec2 pos = (point - corner_pos - widget_size);
             // Rect
             float radius = canvas_item.radius / 1000.0;
             will_paint = roundRectSDF(pos, widget_size - vec2(radius), radius);
             break;
         }
         case 1: {
+            vec2 point = gl_FragCoord.xy / resolution;
+            vec2 pos = (point - corner_pos - widget_size);
             // Circle
-            will_paint = circleSDF(pos, widget_size.x);
+            will_paint = circleSDF(pos, widget_size.y);
             break;
         }
     }

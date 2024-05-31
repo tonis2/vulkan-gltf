@@ -113,13 +113,15 @@ fn void! main()
     }
 
     EventHandler eventHandler = { .window = window };
-    
     eventHandler.init();
-    // camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
+
     UniformBuffer uniform_data = {
         camera::ortho(WIDTH, 0, HEIGHT, 0, -1, 1).transpose(),
         Vec2f { WIDTH, HEIGHT },
     };
+    // Vec4f rotation = (Vec4f)uniform_data.ortho_matrix.apply(Vec4f{canvas[2].corner, 0.0, 0.0}) / -2;
+    // io::printfn("%s", rotation);
+    // io::printfn("%s", canvas[2].corner / Vec2f {WIDTH, WIDTH});
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});

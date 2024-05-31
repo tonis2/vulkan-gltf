@@ -16,6 +16,7 @@ layout (binding = 0) uniform uniform_matrix
   vec2 resolution;
 };
 
+// Default vertices, for drawing the SDF primitives on
 vec2 vertices[4] = vec2[](
     vec2(0.0, 0.0),
     vec2(-1.0, 0.0),
@@ -27,13 +28,14 @@ void main() {
     vec2 vertex = vertices[gl_VertexIndex];
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
 
-    vec4 pos = ortho * vec4(calculatePos(vertex, canvas_item), 1.0, 1.0);
+    vec4 pos = ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 1.0, 1.0);
+    vec4 corner = (ortho * vec4(canvas_item.corner, 0.0, 0.0)) / -2;
 
     gl_Position = pos;
     
     frag_pos = pos.xy;
-    corner_pos = canvas_item.corner / resolution.x;
+    corner_pos = corner.xy;
 
-    widget_size = vec2(canvas_item.size.x, canvas_item.size.y) / resolution.x / 2;
+    widget_size = canvas_item.size / resolution.xy / 2;
     out_resolution = resolution;
 }
