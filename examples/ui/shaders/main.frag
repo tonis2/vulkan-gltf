@@ -48,10 +48,10 @@ void main() {
             break;
         }
         case 1: {
-            vec2 point = gl_FragCoord.xy / resolution;
+            vec2 point = gl_FragCoord.xy / resolution.x;
             vec2 pos = (point - corner_pos - widget_size);
             // Circle
-            will_paint = circleSDF(pos, widget_size.y);
+            will_paint = circleSDF(pos, widget_size.x);
             break;
         }
     }

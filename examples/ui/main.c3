@@ -119,9 +119,9 @@ fn void! main()
         camera::ortho(WIDTH, 0, HEIGHT, 0, -1, 1).transpose(),
         Vec2f { WIDTH, HEIGHT },
     };
-    // Vec4f rotation = (Vec4f)uniform_data.ortho_matrix.apply(Vec4f{canvas[2].corner, 0.0, 0.0}) / -2;
+    // Vec4f rotation = (Vec4f)uniform_data.ortho_matrix.apply(Vec4f{canvas[1].corner, 0.0, 0.0}) / Vec4f{-2, -2.66, 1, 1};
     // io::printfn("%s", rotation);
-    // io::printfn("%s", canvas[2].corner / Vec2f {WIDTH, WIDTH});
+    // io::printfn("%s", canvas[1].corner / Vec2f {WIDTH, WIDTH});
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});

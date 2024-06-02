@@ -29,13 +29,25 @@ void main() {
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
 
     vec4 pos = ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 1.0, 1.0);
-    vec4 corner = (ortho * vec4(canvas_item.corner, 0.0, 0.0)) / -2;
 
     gl_Position = pos;
     
     frag_pos = pos.xy;
-    corner_pos = corner.xy;
 
-    widget_size = canvas_item.size / resolution.xy / 2;
+    switch (canvas_item.type) {
+        case 0: {
+            vec4 corner = (ortho * vec4(canvas_item.corner, 0.0, 0.0)) / -2;
+            corner_pos = corner.xy;
+            widget_size = canvas_item.size / resolution.xy / 2;
+            break;
+        }
+        case 1: {
+            vec4 corner = (ortho * vec4(canvas_item.corner, 0.0, 0.0)) / vec4(-2, -(2 * resolution.x / resolution.y), 1, 1);
+            corner_pos = corner.xy;
+            widget_size = canvas_item.size / resolution.x / 2;
+            break;
+        }
+    }
+
     out_resolution = resolution;
 }
