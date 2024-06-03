@@ -24,8 +24,10 @@ ushort[] indices = {
 struct Drawing {
     uint type;
     uint radius;
+    float rotation;
     Vec2f size;
     Vec2f corner;
+    Vec2f translation;
     Vec3f color;
 }
 
@@ -80,20 +82,23 @@ fn void! main()
         .corner = {150, 150},
         .size = {150, 150},
         .type = 1,
+        .rotation = camera::radians(10),
         .color = {0.2, 0.2, 0.5},
     });
 
     canvas.push({
-        .corner = Vec2f {500, 300},
-        .size = {250, 80},
+        .corner = {400, 300},
+        .size = {300, 80},
         .type = 0,
         .radius = 40,
+        .rotation = camera::radians(50),
         .color = {0.1, 0.5, 0.4},
     });
 
     canvas.push({
-        .corner = Vec2f {400, 50},
+        .corner = {400, 50},
         .size = {100, 100},
+        .rotation = camera::radians(10),
         .type = 0,
         .radius = 5,
         .color = {0.5, 0.5, 0.5},
@@ -116,12 +121,17 @@ fn void! main()
     eventHandler.init();
 
     UniformBuffer uniform_data = {
-        camera::ortho(WIDTH, 0, HEIGHT, 0, -1, 1).transpose(),
+        camera::ortho(WIDTH, 0, HEIGHT, 0, -1, 1).transpose(), 
         Vec2f { WIDTH, HEIGHT },
     };
-    // Vec4f rotation = (Vec4f)uniform_data.ortho_matrix.apply(Vec4f{canvas[1].corner, 0.0, 0.0}) / Vec4f{-2, -2.66, 1, 1};
+
+    // Drawing canvas_item = canvas[1];
+    // Vec4f rotation = (Vec4f)uniform_data.ortho_matrix.apply(Vec4f{canvas_item.size - canvas_item.corner, 0.0, 0.0});
+    // Vec4f rotation2 = (Vec4f)uniform_data.ortho_matrix.apply(Vec4f{canvas_item.corner, 1.0, 1.0});
     // io::printfn("%s", rotation);
-    // io::printfn("%s", canvas[1].corner / Vec2f {WIDTH, WIDTH});
+    // io::printfn("%s", rotation2 / -2);
+
+    // io::printfn("%s", canvas_item.corner / Vec2f {WIDTH, HEIGHT});
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
@@ -372,7 +382,7 @@ fn void! main()
                 .binding = 0,
                 .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 .descriptorCount = 1,
-                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT
             },
     }).build(device)!;
 
@@ -512,7 +522,6 @@ fn void! main()
 
         foreach (uint index, item: canvas) {
              constant_data.draw_index = index;
-             
              vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);    
              vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
         }

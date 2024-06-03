@@ -6,15 +6,9 @@
 #include "types.glsl"
 
 layout(location = 0) out vec2 widget_size;
-layout(location = 1) out vec2 out_resolution;
-layout(location = 2) out vec2 corner_pos;
-layout(location = 3) out vec2 frag_pos;
+layout(location = 1) out vec2 center_pos;
+layout(location = 2) out vec2 frag_pos;
 
-layout (binding = 0) uniform uniform_matrix
-{
-  mat4 ortho;
-  vec2 resolution;
-};
 
 // Default vertices, for drawing the SDF primitives on
 vec2 vertices[4] = vec2[](
@@ -24,30 +18,30 @@ vec2 vertices[4] = vec2[](
     vec2(-1.0, -1.0)
 );
 
+mat4 translate(vec2 data) {
+    return mat4(
+        vec4(1.0, 0.0, 0.0, 0.0),
+        vec4(0.0, 1.0, 0.0, 0.0),
+        vec4(0.0, 0.0, 1.0, 0.0),
+        vec4(data.x, data.y, 0.0, 1.0)
+    );
+}
+
 void main() {
     vec2 vertex = vertices[gl_VertexIndex];
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
+    widget_size = canvas_item.size / resolution.xy / 2;
 
-    vec4 pos = ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 1.0, 1.0);
+    vec4 vertex_pos = ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 1.0, 1.0);
+    vec2 corner = ((ortho * vec4(canvas_item.corner, 0.0, 0.0)) / -2).xy;
 
-    gl_Position = pos;
-    
-    frag_pos = pos.xy;
-
-    switch (canvas_item.type) {
-        case 0: {
-            vec4 corner = (ortho * vec4(canvas_item.corner, 0.0, 0.0)) / -2;
-            corner_pos = corner.xy;
-            widget_size = canvas_item.size / resolution.xy / 2;
-            break;
-        }
-        case 1: {
-            vec4 corner = (ortho * vec4(canvas_item.corner, 0.0, 0.0)) / vec4(-2, -(2 * resolution.x / resolution.y), 1, 1);
-            corner_pos = corner.xy;
-            widget_size = canvas_item.size / resolution.x / 2;
-            break;
-        }
+    // Rotate
+    if (canvas_item.rotation > 0) {
+        vertex_pos.xy = rotate(vertex_pos.xy, canvas_item.rotation);
     }
 
-    out_resolution = resolution;
+    center_pos = corner;
+
+    frag_pos = vertex_pos.xy;
+    gl_Position = vertex_pos;
 }
