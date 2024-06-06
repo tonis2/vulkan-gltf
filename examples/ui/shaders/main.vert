@@ -18,14 +18,14 @@ vec2 vertices[4] = vec2[](
     vec2(-1.0, -1.0)
 );
 
-mat4 translate(vec2 data) {
-    return mat4(
-        vec4(1.0, 0.0, 0.0, 0.0),
-        vec4(0.0, 1.0, 0.0, 0.0),
-        vec4(0.0, 0.0, 1.0, 0.0),
-        vec4(data.x, data.y, 0.0, 1.0)
-    );
-}
+// mat4 translate(vec2 data) {
+//     return mat4(
+//         vec4(1.0, 0.0, 0.0, 0.0),
+//         vec4(0.0, 1.0, 0.0, 0.0),
+//         vec4(0.0, 0.0, 1.0, 0.0),
+//         vec4(data.x, data.y, 0.0, 1.0)
+//     );
+// }
 
 void main() {
     vec2 vertex = vertices[gl_VertexIndex];

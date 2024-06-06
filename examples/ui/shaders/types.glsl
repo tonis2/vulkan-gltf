@@ -6,12 +6,15 @@ uint canvas_size = 3;
 
 layout (buffer_reference, std140) readonly buffer CanvasBuffer {
     uint type;
-    uint radius;
     float rotation;
+    float border_width;
+
     vec2 size;
     vec2 corner;
-    vec2 translation;
-    vec3 color;
+
+    vec4 border_radius;
+    vec4 color;
+    vec4 border_color;
 };
 
 layout( push_constant ) uniform constants

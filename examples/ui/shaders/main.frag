@@ -3,7 +3,9 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference2 : require
 
-// Created thanks to https://thebookofshaders.com/edit.php?log=160414041142
+// Code made thanks to great examples from
+// https://thebookofshaders.com/edit.php?log=160414041142
+// https://www.shadertoy.com/view/tltXDl
 
 #include "types.glsl"
 
@@ -11,13 +13,16 @@ layout(location = 0) in vec2 widget_size;
 layout(location = 1) in vec2 center_pos;
 layout(location = 2) in vec2 frag_pos;
 
-
-// layout(location = 0) in vec4 fragColor;
 layout(location = 0) out vec4 outColor;
 
-float roundRectSDF(vec2 p, vec2 size, float radius) {
-  vec2 d = abs(p) - size;
-  return min(max(d.x, d.y), 0.0) + length(max(d,0.0))- radius;
+vec4 fillColor = vec4(0.0, 0.0, 0.0, 1.0);
+
+float roundedBoxSDF(vec2 CenterPosition, vec2 Size, vec4 Radius) {
+    Radius.xy = (CenterPosition.x>0.0)?Radius.xy : Radius.zw;
+    Radius.x  = (CenterPosition.y>0.0)?Radius.x  : Radius.y;
+    
+    vec2 q = abs(CenterPosition)-Size+Radius.x;
+    return min(max(q.x,q.y),0.0) + length(max(q,0.0)) - Radius.x;
 }
 
 float ring(vec2 p, float radius, float width) {
@@ -29,16 +34,10 @@ float circleSDF(vec2 center, float radius)
     return length(center) - radius;
 }
 
-float smoothedge(float v, vec2 resolution) {
-    return smoothstep(0.0, 1.0 / resolution.x, v);
-}
-
 void main() {
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
-    vec2 aspect = vec2(resolution.x / resolution.y, 1.0);
-    
-    float will_paint = 0;
 
+    vec2 aspect = vec2(resolution.x / resolution.y, 1.0);
     vec2 point = gl_FragCoord.xy / resolution.xy;
 
     if (canvas_item.rotation > 0) {
@@ -48,25 +47,27 @@ void main() {
         point += origin;
     }
 
-
     point -= center_pos;
+    point -= widget_size;
+
+    float distance = 0;
 
     switch (canvas_item.type) {
         case 0: {
-            // Rect
-            float radius = canvas_item.radius / 1000.0;
-            will_paint = roundRectSDF(point - widget_size, widget_size - vec2(radius), radius);
+            distance = roundedBoxSDF(point, widget_size, canvas_item.border_radius / 100.0);
             break;
         }
         case 1: {
             // Circle
-            will_paint = circleSDF(point * aspect - widget_size * aspect, widget_size.x * aspect.x);
+            distance = circleSDF(point * aspect, widget_size.x * aspect.x);
             break;
         }
     }
 
-    will_paint = smoothedge(will_paint, widget_size);
-	// coloring
-    vec4 col = (will_paint > 0) ? vec4(0.5, 0.0, 0.5, 0.0) : vec4(canvas_item.color, 1.0);
-    outColor = col;
+    float border_size = canvas_item.border_width / 100.0;
+    float borderAlpha = smoothstep(border_size - 0.002, border_size, abs(distance));
+    float smoothedAlpha =  smoothstep(0.0, 1.0 / resolution.x, distance);
+
+    vec4 borderInfo = mix(canvas_item.border_color, canvas_item.color, borderAlpha);
+    outColor = mix(borderInfo, fillColor, smoothedAlpha);
 }

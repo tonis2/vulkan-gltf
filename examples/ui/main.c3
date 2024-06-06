@@ -23,12 +23,15 @@ ushort[] indices = {
 
 struct Drawing {
     uint type;
-    uint radius;
     float rotation;
+    float border_width;
+
     Vec2f size;
     Vec2f corner;
-    Vec2f translation;
-    Vec3f color;
+
+    Vec4f border_radius;
+    Vec4f color;
+    Vec4f border_color;
 }
 
 struct PushConstantData {
@@ -72,36 +75,44 @@ fn void! main()
     defer canvas.free();
 
     canvas.push({
+        .type = 1,
         .corner = {5, 5},
         .size = {100, 100},
-        .type = 1,
-        .color = {0.5, 0.5, 0.5},
+        .color = {0.5, 0.5, 0.5, 1.0},
     });
 
     canvas.push({
+        .type = 1,
         .corner = {150, 150},
         .size = {150, 150},
-        .type = 1,
         .rotation = camera::radians(10),
-        .color = {0.2, 0.2, 0.5},
+        .color = {0.2, 0.2, 0.5, 1.0},
     });
 
     canvas.push({
+        .type = 0,
         .corner = {400, 300},
         .size = {300, 80},
-        .type = 0,
-        .radius = 40,
+
+        .border_width = 1.0,
+        .border_color = {1.0, 1.0, 1.0, 1.0},
+        .border_radius = {1.0, 1.0, 1.0, 1.0},
+
         .rotation = camera::radians(50),
-        .color = {0.1, 0.5, 0.4},
+        .color = {0.1, 0.5, 0.4, 1.0},
     });
 
     canvas.push({
+        .type = 0,
         .corner = {400, 50},
         .size = {100, 100},
         .rotation = camera::radians(10),
-        .type = 0,
-        .radius = 5,
-        .color = {0.5, 0.5, 0.5},
+
+        .border_width = 0.5,
+        .border_color = {0.0, 0.5, 0.6, 1.0},
+        .border_radius = {5.0, 5.0, 1.0, 1.0},
+
+        .color = {0.5, 0.5, 0.5, 1.0},
     });
 
     glfw::init();
@@ -124,14 +135,6 @@ fn void! main()
         camera::ortho(WIDTH, 0, HEIGHT, 0, -1, 1).transpose(), 
         Vec2f { WIDTH, HEIGHT },
     };
-
-    // Drawing canvas_item = canvas[1];
-    // Vec4f rotation = (Vec4f)uniform_data.ortho_matrix.apply(Vec4f{canvas_item.size - canvas_item.corner, 0.0, 0.0});
-    // Vec4f rotation2 = (Vec4f)uniform_data.ortho_matrix.apply(Vec4f{canvas_item.corner, 1.0, 1.0});
-    // io::printfn("%s", rotation);
-    // io::printfn("%s", rotation2 / -2);
-
-    // io::printfn("%s", canvas_item.corner / Vec2f {WIDTH, HEIGHT});
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
