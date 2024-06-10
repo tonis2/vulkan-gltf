@@ -19,8 +19,6 @@ layout(location = 2) in vec2 tex_pos;
 layout(location = 0) out vec4 outColor;
 
 
-
-
 float roundedBoxSDF(vec2 center, vec2 size, vec4 radius) {
     radius.xy = (center.x > 0.0) ? radius.xy : radius.zw;
     radius.x  = (center.y > 0.0) ? radius.x  : radius.y;

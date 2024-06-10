@@ -83,7 +83,7 @@ MemoryBlock uniform_buffer;
 vk::Allocation local_allocation;
 vk::Allocation device_allocation;
 
-TextureManager textures;
+DescriptorImages textures;
 
 fn void! main()
 {
@@ -106,8 +106,6 @@ fn void! main()
     //     .color = {0.2, 0.2, 0.5, 1.0},
     //     .texture_id = -1,
     // });
-
-
 
     canvas.push({
         .type = 0,
@@ -360,6 +358,7 @@ fn void! main()
         .size = 50_000_000
     }.build()!;
 
+    loadTextures()!;
     // Allocation where data can be changed from CPU
     local_allocation = vk::Allocation {
         .device = device,
@@ -401,7 +400,6 @@ fn void! main()
     }!;
 
     index_stage_buffer.free(device);
-    loadTextures()!;
 
     WriteDescriptorSet[] descriptorSets = {
         vk::writeDescriptorSetBuilder()
@@ -417,7 +415,7 @@ fn void! main()
         vk::writeDescriptorSetBuilder()
         .setDstBinding(1)
         .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-        .setImageInfo(textures.descriptors.array_view()),
+        .setImageInfo(textures.array_view()),
     };
 
     DescriptorSetLayout descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
@@ -433,7 +431,7 @@ fn void! main()
                 .binding = 1,
                 .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount = (uint)textures.len(),
-                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT
             },
     }).build(device)!;
 

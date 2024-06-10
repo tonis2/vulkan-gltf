@@ -4,7 +4,7 @@
 
 uint canvas_size = 3;
 
-layout (buffer_reference, std140) readonly buffer CanvasBuffer {
+layout (buffer_reference, std430) readonly buffer CanvasBuffer {
     uint type;
 
     int texture_id;
@@ -19,12 +19,15 @@ layout (buffer_reference, std140) readonly buffer CanvasBuffer {
     vec4 border_color;
 };
 
+layout (buffer_reference, std430) readonly buffer TextureInfo {
+   vec2 size;
+};
+
 layout( push_constant ) uniform constants
 {
     uint draw_index;
     CanvasBuffer canvas_buffer;
 };
-
 
 layout (binding = 0) uniform uniform_matrix
 {

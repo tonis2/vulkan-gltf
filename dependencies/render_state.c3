@@ -1,31 +1,19 @@
 module pipelines;
-
+import std::math;
 import std::io;
 import std::collections;
 import vk;
 import std::encoding::json;
 import stb;
 
+def DescriptorImages = List(<DescriptorImageInfo>);
+
 fault TextureError
 {
     FILE_NOT_FOUND,
 }
 
-struct Texture {
-    float width;
-    float height;
-}
-
-struct TextureManager {
-    List(<DescriptorImageInfo>) descriptors;
-    List(<Texture>) textures;
-}
-
-fn usz TextureManager.len(self) {
-    return self.descriptors.len();
-}
-
-fn void! TextureManager.loadPath(&self, String path, vk::Allocation* allocator, QueueFamily queue) {
+fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator, QueueFamily queue) {
     vk::Device device = allocator.device;
     vk::PhysicalDevice pdevice = allocator.pdevice; 
 
@@ -151,17 +139,7 @@ fn void! TextureManager.loadPath(&self, String path, vk::Allocation* allocator, 
                     .setImage(texture_image)
                     .build(device)!;
 
-
-    self.descriptors.push(texture);
-    self.textures.push({
-        .width = image_data.width,
-        .height = image_data.height
-    });
-}
-
-fn void TextureManager.free(self) {
-    self.descriptors.free();
-    self.textures.free();
+    self.push(texture);
 }
 
 struct RenderState {
