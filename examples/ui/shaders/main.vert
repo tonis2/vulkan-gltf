@@ -39,10 +39,11 @@ void main() {
     // Rotate
     if (canvas_item.rotation > 0) {
         vertex_pos.xy = rotate(vertex_pos.xy, canvas_item.rotation);
-        tex_pos.xy = rotate(tex_pos.xy, canvas_item.rotation);
     }
 
+    // tex_pos.xy / vec2(1.0, 1.3) - widget_size;
+    vec2 scaled_uv = ((tex_pos.xy - 0.5) * vec2(0.9, 0.8) + 0.5) - widget_size ;
     center_pos = corner;
-    texture_pos = tex_pos.xy - widget_size ;
+    texture_pos = scaled_uv;
     gl_Position = vertex_pos;
 }
