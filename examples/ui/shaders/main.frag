@@ -2,6 +2,7 @@
 #extension GL_ARB_separate_shader_objects : enable
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_nonuniform_qualifier : require
 
 // Code made thanks to great examples from
 // https://thebookofshaders.com/edit.php?log=160414041142
@@ -9,20 +10,23 @@
 
 #include "types.glsl"
 
+layout(binding = 1) uniform sampler2D materialSamplers[];
+
 layout(location = 0) in vec2 widget_size;
 layout(location = 1) in vec2 center_pos;
-layout(location = 2) in vec2 frag_pos;
+layout(location = 2) in vec2 tex_pos;
 
 layout(location = 0) out vec4 outColor;
 
+
 vec4 fillColor = vec4(0.0, 0.0, 0.0, 1.0);
 
-float roundedBoxSDF(vec2 CenterPosition, vec2 Size, vec4 Radius) {
-    Radius.xy = (CenterPosition.x>0.0)?Radius.xy : Radius.zw;
-    Radius.x  = (CenterPosition.y>0.0)?Radius.x  : Radius.y;
+float roundedBoxSDF(vec2 center, vec2 size, vec4 radius) {
+    radius.xy = (center.x > 0.0) ? radius.xy : radius.zw;
+    radius.x  = (center.y > 0.0) ? radius.x  : radius.y;
     
-    vec2 q = abs(CenterPosition)-Size+Radius.x;
-    return min(max(q.x,q.y),0.0) + length(max(q,0.0)) - Radius.x;
+    vec2 q = abs(center) - size + radius.x;
+    return min(max(q.x,q.y),0.0) + length(max(q,0.0)) - radius.x;
 }
 
 float ring(vec2 p, float radius, float width) {
@@ -30,7 +34,7 @@ float ring(vec2 p, float radius, float width) {
 }
 
 float circleSDF(vec2 center, float radius)
-{ 
+{
     return length(center) - radius;
 }
 
@@ -64,10 +68,12 @@ void main() {
         }
     }
 
+    vec4 canvasColor = canvas_item.texture_id > -1 ? texture(materialSamplers[canvas_item.texture_id], tex_pos) : canvas_item.color;
+
     float border_size = canvas_item.border_width / 100.0;
     float borderAlpha = smoothstep(border_size - 0.002, border_size, abs(distance));
     float smoothedAlpha =  smoothstep(0.0, 1.0 / resolution.x, distance);
 
-    vec4 borderInfo = mix(canvas_item.border_color, canvas_item.color, borderAlpha);
-    outColor = mix(borderInfo, fillColor, smoothedAlpha);
+    vec4 widgerColor = mix(canvas_item.border_color, canvasColor, borderAlpha);
+    outColor = mix(widgerColor, fillColor, smoothedAlpha);
 }

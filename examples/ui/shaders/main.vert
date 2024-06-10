@@ -7,7 +7,7 @@
 
 layout(location = 0) out vec2 widget_size;
 layout(location = 1) out vec2 center_pos;
-layout(location = 2) out vec2 frag_pos;
+layout(location = 2) out vec2 tex_pos;
 
 
 // Default vertices, for drawing the SDF primitives on
@@ -41,7 +41,6 @@ void main() {
     }
 
     center_pos = corner;
-
-    frag_pos = vertex_pos.xy;
+    tex_pos = (ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 0.0, 0.0)).xy - widget_size;
     gl_Position = vertex_pos;
 }

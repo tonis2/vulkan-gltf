@@ -3,7 +3,6 @@ import vk;
 import glfw;
 import stb;
 import camera;
-
 import std::math;
 
 import std::collections::list;
@@ -16,13 +15,29 @@ const HEIGHT = 600;
 const ENABLE_VALIDATION_LAYERS = false;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
+TextureList material_textures;
+
 ushort[] indices = {
     0, 1, 2,
     1, 3, 2
 };
 
+String[] textures = {
+    "assets/textures/book.png",
+    "assets/textures/pizza.png",
+    "assets/textures/tree.png",
+    "assets/textures/spirited.png",
+    "assets/textures/spirited_bg.jpg",
+    "assets/textures/howl_bg.jpg",
+    "assets/textures/howl.png",
+    "assets/textures/mono.png",
+    "assets/textures/mono_bg.jpg",
+};
+
 struct Drawing {
     uint type;
+
+    int texture_id;
     float rotation;
     float border_width;
 
@@ -79,27 +94,48 @@ fn void! main()
         .corner = {5, 5},
         .size = {100, 100},
         .color = {0.5, 0.5, 0.5, 1.0},
+        .texture_id = -1,
     });
 
+    // canvas.push({
+    //     .type = 1,
+    //     .corner = {150, 150},
+    //     .size = {150, 150},
+    //     .rotation = camera::radians(10),
+    //     .color = {0.2, 0.2, 0.5, 1.0},
+    //     .texture_id = -1,
+    // });
+
+
+
     canvas.push({
-        .type = 1,
-        .corner = {150, 150},
-        .size = {150, 150},
-        .rotation = camera::radians(10),
-        .color = {0.2, 0.2, 0.5, 1.0},
+        .type = 0,
+        .corner = {50, 50},
+        .size = {500, 500},
+
+        // .border_width = 1.0,
+        // .border_color = {1.0, 1.0, 1.0, 1.0},
+        // .border_radius = {1.0, 1.0, 1.0, 1.0},
+        
+        // .rotation = camera::radians(50),
+        .color = {0.1, 0.5, 0.4, 1.0},
+
+        .texture_id = 4,
     });
 
     canvas.push({
         .type = 0,
-        .corner = {400, 300},
-        .size = {300, 80},
+        .corner = {100, 100},
+        .size = {400, 400},
 
-        .border_width = 1.0,
-        .border_color = {1.0, 1.0, 1.0, 1.0},
-        .border_radius = {1.0, 1.0, 1.0, 1.0},
-
-        .rotation = camera::radians(50),
+        // .border_width = 1.0,
+        // .border_color = {1.0, 1.0, 1.0, 1.0},
+        // .border_radius = {1.0, 1.0, 1.0, 1.0},
+        
+        // .rotation = camera::radians(50),
         .color = {0.1, 0.5, 0.4, 1.0},
+
+        .texture_id = 3,
     });
 
     canvas.push({
@@ -113,6 +149,7 @@ fn void! main()
         .border_radius = {5.0, 5.0, 1.0, 1.0},
 
         .color = {0.5, 0.5, 0.5, 1.0},
+        .texture_id = -1,
     });
 
     glfw::init();
@@ -168,9 +205,9 @@ fn void! main()
     .setEnabledExtensionNames(extensions.array_view());
 
     DebugUtilsMessengerCreateInfoEXT debug_info = vk::debugUtilsMessengerCreateInfoEXTBuilder()
-             .setMessageSeverity(vk::DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-             .setMessageType(vk::DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
-             .setPfnUserCallback((PFN_vkDebugUtilsMessengerCallbackEXT)&vk::debugCallback);
+        .setMessageSeverity(vk::DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+        .setMessageType(vk::DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
+        .setPfnUserCallback((PFN_vkDebugUtilsMessengerCallbackEXT)&vk::debugCallback);
 
     // Debug enabled
     if (ENABLE_VALIDATION_LAYERS) {
@@ -373,9 +410,13 @@ fn void! main()
             {
                 .buffer = uniform_buffer.buffer,
                 .offset = 0,
-                .range = uniform_buffer.size,
+                .range = UniformBuffer.sizeof,
             },
         }),
+        vk::writeDescriptorSetBuilder()
+        .setDstBinding(1)
+        .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+        .setImageInfo(material_textures.array_view()),
     };
 
     DescriptorSetLayout descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
@@ -386,6 +427,12 @@ fn void! main()
                 .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 .descriptorCount = 1,
                 .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT
+            },
+            {
+                .binding = 1,
+                .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = (uint)material_textures.len(),
+                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
             },
     }).build(device)!;
 
@@ -524,9 +571,9 @@ fn void! main()
         };
 
         foreach (uint index, item: canvas) {
-             constant_data.draw_index = index;
-             vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);    
-             vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
+            constant_data.draw_index = index;
+            vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);    
+            vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
         }
 
         vk::cmdEndRenderingKHR(command_buffer);
@@ -678,4 +725,132 @@ fn void! loadTextures() {
            &imageMemoryBarrier
        );
     }!;
+
+
+    foreach (source : textures) {
+        Format image_format = vk::FORMAT_R8G8B8A8_UNORM;
+        DescriptorImageInfo texture = { .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+
+        stb::Image! image_data = stb::loadImage(source, stb::Channel.STBI_RGB_ALPHA);
+
+        defer image_data.free()!!;
+
+        if (catch err = image_data) {
+            io::printfn("Failed loading image");
+            return;
+        }
+
+        vk::Image texture_image = vk::imageCreateInfoBuilder()
+            .setImageType(vk::IMAGE_TYPE_2D)
+            .setExtent({.width = image_data.width, .height = image_data.height, .depth = 1 })
+            .setMipLevels(1)
+            .setArrayLayers(1)
+            .setSamples(vk::SAMPLE_COUNT_1_BIT)
+            .setUsage(vk::IMAGE_USAGE_TRANSFER_DST_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
+            .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
+            .setTiling(vk::IMAGE_TILING_OPTIMAL)
+            .setFormat(image_format)
+            .build(device)!;
+            texture_image.bind(&device_allocation)!;
+
+        MemoryBlock stage_image = device.staging_buffer(.size = (usz)image_data.width * image_data.height * 4, .data = image_data.pixels, .pdevice = physical_device)!;
+        defer stage_image.free(device);
+
+        vk::ImageMemoryBarrier2 transfer_barrier = {
+            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .srcStageMask = vk::PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            .dstStageMask = vk::PIPELINE_STAGE_TRANSFER_BIT,
+            .srcAccessMask = 0,
+            .dstAccessMask = vk::ACCESS_2_TRANSFER_WRITE_BIT,
+            .image = texture_image,
+            .oldLayout = vk::IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .subresourceRange = {
+                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+        }};
+
+        vk::ImageMemoryBarrier2 finalize_barrier = {
+            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .srcStageMask = vk::PIPELINE_STAGE_TRANSFER_BIT,
+            .dstStageMask = vk::PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .srcAccessMask = vk::ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstAccessMask = vk::ACCESS_2_SHADER_READ_BIT,
+            .image = texture_image,
+            .oldLayout = vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .subresourceRange = {
+                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            }
+        };
+
+        device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
+           
+            vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
+            .setImageMemoryBarriers({ transfer_barrier }));
+
+            BufferImageCopy bufferCopyRegion = {
+                .bufferOffset = 0,
+                .bufferRowLength = 0,
+                .bufferImageHeight = 0,
+                .imageSubresource = {
+                    .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel = 0,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+                .imageOffset = {0, 0, 0},
+                .imageExtent = {.width = image_data.width, .height = image_data.height, .depth = 1 }
+            };
+
+            vk::cmdCopyBufferToImage(
+                command_buffer,
+                stage_image.buffer,
+                texture_image,
+                vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1,
+                &bufferCopyRegion
+            );
+
+            vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
+            .setImageMemoryBarriers({ finalize_barrier }));
+        }!;
+
+        texture.sampler = vk::samplerCreateInfoBuilder()
+                            .setMagFilter(vk::FILTER_LINEAR)
+                            .setMinFilter(vk::FILTER_LINEAR)
+                            .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+                            .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+                            .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+                            .setMipLodBias(0.0)
+                            .setMinLod(0.0)
+                            .setMaxLod(1.0)
+                            .setMaxAnisotropy(1.0)
+                            .setAnisotropyEnable(vk::FALSE)
+                            .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
+                            .build(device)!;
+
+        texture.imageView = vk::imageViewCreateInfoBuilder()
+                        .setViewType(vk::IMAGE_VIEW_TYPE_2D)
+                        .setFormat(image_format)
+                        .setSubresourceRange({
+                            .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                            .baseMipLevel = 0,
+                            .baseArrayLayer = 0,
+                            .layerCount = 1,
+                            .levelCount = 1,
+                        })
+                        .setImage(texture_image)
+                        .build(device)!;
+
+
+        material_textures.push(texture);
+    }
 }

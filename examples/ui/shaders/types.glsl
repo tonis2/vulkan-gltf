@@ -6,6 +6,8 @@ uint canvas_size = 3;
 
 layout (buffer_reference, std140) readonly buffer CanvasBuffer {
     uint type;
+
+    int texture_id;
     float rotation;
     float border_width;
 
