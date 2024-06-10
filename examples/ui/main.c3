@@ -123,20 +123,20 @@ fn void! main()
         .texture_id = 4,
     });
 
-    canvas.push({
-        .type = 0,
-        .corner = {100, 100},
-        .size = {400, 400},
+    // canvas.push({
+    //     .type = 0,
+    //     .corner = {100, 100},
+    //     .size = {400, 400},
 
-        // .border_width = 1.0,
-        // .border_color = {1.0, 1.0, 1.0, 1.0},
-        // .border_radius = {1.0, 1.0, 1.0, 1.0},
+    //     // .border_width = 1.0,
+    //     // .border_color = {1.0, 1.0, 1.0, 1.0},
+    //     // .border_radius = {1.0, 1.0, 1.0, 1.0},
         
-        // .rotation = camera::radians(50),
-        .color = {0.1, 0.5, 0.4, 1.0},
+    //     // .rotation = camera::radians(50),
+    //     .color = {0.1, 0.5, 0.4, 1.0},
 
-        .texture_id = 3,
-    });
+    //     .texture_id = 3,
+    // });
 
     canvas.push({
         .type = 0,

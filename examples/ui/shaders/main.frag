@@ -19,7 +19,7 @@ layout(location = 2) in vec2 tex_pos;
 layout(location = 0) out vec4 outColor;
 
 
-vec4 fillColor = vec4(0.0, 0.0, 0.0, 1.0);
+
 
 float roundedBoxSDF(vec2 center, vec2 size, vec4 radius) {
     radius.xy = (center.x > 0.0) ? radius.xy : radius.zw;
@@ -68,6 +68,9 @@ void main() {
         }
     }
 
+
+    vec4 fillColor = vec4(0.0, 0.0, 0.0, 0.0);
+    
     vec4 canvasColor = canvas_item.texture_id > -1 ? texture(materialSamplers[canvas_item.texture_id], tex_pos) : canvas_item.color;
 
     float border_size = canvas_item.border_width / 100.0;

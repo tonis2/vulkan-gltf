@@ -7,7 +7,7 @@
 
 layout(location = 0) out vec2 widget_size;
 layout(location = 1) out vec2 center_pos;
-layout(location = 2) out vec2 tex_pos;
+layout(location = 2) out vec2 texture_pos;
 
 
 // Default vertices, for drawing the SDF primitives on
@@ -33,14 +33,16 @@ void main() {
     widget_size = canvas_item.size / resolution.xy / 2;
 
     vec4 vertex_pos = ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 1.0, 1.0);
+    vec4 tex_pos = ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 0.0, 0.0);
     vec2 corner = ((ortho * vec4(canvas_item.corner, 0.0, 0.0)) / -2).xy;
 
     // Rotate
     if (canvas_item.rotation > 0) {
         vertex_pos.xy = rotate(vertex_pos.xy, canvas_item.rotation);
+        tex_pos.xy = rotate(tex_pos.xy, canvas_item.rotation);
     }
 
     center_pos = corner;
-    tex_pos = (ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 0.0, 0.0)).xy - widget_size;
+    texture_pos = tex_pos.xy - widget_size ;
     gl_Position = vertex_pos;
 }
