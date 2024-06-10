@@ -48,8 +48,8 @@ void main() {
     // Has texture attached
     if (canvas_item.texture_id > -1) {
         // Gets texture size
-        ivec2 texture_size = textureSize(materialSamplers[canvas_item.texture_id], 0);
+        vec2 texture_size = 1.0 / textureSize(materialSamplers[canvas_item.texture_id], 0);
 
-        texture_pos = ((gl_Position.xy * 0.5) + 0.5) * resolution / texture_size;
+        texture_pos = gl_Position.xy;
     }
 }

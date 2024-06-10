@@ -1,9 +1,6 @@
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_scalar_block_layout : require
 
-
-uint canvas_size = 3;
-
 layout (buffer_reference, std430) readonly buffer CanvasBuffer {
     uint type;
 

@@ -113,11 +113,11 @@ fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator
     }!;
 
     texture.sampler = vk::samplerCreateInfoBuilder()
-                        .setMagFilter(vk::FILTER_LINEAR)
-                        .setMinFilter(vk::FILTER_LINEAR)
-                        .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
-                        .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
-                        .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+                        .setMagFilter(vk::FILTER_NEAREST)
+                        .setMinFilter(vk::FILTER_NEAREST)
+                        .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+                        .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+                        .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_REPEAT)
                         .setMipLodBias(0.0)
                         .setMinLod(0.0)
                         .setMaxLod(1.0)
