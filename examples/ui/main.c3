@@ -10,8 +10,8 @@ import pipelines;
 import std::time;
 import vge;
 
-const WIDTH = 800;
-const HEIGHT = 600;
+const WIDTH = 1300;
+const HEIGHT = 900;
 const ENABLE_VALIDATION_LAYERS = false;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -21,14 +21,17 @@ ushort[] indices = {
     1, 3, 2
 };
 
-String[] images = {
+String[] icons = {
     "assets/textures/book.png",
     "assets/textures/pizza.png",
     "assets/textures/tree.png",
+};
+
+String[] images = {
     "assets/textures/spirited.png",
     "assets/textures/spirited_bg.jpg",
-    "assets/textures/howl_bg.jpg",
     "assets/textures/howl.png",
+    "assets/textures/howl_bg.jpg",
     "assets/textures/mono.png",
     "assets/textures/mono_bg.jpg",
 };
@@ -90,6 +93,32 @@ fn void! main()
     List(<Drawing>) canvas;
     defer canvas.free();
 
+    for (uint i = 0; i < 6; i += 2) {
+        float padding = 20.0;
+        Vec2f box_size = {WIDTH / 3.5, HEIGHT / 1.5};
+        float offset = padding + i * (box_size.x / 2 + padding);
+
+        canvas.push({
+            .type = 0,
+            .corner = {offset, box_size.y / 3},
+            .size = {box_size.x, box_size.y},
+            .border_width = 1.0,
+            .border_color = {1.0, 1.0, 1.0, 1.0},
+            .border_radius = {1.0, 1.0, 1.0, 1.0},
+            .color = {0.1, 0.5, 0.4, 1.0},
+            .texture_id = i + 1,
+        });
+
+        float char_offset = padding + i * (box_size.x / 2 + padding);
+
+        canvas.push({
+            .type = 0,
+            .corner = {char_offset, box_size.y / 3},
+            .size = {box_size.x, box_size.y},
+            .texture_id = i,
+        });
+    }
+
     canvas.push({
         .type = 1,
         .corner = {5, 5},
@@ -98,48 +127,9 @@ fn void! main()
         .texture_id = -1,
     });
 
-    // canvas.push({
-    //     .type = 1,
-    //     .corner = {150, 150},
-    //     .size = {150, 150},
-    //     .rotation = camera::radians(10),
-    //     .color = {0.2, 0.2, 0.5, 1.0},
-    //     .texture_id = -1,
-    // });
-
     canvas.push({
         .type = 0,
-        .corner = {50, 50},
-        .size = {500, 500},
-
-        .border_width = 1.0,
-        .border_color = {1.0, 1.0, 1.0, 1.0},
-        .border_radius = {1.0, 1.0, 1.0, 1.0},
-        
-        // .rotation = camera::radians(50),
-        .color = {0.1, 0.5, 0.4, 1.0},
-
-        .texture_id = 4,
-    });
-
-    // canvas.push({
-    //     .type = 0,
-    //     .corner = {100, 100},
-    //     .size = {400, 400},
-
-    //     // .border_width = 1.0,
-    //     // .border_color = {1.0, 1.0, 1.0, 1.0},
-    //     // .border_radius = {1.0, 1.0, 1.0, 1.0},
-        
-    //     // .rotation = camera::radians(50),
-    //     .color = {0.1, 0.5, 0.4, 1.0},
-
-    //     .texture_id = 3,
-    // });
-
-    canvas.push({
-        .type = 0,
-        .corner = {400, 50},
+        .corner = {400, 30},
         .size = {100, 100},
         .rotation = camera::radians(10),
 

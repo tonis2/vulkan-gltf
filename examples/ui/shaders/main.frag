@@ -66,9 +66,7 @@ void main() {
         }
     }
 
-
     vec4 fillColor = vec4(0.0, 0.0, 0.0, 0.0);
-    
     vec4 canvasColor = canvas_item.texture_id > -1 ? texture(materialSamplers[canvas_item.texture_id], tex_pos) : canvas_item.color;
 
     float border_size = canvas_item.border_width / 100.0;

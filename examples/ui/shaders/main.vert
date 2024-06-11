@@ -49,7 +49,6 @@ void main() {
     if (canvas_item.texture_id > -1) {
         // Gets texture size
         vec2 texture_size = 1.0 / textureSize(materialSamplers[canvas_item.texture_id], 0);
-
-        texture_pos = gl_Position.xy;
+        texture_pos = abs(vertex);
     }
 }
