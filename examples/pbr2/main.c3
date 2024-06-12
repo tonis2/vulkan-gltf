@@ -51,7 +51,7 @@ List(<ushort>) indices;
 List(<Matrix4f>) joint_data;
 Animations animations;
 
-TextureList material_textures;
+DescriptorImages material_textures;
 
 vk::Format depth_format;
 DescriptorImageInfo depth_texture;
