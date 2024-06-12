@@ -14,11 +14,13 @@ layout(binding = 1) uniform sampler2D materialSamplers[];
 
 
 // Default vertices, for drawing the SDF primitives on
-vec2 vertices[4] = vec2[](
+vec2 vertices[6] = vec2[](
     vec2(0.0, 0.0),
-    vec2(-1.0, 0.0),
-    vec2(0.0, -1.0),
-    vec2(-1.0, -1.0)
+    vec2(1.0, 0.0),
+    vec2(1.0, 1.0),
+    vec2(1.0, 1.0),
+    vec2(0.0, 1.0),
+    vec2(0.0, 0.0)
 );
 
 // mat4 translate(vec2 data) {
@@ -32,18 +34,19 @@ vec2 vertices[4] = vec2[](
 
 void main() {
     vec2 resolution = vec2(1300, 900);
+    float aspect = resolution.x / resolution.y;
+
     vec2 vertex = vertices[gl_VertexIndex];
-    
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
+    vec2 vertex_pos = (vertex * canvas_item.size + canvas_item.corner);
+    // vec2 texture_pos = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+    // vec4 vertex = vec4(texture_pos * 2.0f + -1.0f, 0.0f, 1.0f);
+    
     widget_size = vec2(1.0);
-    // texture_pos = abs(vertex);
+    texture_pos = abs(vertex);
 
-
-    // gl_Position = projection * view * canvas_item.transform * vec4(vertex, 1.0, 1.0);
-
-    texture_pos = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-    gl_Position = vec4(texture_pos * 2.0f + -1.0f, 0.0f, 1.0f);
-
+    gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos, 0.0, 1.0);
+    gl_Position -= vec4(1.0, 1.0, 0, 0);
     // Rotate
     // if (canvas_item.rotation > 0) {
     //     gl_Position.xy = rotate(gl_Position.xy, canvas_item.rotation);

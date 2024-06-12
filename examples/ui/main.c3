@@ -79,7 +79,6 @@ vk::Format depth_format;
 DescriptorImageInfo depth_texture;
 vk::Image depth_image;
 
-MemoryBlock index_buffer;
 MemoryBlock canvas_buffer;
 MemoryBlock uniform_buffer;
 
@@ -92,7 +91,7 @@ fn void! main()
 {
 
     Vec2f resolution = {WIDTH, HEIGHT};
-    camera::Camera camera = camera::new(.eye = {0.0, 0.0, 2.0}, .aspect = WIDTH/HEIGHT, .min_zoom = 0.1, .max_zoom = 100);
+    camera::Camera camera = camera::new(.eye = {0.0, 0.0, 1.0}, .aspect = WIDTH/HEIGHT, .min_zoom = 0.1, .max_zoom = 10);
 
     // UniformBuffer uniform_data = {
     //     camera.perspective.mul(camera.view), 
@@ -132,27 +131,27 @@ fn void! main()
 
     canvas.push({
         .type = 1,
-        .corner = {5, 5} / resolution,
-        .size = {100, 100} / resolution,
+        .corner = {100.0, 100.0} / resolution,
+        .size = {650, 100} / resolution,
         .color = {0.5, 0.5, 0.5, 1.0},
         .texture_id = -1,
         .transform = MATRIX4F_IDENTITY
     });
 
-    canvas.push({
-        .type = 0,
-        .corner = {400, 30} / resolution,
-        .size = {100, 100} / resolution,
-        // .rotation = camera::radians(10),
+    // canvas.push({
+    //     .type = 0,
+    //     .corner = {400, 30} / resolution,
+    //     .size = {100, 100} / resolution,
+    //     // .rotation = camera::radians(10),
 
-        .border_width = 0.5,
-        .border_color = {0.0, 0.5, 0.6, 1.0},
-        .border_radius = {5.0, 5.0, 1.0, 1.0},
+    //     .border_width = 0.5,
+    //     .border_color = {0.0, 0.5, 0.6, 1.0},
+    //     .border_radius = {5.0, 5.0, 1.0, 1.0},
 
-        .color = {0.5, 0.5, 0.5, 1.0},
-        .texture_id = -1,
-        .transform = MATRIX4F_IDENTITY
-    });
+    //     .color = {0.5, 0.5, 0.5, 1.0},
+    //     .texture_id = -1,
+    //     .transform = MATRIX4F_IDENTITY
+    // });
 
     glfw::init();
     glfw::windowHint(glfw::GLFW_CLIENT_API, glfw::GLFW_NO_API);
@@ -366,12 +365,6 @@ fn void! main()
         .size = 20_000_000
     }.build()!;
 
-    index_buffer = vk::bufferCreateInfoBuilder()
-          .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-          .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-          .setSize(indices.len * ushort.sizeof)
-          .bind(&device_allocation)!;
-
     uniform_buffer = vk::bufferCreateInfoBuilder()
         .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
         .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -386,18 +379,6 @@ fn void! main()
 
     uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof, device);
     canvas_buffer.upload(canvas.entries, canvas.byte_size(), device);
-
-    MemoryBlock index_stage_buffer = device.staging_buffer(.size = indices.len * ushort.sizeof, .data = indices, .pdevice = physical_device)!;
-
-    device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
-         vk::cmdCopyBuffer(command_buffer, index_stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
-             .srcOffset = 0,
-             .dstOffset = 0,
-             .size = indices.len * ushort.sizeof
-         });
-    }!;
-
-    index_stage_buffer.free(device);
 
     WriteDescriptorSet[] descriptorSets = {
         vk::writeDescriptorSetBuilder()
@@ -560,7 +541,7 @@ fn void! main()
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
-        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        // vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         PushConstantData constant_data = {
             .draw_index = 0,
@@ -570,7 +551,7 @@ fn void! main()
         foreach (uint index, item: canvas) {
             constant_data.draw_index = index;
             vk::cmdPushConstants(command_buffer, pipeline.pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);    
-            vk::cmdDrawIndexed(command_buffer, indices.len, 1, 0, 0, 0);
+            vk::cmdDraw(command_buffer, 6, 1, 0, 0);
         }
 
         vk::cmdEndRenderingKHR(command_buffer);
