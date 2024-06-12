@@ -14,6 +14,7 @@ layout (buffer_reference, std430) readonly buffer CanvasBuffer {
     vec4 border_radius;
     vec4 color;
     vec4 border_color;
+    mat4 transform;
 };
 
 layout (buffer_reference, std430) readonly buffer TextureInfo {
@@ -26,10 +27,11 @@ layout( push_constant ) uniform constants
     CanvasBuffer canvas_buffer;
 };
 
-layout (binding = 0) uniform uniform_matrix
+layout (binding = 0,  std140) uniform uniform_matrix
 {
-  mat4 ortho;
-  vec2 resolution;
+  mat4 projection;
+  mat4 view;
+  vec3 camera_pos;
 };
 
 vec2 rotate(vec2 pos, float th) {

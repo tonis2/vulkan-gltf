@@ -31,24 +31,30 @@ vec2 vertices[4] = vec2[](
 // }
 
 void main() {
+    vec2 resolution = vec2(1300, 900);
     vec2 vertex = vertices[gl_VertexIndex];
+    
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
-    widget_size = canvas_item.size / resolution.xy / 2;
-    texture_pos = vec2(0);
+    widget_size = vec2(1.0);
+    // texture_pos = abs(vertex);
 
-    gl_Position = ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 1.0, 1.0);
+
+    // gl_Position = projection * view * canvas_item.transform * vec4(vertex, 1.0, 1.0);
+
+    texture_pos = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+    gl_Position = vec4(texture_pos * 2.0f + -1.0f, 0.0f, 1.0f);
 
     // Rotate
-    if (canvas_item.rotation > 0) {
-        gl_Position.xy = rotate(gl_Position.xy, canvas_item.rotation);
-    }
+    // if (canvas_item.rotation > 0) {
+    //     gl_Position.xy = rotate(gl_Position.xy, canvas_item.rotation);
+    // }
 
-    center_pos = ((ortho * vec4(canvas_item.corner, 0.0, 0.0)) / -2).xy;
+    center_pos = vec2(1.0);
 
     // Has texture attached
-    if (canvas_item.texture_id > -1) {
-        // Gets texture size
-        vec2 texture_size = 1.0 / textureSize(materialSamplers[canvas_item.texture_id], 0);
-        texture_pos = abs(vertex);
-    }
+    // if (canvas_item.texture_id > -1) {
+    //     // Gets texture size
+    //     //vec2 texture_size = 1.0 / textureSize(materialSamplers[canvas_item.texture_id], 0);
+      
+    // }
 }
