@@ -42,7 +42,7 @@ void main() {
     // vec2 texture_pos = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
     // vec4 vertex = vec4(texture_pos * 2.0f + -1.0f, 0.0f, 1.0f);
     
-    widget_size = vec2(1.0);
+    widget_size = canvas_item.size * 0.6;
     texture_pos = vertex;
 
     gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos, 0.0, 1.0);
@@ -52,7 +52,7 @@ void main() {
     //     gl_Position.xy = rotate(gl_Position.xy, canvas_item.rotation);
     // }
 
-    center_pos = vec2(1.0);
+    center_pos = (projection * view * canvas_item.transform * vec4(canvas_item.corner, 0.0, 1.0) / 2).xy + widget_size;
 
     // Has texture attached
     // if (canvas_item.texture_id > -1) {

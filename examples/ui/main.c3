@@ -101,33 +101,71 @@ fn void! main()
     List(<Drawing>) canvas;
     defer canvas.free();
 
-    for (uint i = 0; i < 6; i += 2) {
-        float padding = 20.0;
-        Vec2f box_size = {WIDTH / 4, HEIGHT / 2};
-        float offset = padding + i * (box_size.x / 2 + padding);
+    // for (uint i = 0; i < 6; i += 2) {
+    //     float padding = 20.0;
+    //     Vec2f box_size = {WIDTH / 4, HEIGHT / 2};
+    //     float offset = padding + i * (box_size.x / 2 + padding);
 
-        canvas.push({
-            .type = 0,
-            .corner = {offset, box_size.y / 3} / resolution,
-            .size = {box_size.x, box_size.y} / resolution,
-            .border_width = 1.0,
-            .border_color = {1.0, 1.0, 1.0, 1.0},
-            .border_radius = {1.0, 1.0, 1.0, 1.0},
-            .color = {0.1, 0.5, 0.4, 1.0},
-            .texture_id = i + 1,
-            .transform = MATRIX4F_IDENTITY
-        });
+    //     canvas.push({
+    //         .type = 0,
+    //         .corner = {offset, box_size.y / 3} / resolution,
+    //         .size = {box_size.x, box_size.y} / resolution,
+    //         .border_width = 1.0,
+    //         .border_color = {1.0, 1.0, 1.0, 1.0},
+    //         .border_radius = {1.0, 1.0, 1.0, 1.0},
+    //         .color = {0.1, 0.5, 0.4, 1.0},
+    //         .texture_id = i + 1,
+    //         .transform = MATRIX4F_IDENTITY
+    //     });
 
-        float char_offset = padding + i * (box_size.x / 2 + padding);
+    //     float char_offset = padding + i * (box_size.x / 2 + padding);
 
-        canvas.push({
-            .type = 0,
-            .corner = {char_offset, box_size.y / 3} / resolution,
-            .size = {box_size.x, box_size.y} / resolution, 
-            .texture_id = i,
-            .transform = MATRIX4F_IDENTITY
-        });
-    }
+    //     canvas.push({
+    //         .type = 0,
+    //         .corner = {char_offset, box_size.y / 3} / resolution,
+    //         .size = {box_size.x, box_size.y} / resolution, 
+    //         .texture_id = i,
+    //         .transform = MATRIX4F_IDENTITY
+    //     });
+    // }
+
+
+    canvas.push({
+        .type = 0,
+        .corner = {50, 50} / resolution,
+        .size = {300, 300} / resolution,
+        .border_width = 1.0,
+        .border_color = {1.0, 1.0, 1.0, 1.0},
+        .border_radius = {0.5, 0.5, 0.5, 0.5},
+        .color = {0.1, 0.5, 0.4, 1.0},
+        .texture_id = -1,
+        .transform = MATRIX4F_IDENTITY
+    });
+
+    canvas.push({
+        .type = 0,
+        .corner = {500, 50} / resolution,
+        .size = {300, 300} / resolution,
+        .border_width = 1.0,
+        .border_color = {1.0, 1.0, 1.0, 1.0},
+        .border_radius = {1.50, 1.50, 1.50, 1.50},
+        .color = {0.1, 0.5, 0.4, 1.0},
+        .texture_id = -1,
+        .transform = MATRIX4F_IDENTITY
+    });
+
+
+    canvas.push({
+        .type = 0,
+        .corner = {50, 400} / resolution,
+        .size = {100, 100} / resolution,
+        // .border_width = 1.0,
+        // .border_color = {1.0, 1.0, 1.0, 1.0},
+        // .border_radius = {1.0, 1.0, 1.0, 1.0},
+        .color = {0.1, 0.5, 0.4, 1.0},
+        .texture_id = -1,
+        .transform = MATRIX4F_IDENTITY
+    });
 
     // canvas.push({
     //     .type = 1,
