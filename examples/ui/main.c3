@@ -101,42 +101,42 @@ fn void! main()
     List(<Drawing>) canvas;
     defer canvas.free();
 
-    // for (uint i = 0; i < 6; i += 2) {
-    //     float padding = 20.0;
-    //     Vec2f box_size = {WIDTH / 3.5, HEIGHT / 1.5};
-    //     float offset = padding + i * (box_size.x / 2 + padding);
+    for (uint i = 0; i < 6; i += 2) {
+        float padding = 20.0;
+        Vec2f box_size = {WIDTH / 4, HEIGHT / 2};
+        float offset = padding + i * (box_size.x / 2 + padding);
 
-    //     canvas.push({
-    //         .type = 0,
-    //         .corner = {offset, box_size.y / 3},
-    //         .size = {box_size.x, box_size.y},
-    //         .border_width = 1.0,
-    //         .border_color = {1.0, 1.0, 1.0, 1.0},
-    //         .border_radius = {1.0, 1.0, 1.0, 1.0},
-    //         .color = {0.1, 0.5, 0.4, 1.0},
-    //         .texture_id = i + 1,
-    //         .transform = MATRIX4F_IDENTITY.rotate_x(camera::radians(20.0))
-    //     });
+        canvas.push({
+            .type = 0,
+            .corner = {offset, box_size.y / 3} / resolution,
+            .size = {box_size.x, box_size.y} / resolution,
+            .border_width = 1.0,
+            .border_color = {1.0, 1.0, 1.0, 1.0},
+            .border_radius = {1.0, 1.0, 1.0, 1.0},
+            .color = {0.1, 0.5, 0.4, 1.0},
+            .texture_id = i + 1,
+            .transform = MATRIX4F_IDENTITY
+        });
 
-    //     float char_offset = padding + i * (box_size.x / 2 + padding);
+        float char_offset = padding + i * (box_size.x / 2 + padding);
 
-    //     canvas.push({
-    //         .type = 0,
-    //         .corner = {char_offset, box_size.y / 3},
-    //         .size = {box_size.x, box_size.y},
-    //         .texture_id = i,
-    //         .transform = MATRIX4F_IDENTITY
-    //     });
-    // }
+        canvas.push({
+            .type = 0,
+            .corner = {char_offset, box_size.y / 3} / resolution,
+            .size = {box_size.x, box_size.y} / resolution, 
+            .texture_id = i,
+            .transform = MATRIX4F_IDENTITY
+        });
+    }
 
-    canvas.push({
-        .type = 1,
-        .corner = {100.0, 100.0} / resolution,
-        .size = {650, 100} / resolution,
-        .color = {0.5, 0.5, 0.5, 1.0},
-        .texture_id = -1,
-        .transform = MATRIX4F_IDENTITY
-    });
+    // canvas.push({
+    //     .type = 1,
+    //     .corner = {100.0, 100.0} / resolution,
+    //     .size = {650, 100} / resolution,
+    //     .color = {0.5, 0.5, 0.5, 1.0},
+    //     .texture_id = -1,
+    //     .transform = MATRIX4F_IDENTITY
+    // });
 
     // canvas.push({
     //     .type = 0,

@@ -43,7 +43,7 @@ void main() {
     // vec4 vertex = vec4(texture_pos * 2.0f + -1.0f, 0.0f, 1.0f);
     
     widget_size = vec2(1.0);
-    texture_pos = abs(vertex);
+    texture_pos = vertex;
 
     gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos, 0.0, 1.0);
     gl_Position -= vec4(1.0, 1.0, 0, 0);

@@ -67,7 +67,7 @@ void main() {
     // }
 
     vec4 fillColor = vec4(0.5, 0.5, 0.5, 1.0);
-    // vec4 canvasColor = canvas_item.texture_id > -1 ? texture(materialSamplers[canvas_item.texture_id], tex_pos) : canvas_item.color;
+    vec4 canvasColor = canvas_item.texture_id > -1 ? texture(materialSamplers[canvas_item.texture_id], tex_pos) : fillColor;
 
     // float border_size = canvas_item.border_width / 100.0;
     // float borderAlpha = smoothstep(border_size - 0.002, border_size, abs(distance));
@@ -75,5 +75,5 @@ void main() {
 
     // vec4 widgerColor = mix(canvas_item.border_color, canvasColor, borderAlpha);
     // mix(widgerColor, fillColor, smoothedAlpha)
-    outColor = fillColor;
+    outColor = canvasColor;
 }
