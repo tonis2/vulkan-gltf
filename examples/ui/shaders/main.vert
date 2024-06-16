@@ -14,41 +14,36 @@ layout(binding = 1) uniform sampler2D materialSamplers[];
 
 
 // Default vertices, for drawing the SDF primitives on
-vec2 vertices[4] = vec2[](
+vec2 vertices[6] = vec2[](
     vec2(0.0, 0.0),
-    vec2(-1.0, 0.0),
-    vec2(0.0, -1.0),
-    vec2(-1.0, -1.0)
+    vec2(1.0, 0.0),
+    vec2(1.0, 1.0),
+    vec2(1.0, 1.0),
+    vec2(0.0, 1.0),
+    vec2(0.0, 0.0)
 );
 
-// mat4 translate(vec2 data) {
-//     return mat4(
-//         vec4(1.0, 0.0, 0.0, 0.0),
-//         vec4(0.0, 1.0, 0.0, 0.0),
-//         vec4(0.0, 0.0, 1.0, 0.0),
-//         vec4(data.x, data.y, 0.0, 1.0)
-//     );
-// }
-
 void main() {
-    vec2 vertex = vertices[gl_VertexIndex];
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
-    widget_size = canvas_item.size / resolution.xy / 2;
-    texture_pos = vec2(0);
+    float scale = projection[0][0] - 2.0;
 
-    gl_Position = ortho * vec4(vertex * canvas_item.size - canvas_item.corner, 1.0, 1.0);
+    vec2 vertex = vertices[gl_VertexIndex];
 
-    // Rotate
-    if (canvas_item.rotation > 0) {
-        gl_Position.xy = rotate(gl_Position.xy, canvas_item.rotation);
-    }
+    vec2 corner = canvas_item.corner / resolution;
+    vec2 size = canvas_item.size / resolution;
+    vec2 vertex_pos = (vertex * size + corner);
 
-    center_pos = ((ortho * vec4(canvas_item.corner, 0.0, 0.0)) / -2).xy;
+    widget_size = size * (1.0 - scale);
+    texture_pos = vertex;
+
+    gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos - scale, 0.0, 1.0);
+
+    center_pos = (projection * view * canvas_item.transform * vec4(corner, 0.0, 1.0) / 2).xy + widget_size;
 
     // Has texture attached
-    if (canvas_item.texture_id > -1) {
-        // Gets texture size
-        vec2 texture_size = 1.0 / textureSize(materialSamplers[canvas_item.texture_id], 0);
-        texture_pos = abs(vertex);
-    }
+    // if (canvas_item.texture_id > -1) {
+    //     // Gets texture size
+    //     //vec2 texture_size = 1.0 / textureSize(materialSamplers[canvas_item.texture_id], 0);
+
+    // }
 }
