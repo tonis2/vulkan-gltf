@@ -5,7 +5,6 @@ layout (buffer_reference, std430) readonly buffer CanvasBuffer {
     uint type;
 
     int texture_id;
-    float rotation;
     float border_width;
 
     vec2 size;
@@ -31,7 +30,7 @@ layout (binding = 0,  std140) uniform uniform_matrix
 {
   mat4 projection;
   mat4 view;
-  vec3 camera_pos;
+  vec2 resolution;
 };
 
 vec2 rotate(vec2 pos, float th) {

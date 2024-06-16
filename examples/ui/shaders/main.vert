@@ -23,41 +23,27 @@ vec2 vertices[6] = vec2[](
     vec2(0.0, 0.0)
 );
 
-// mat4 translate(vec2 data) {
-//     return mat4(
-//         vec4(1.0, 0.0, 0.0, 0.0),
-//         vec4(0.0, 1.0, 0.0, 0.0),
-//         vec4(0.0, 0.0, 1.0, 0.0),
-//         vec4(data.x, data.y, 0.0, 1.0)
-//     );
-// }
-
 void main() {
-    vec2 resolution = vec2(1300, 900);
-    float aspect = resolution.x / resolution.y;
+    CanvasBuffer canvas_item = canvas_buffer[draw_index];
+    float scale = projection[0][0] - 2.0;
 
     vec2 vertex = vertices[gl_VertexIndex];
-    CanvasBuffer canvas_item = canvas_buffer[draw_index];
-    vec2 vertex_pos = (vertex * canvas_item.size + canvas_item.corner);
-    // vec2 texture_pos = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-    // vec4 vertex = vec4(texture_pos * 2.0f + -1.0f, 0.0f, 1.0f);
-    
-    widget_size = canvas_item.size * 0.6;
+
+    vec2 corner = canvas_item.corner / resolution;
+    vec2 size = canvas_item.size / resolution;
+    vec2 vertex_pos = (vertex * size + corner);
+
+    widget_size = size * (1.0 - scale);
     texture_pos = vertex;
 
-    gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos, 0.0, 1.0);
-    gl_Position -= vec4(1.0, 1.0, 0, 0);
-    // Rotate
-    // if (canvas_item.rotation > 0) {
-    //     gl_Position.xy = rotate(gl_Position.xy, canvas_item.rotation);
-    // }
+    gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos - scale, 0.0, 1.0);
 
-    center_pos = (projection * view * canvas_item.transform * vec4(canvas_item.corner, 0.0, 1.0) / 2).xy + widget_size;
+    center_pos = (projection * view * canvas_item.transform * vec4(corner, 0.0, 1.0) / 2).xy + widget_size;
 
     // Has texture attached
     // if (canvas_item.texture_id > -1) {
     //     // Gets texture size
     //     //vec2 texture_size = 1.0 / textureSize(materialSamplers[canvas_item.texture_id], 0);
-      
+
     // }
 }

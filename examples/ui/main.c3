@@ -37,9 +37,8 @@ String[] images = {
 
 struct Drawing {
     uint type;
-
     int texture_id;
-    float rotation;
+
     float border_width;
 
     Vec2f size;
@@ -56,10 +55,11 @@ struct PushConstantData {
     vk::DeviceAddress canvas;
 }
 
-// struct UniformBuffer {
-//     Matrix4f perspective;
-//     Vec2f resolution;
-// }
+struct UniformBuffer {
+    Matrix4f perspective;
+    Matrix4f view;
+    Vec2f resolution;
+}
 
 // Load shaders
 char[*] vertex_shader_data = $embed("./shaders/vertex.spv");
@@ -89,107 +89,48 @@ DescriptorImages textures;
 
 fn void! main()
 {
-
-    Vec2f resolution = {WIDTH, HEIGHT};
     camera::Camera camera = camera::new(.eye = {0.0, 0.0, 1.0}, .aspect = WIDTH/HEIGHT, .min_zoom = 0.1, .max_zoom = 10);
 
-    // UniformBuffer uniform_data = {
-    //     camera.perspective.mul(camera.view), 
-    //     Vec2f { WIDTH, HEIGHT },
-    // };
+    UniformBuffer uniform_data = {
+        camera.perspective.transpose(),
+        camera.view.transpose(),
+        Vec2f {WIDTH, HEIGHT}
+    };
 
     List(<Drawing>) canvas;
     defer canvas.free();
 
-    // for (uint i = 0; i < 6; i += 2) {
-    //     float padding = 20.0;
-    //     Vec2f box_size = {WIDTH / 4, HEIGHT / 2};
-    //     float offset = padding + i * (box_size.x / 2 + padding);
+    for (uint i = 0; i < 6; i += 2) {
+        float padding = 20.0;
+        Vec2f box_size = {WIDTH / 4, HEIGHT / 2};
+        float offset = padding + i * (box_size.x / 2 + padding);
 
-    //     canvas.push({
-    //         .type = 0,
-    //         .corner = {offset, box_size.y / 3} / resolution,
-    //         .size = {box_size.x, box_size.y} / resolution,
-    //         .border_width = 1.0,
-    //         .border_color = {1.0, 1.0, 1.0, 1.0},
-    //         .border_radius = {1.0, 1.0, 1.0, 1.0},
-    //         .color = {0.1, 0.5, 0.4, 1.0},
-    //         .texture_id = i + 1,
-    //         .transform = MATRIX4F_IDENTITY
-    //     });
+        canvas.push({
+            .type = 0,
+            .corner = {offset, box_size.y / 3},
+            .size = {box_size.x, box_size.y},
+            .border_width = 1.0,
+            .border_color = {1.0, 1.0, 1.0, 1.0},
+            .border_radius = {1.0, 1.0, 1.0, 1.0},
+            .color = {0.1, 0.5, 0.4, 1.0},
+            .texture_id = i + 1,
+            .transform = MATRIX4F_IDENTITY
+            // .rotate_y(camera::radians(40))
+            // .transpose()
+        });
 
-    //     float char_offset = padding + i * (box_size.x / 2 + padding);
+        float corner_offset = padding + i * (box_size.x / 2 + padding);
 
-    //     canvas.push({
-    //         .type = 0,
-    //         .corner = {char_offset, box_size.y / 3} / resolution,
-    //         .size = {box_size.x, box_size.y} / resolution, 
-    //         .texture_id = i,
-    //         .transform = MATRIX4F_IDENTITY
-    //     });
-    // }
-
-
-    canvas.push({
-        .type = 0,
-        .corner = {50, 50} / resolution,
-        .size = {300, 300} / resolution,
-        .border_width = 1.0,
-        .border_color = {1.0, 1.0, 1.0, 1.0},
-        .border_radius = {0.5, 0.5, 0.5, 0.5},
-        .color = {0.1, 0.5, 0.4, 1.0},
-        .texture_id = -1,
-        .transform = MATRIX4F_IDENTITY
-    });
-
-    canvas.push({
-        .type = 0,
-        .corner = {500, 50} / resolution,
-        .size = {300, 300} / resolution,
-        .border_width = 1.0,
-        .border_color = {1.0, 1.0, 1.0, 1.0},
-        .border_radius = {1.50, 1.50, 1.50, 1.50},
-        .color = {0.1, 0.5, 0.4, 1.0},
-        .texture_id = -1,
-        .transform = MATRIX4F_IDENTITY
-    });
-
-
-    canvas.push({
-        .type = 0,
-        .corner = {50, 400} / resolution,
-        .size = {100, 100} / resolution,
-        // .border_width = 1.0,
-        // .border_color = {1.0, 1.0, 1.0, 1.0},
-        // .border_radius = {1.0, 1.0, 1.0, 1.0},
-        .color = {0.1, 0.5, 0.4, 1.0},
-        .texture_id = -1,
-        .transform = MATRIX4F_IDENTITY
-    });
-
-    // canvas.push({
-    //     .type = 1,
-    //     .corner = {100.0, 100.0} / resolution,
-    //     .size = {650, 100} / resolution,
-    //     .color = {0.5, 0.5, 0.5, 1.0},
-    //     .texture_id = -1,
-    //     .transform = MATRIX4F_IDENTITY
-    // });
-
-    // canvas.push({
-    //     .type = 0,
-    //     .corner = {400, 30} / resolution,
-    //     .size = {100, 100} / resolution,
-    //     // .rotation = camera::radians(10),
-
-    //     .border_width = 0.5,
-    //     .border_color = {0.0, 0.5, 0.6, 1.0},
-    //     .border_radius = {5.0, 5.0, 1.0, 1.0},
-
-    //     .color = {0.5, 0.5, 0.5, 1.0},
-    //     .texture_id = -1,
-    //     .transform = MATRIX4F_IDENTITY
-    // });
+        canvas.push({
+            .type = 0,
+            .corner = {corner_offset, box_size.y / 3},
+            .size = {box_size.x, box_size.y}, 
+            .texture_id = i,
+            .transform = MATRIX4F_IDENTITY
+            // .rotate_y(camera::radians(40))
+            // .transpose()
+        });
+    }
 
     glfw::init();
     glfw::windowHint(glfw::GLFW_CLIENT_API, glfw::GLFW_NO_API);
@@ -406,7 +347,7 @@ fn void! main()
     uniform_buffer = vk::bufferCreateInfoBuilder()
         .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
         .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-        .setSize(UniformData.sizeof)
+        .setSize(UniformBuffer.sizeof)
         .bind(&local_allocation)!;
 
     canvas_buffer = vk::bufferCreateInfoBuilder()
@@ -415,7 +356,7 @@ fn void! main()
         .setSize(canvas.byte_size())
         .bind(&local_allocation)!;
 
-    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof, device);
+    uniform_buffer.upload(&uniform_data, UniformBuffer.sizeof, device);
     canvas_buffer.upload(canvas.entries, canvas.byte_size(), device);
 
     WriteDescriptorSet[] descriptorSets = {
@@ -426,7 +367,7 @@ fn void! main()
             {
                 .buffer = uniform_buffer.buffer,
                 .offset = 0,
-                .range = UniformData.sizeof,
+                .range = UniformBuffer.sizeof,
             },
         }),
         vk::writeDescriptorSetBuilder()
