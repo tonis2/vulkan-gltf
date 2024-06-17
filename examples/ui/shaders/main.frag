@@ -13,7 +13,7 @@
 layout(binding = 1) uniform sampler2D materialSamplers[];
 
 layout(location = 0) in vec2 widget_size;
-layout(location = 1) in vec2 center_pos;
+layout(location = 1) in vec4 center_pos;
 layout(location = 2) in vec2 tex_pos;
 
 layout(location = 0) out vec4 outColor;
@@ -34,43 +34,33 @@ float sdRoundBox( vec3 p, vec3 b, float r )
   return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0) - r;
 }
 
-// float ring(vec2 p, float radius, float width) {
-//   return abs(length(p) - radius * 0.5) - width;
-// }
-
-// float circleSDF(vec2 center, float radius)
-// {
-//     return length(center) - radius;
-// }
 
 void main() {
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
-    vec2 point = gl_FragCoord.xy / resolution.xy - center_pos;
+
+    // vec4 cord = gl_FragCoord / vec4(resolution, 0.0, 1.0) - center_pos;
+    vec4 point = (canvas_item.transform * gl_FragCoord / vec4(resolution, 0.0, 1.0) - center_pos);
+    // vec4 point = cord * canvas_item.transform;
+    // - vec4(center_pos, 0.0)
 
     float distance = 0;
 
-    // switch (canvas_item.type) {
-    //     case 0: {
-           
-    //         break;
-    //     }
-    //     case 1: {
-    //         // Circle
-    //         distance = circleSDF(point * vec2(aspect, 1.0), widget_size.x * aspect);
-    //         break;
-    //     }
-    // }
+    // distance = roundedBoxSDF(point.xy, widget_size, canvas_item.border_radius / 10.0);
+    distance = sdRoundBox(point.xyz, vec3(widget_size, 1.0), 0.1);
 
-    distance = roundedBoxSDF(point, widget_size, canvas_item.border_radius / 10.0);
 
-    vec4 fillColor = vec4(0.5, 0.5, 0.5, 0.0);
-    vec4 canvasColor = canvas_item.texture_id > -1 ? texture(materialSamplers[canvas_item.texture_id], tex_pos) : distance > 0 ? fillColor : canvas_item.color;
+    vec4 fillColor = vec4(0.5, 0.5, 0.5, 1.0);
+    vec4 color = fillColor;
+
+    if (distance < 0) {
+        color = canvas_item.texture_id > -1 ? texture(materialSamplers[canvas_item.texture_id], tex_pos) : canvas_item.color;
+    }
 
     float border_size = canvas_item.border_width / 100.0;
     float borderAlpha = smoothstep(border_size - 0.002, border_size, abs(distance));
     float smoothedAlpha =  smoothstep(0.0, 1.0 / resolution.x, distance);
 
-    vec4 widgerColor = mix(canvas_item.border_color, canvasColor, borderAlpha);
+    vec4 widgerColor = mix(canvas_item.border_color, color, borderAlpha);
 
-    outColor = mix(widgerColor, fillColor, smoothedAlpha);
+    outColor = widgerColor;
 }

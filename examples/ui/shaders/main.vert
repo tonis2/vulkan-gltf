@@ -7,7 +7,7 @@
 #include "types.glsl"
 
 layout(location = 0) out vec2 widget_size;
-layout(location = 1) out vec2 center_pos;
+layout(location = 1) out vec4 center_pos;
 layout(location = 2) out vec2 texture_pos;
 
 layout(binding = 1) uniform sampler2D materialSamplers[];
@@ -38,12 +38,5 @@ void main() {
 
     gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos - scale, 0.0, 1.0);
 
-    center_pos = (projection * view * canvas_item.transform * vec4(corner, 0.0, 1.0) / 2).xy + widget_size;
-
-    // Has texture attached
-    // if (canvas_item.texture_id > -1) {
-    //     // Gets texture size
-    //     //vec2 texture_size = 1.0 / textureSize(materialSamplers[canvas_item.texture_id], 0);
-
-    // }
+    center_pos = projection * view * canvas_item.transform * vec4(corner, 0.0, 1.0) / 2  + vec4(widget_size, 0.0, 0.0);
 }

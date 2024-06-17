@@ -33,10 +33,8 @@ layout (binding = 0,  std140) uniform uniform_matrix
   vec2 resolution;
 };
 
-vec2 rotate(vec2 pos, float th) {
-  return mat2(cos(th), sin(th), -sin(th), cos(th)) * pos;
-}
+// vec2 rotate(vec2 pos, float th) {
+//   return mat2(cos(th), sin(th), -sin(th), cos(th)) * pos;
+// }
 
-// vec2 v_new_size = vec2(vertex.pos.x * canvas_item.width, vertex.pos.y * canvas_item.width);
-// vec2 v_new_pos = vec2(v_new_size.x - canvas_item.corner.x, v_new_size.y - canvas_item.corner.y);
 

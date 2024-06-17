@@ -115,8 +115,8 @@ fn void! main()
             .color = {0.1, 0.5, 0.4, 1.0},
             .texture_id = i + 1,
             .transform = MATRIX4F_IDENTITY
-            // .rotate_y(camera::radians(40))
-            // .transpose()
+            .rotate_x(camera::radians(60))
+            .transpose()
         });
 
         float corner_offset = padding + i * (box_size.x / 2 + padding);
@@ -127,8 +127,8 @@ fn void! main()
             .size = {box_size.x, box_size.y}, 
             .texture_id = i,
             .transform = MATRIX4F_IDENTITY
-            // .rotate_y(camera::radians(40))
-            // .transpose()
+            .rotate_x(camera::radians(60))
+            .transpose()
         });
     }
 
