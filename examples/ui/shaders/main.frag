@@ -34,16 +34,25 @@ float sdRoundBox( vec3 p, vec3 b, float r )
   return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0) - r;
 }
 
+mat3 rotationMatrix(vec3 a, float angle)
+{
+//    a = normalize(a);
+    float x=a.x, y=a.y, z=a.z;
+    float s=sin(angle), c=cos(angle), ic = 1. - c;
+    float icx = ic*x, icy = ic*y, icz = ic*z;
+    return mat3(icx*x+c,   icx*y-z*s, icz*x+y*s,
+                icx*y+z*s, icy*y+c,   icy*z-x*s,
+                icz*x-y*s, icy*z+x*s, icz*z+c);        
+}
 
 void main() {
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
 
     // vec4 cord = gl_FragCoord / vec4(resolution, 0.0, 1.0) - center_pos;
-    vec4 point = (canvas_item.transform * gl_FragCoord / vec4(resolution, 0.0, 1.0) - center_pos);
-    // vec4 point = cord * canvas_item.transform;
-    // - vec4(center_pos, 0.0)
 
-    float distance = 0;
+    vec4 point = projection * view * inverse(canvas_item.transform) * vec4(gl_FragCoord.xy / resolution.xy, 0.0, 0.0) - center_pos;
+
+    float distance = 0.0;
 
     // distance = roundedBoxSDF(point.xy, widget_size, canvas_item.border_radius / 10.0);
     distance = sdRoundBox(point.xyz, vec3(widget_size, 1.0), 0.1);

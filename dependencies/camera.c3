@@ -115,6 +115,27 @@ fn Matrix4f ortho(float left, float right, float bottom, float top, float near, 
 	};
 }
 
-// ortho(-(800.0f / 2.0f), 800.0f / 2.0f, 
-//         600.0f / 2.0f, -(600.0f / 2.0f), 
-//       -1000.0f, 1000.0f);
+
+fn Matrix4f matrixRotation(Vec3f axis, float angle)
+{
+    Vec3f norm_axis = axis.normalize();
+
+    float sin = math::sin(radians(angle));
+    float cos = math::cos(radians(angle));
+    float cosi = 1 - cos;
+
+    float x = norm_axis.x;
+    float y = norm_axis.y;
+    float z = norm_axis.z;
+
+    float cx = cosi * x;
+    float cy = cosi * y;
+    float cz = cosi * z;
+
+    return {
+        cx * x + cos, cx * y + z * sin, cz * x - y * sin, 0.0,
+        cx * y - z  * sin, cy * y + cos, cy * z + x * sin, 0.0,
+        cz * x + y * sin, cy * z - x * sin, cz * z + cos, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    };
+}
