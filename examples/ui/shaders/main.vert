@@ -7,8 +7,9 @@
 #include "types.glsl"
 
 layout(location = 0) out vec2 widget_size;
-layout(location = 1) out vec2 center_pos;
+layout(location = 1) out vec4 center_pos;
 layout(location = 2) out vec2 texture_pos;
+layout(location = 3) out vec4 center2;
 
 layout(binding = 1) uniform sampler2D materialSamplers[];
 
@@ -25,25 +26,25 @@ vec2 vertices[6] = vec2[](
 
 void main() {
     CanvasBuffer canvas_item = canvas_buffer[draw_index];
-    float scale = projection[0][0] - 2.0;
-
     vec2 vertex = vertices[gl_VertexIndex];
+
+    float scale = projection[0][0] - 2.0;
 
     vec2 corner = canvas_item.corner / resolution;
     vec2 size = canvas_item.size / resolution;
+    float aspect = resolution.x / resolution.y;
+
     vec2 vertex_pos = (vertex * size + corner);
-
-    widget_size = size * (1.0 - scale);
+    // 1.44
+    //vec2(0.15, 0.3)
+    widget_size = size;
     texture_pos = vertex;
+    center_pos = abs(view * canvas_item.transform * vec4(corner, 1.0, 1.0) + vec4(size, 0.0, 0.0));
+    //abs(transform * vec4(corner, 0.0, 0.0) + vec4(vec2(-1.0, -1.0), 0.0, 0.0))
+    //(transform * vec4(widget_size + corner, 0.0, 0.0) + vec4(vec2(-1.0), 0.0, 0.0))
 
-    gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos - scale, 0.0, 1.0);
 
-    center_pos = (projection * view * canvas_item.transform * vec4(corner, 0.0, 1.0) / 2).xy + widget_size;
-
-    // Has texture attached
-    // if (canvas_item.texture_id > -1) {
-    //     // Gets texture size
-    //     //vec2 texture_size = 1.0 / textureSize(materialSamplers[canvas_item.texture_id], 0);
-
-    // }
+    gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos, 0.0, 1.0) + vec4(-1.0, -1.0, 0.0, 0.0);
+    // corner2 = projection * view * canvas_item.transform * vec4(corner, 0.0, 1.0) / 2  + vec4(widget_size, 0.0, 0.0);
+    center2 = projection * view * canvas_item.transform * vec4(corner, 0.0, 0.0) / 2  + vec4(size, 0.0, 0.0);
 }
