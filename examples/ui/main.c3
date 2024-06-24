@@ -101,7 +101,7 @@ fn void! main()
     defer canvas.free();
     // Vec2f resolution = {WIDTH, HEIGHT};
 
-    Matrix4f transform = camera::matrixRotation(Vec3f{0.0, 1.0, 1.0}, 10)
+    Matrix4f transform = camera::matrixRotation(Vec3f{0.0, 1.0, 1.0}, 0)
     .transpose();
 
     for (uint i = 0; i < 6; i += 2) {
