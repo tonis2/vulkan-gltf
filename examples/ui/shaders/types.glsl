@@ -1,6 +1,11 @@
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_scalar_block_layout : require
 
+
+// float radians(float value) {
+//     return value * M_PI / 180;
+// }
+
 layout (buffer_reference, std430) readonly buffer CanvasBuffer {
     uint type;
 

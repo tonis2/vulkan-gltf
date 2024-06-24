@@ -99,16 +99,15 @@ fn void! main()
 
     List(<Drawing>) canvas;
     defer canvas.free();
-    Vec2f resolution = {WIDTH, HEIGHT};
+    // Vec2f resolution = {WIDTH, HEIGHT};
 
-    Matrix4f transform = camera::matrixRotation(Vec3f{1.0, 0.0, 0.0}, 50)
-            .transpose();
+    Matrix4f transform = camera::matrixRotation(Vec3f{0.0, 1.0, 1.0}, 10)
+    .transpose();
 
     for (uint i = 0; i < 6; i += 2) {
         float padding = 20.0;
         Vec2f box_size = {WIDTH / 4, HEIGHT / 2};
         float offset = padding + i * (box_size.x / 2 + padding);
-        io::printfn("%s", Vec2f {offset, box_size.y / 3} / resolution );
 
         canvas.push({
             .type = 0,
