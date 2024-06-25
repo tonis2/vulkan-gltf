@@ -389,7 +389,7 @@ fn void! main()
                 .binding = 1,
                 .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount = (uint)textures.len(),
-                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT
+                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
             },
     }).build(device)!;
 

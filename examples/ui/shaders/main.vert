@@ -9,8 +9,6 @@
 layout(location = 0) out vec2 widget_size;
 layout(location = 1) out vec2 texture_pos;
 
-layout(binding = 1) uniform sampler2D materialSamplers[];
-
 
 // Default vertices, for drawing the SDF primitives on
 vec2 vertices[6] = vec2[](
@@ -37,5 +35,4 @@ void main() {
     texture_pos = vertex;
 
     gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos, 0.0, 1.0) + vec4(-1.0, -1.0, 0.0, 0.0);
-
 }
