@@ -25,13 +25,14 @@ void main() {
     vec2 vertex = vertices[gl_VertexIndex];
 
     float border_size = canvas_item.border_width / 100.0;
+    float aspect = resolution.x / resolution.y;
 
     vec2 corner = canvas_item.corner / resolution;
     vec2 size = canvas_item.size / resolution;
 
     vec2 vertex_pos = (vertex * size + corner);
 
-    widget_size = canvas_item.size / resolution.y + vec2(0.14 - border_size, -border_size);
+    widget_size = canvas_item.size / resolution.y + vec2(aspect / 10.0 - border_size, -border_size) - vec2(border_size / aspect, border_size / 2);
     texture_pos = vertex;
 
     gl_Position = projection * view * canvas_item.transform * vec4(vertex_pos, 0.0, 1.0) + vec4(-1.0, -1.0, 0.0, 0.0);

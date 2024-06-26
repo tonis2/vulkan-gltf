@@ -34,7 +34,7 @@ void main() {
 
     distance = roundedBoxSDF(tex_pos - border_size - widget_size, widget_size, canvas_item.border_radius / 10.0);
 
-    vec4 fillColor = vec4(0.5, 0.5, 0.5, 0.0);
+    vec4 fillColor = vec4(0.5, 0.5, 0.5, 1.0);
     vec4 color = fillColor;
 
     if (distance < 0) {
