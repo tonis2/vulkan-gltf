@@ -15,10 +15,6 @@ const HEIGHT = 900;
 const ENABLE_VALIDATION_LAYERS = false;
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-ushort[] indices = {
-    0, 1, 2,
-    1, 3, 2
-};
 
 String[] icons = {
     "assets/textures/book.png",
@@ -99,7 +95,6 @@ fn void! main()
 
     List(<Drawing>) canvas;
     defer canvas.free();
-    // Vec2f resolution = {WIDTH, HEIGHT};
 
     Matrix4f transform = camera::matrixRotation(Vec3f{0.0, 1.0, 0.0}, 30)
     .transpose();
@@ -520,7 +515,6 @@ fn void! main()
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
-        // vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         PushConstantData constant_data = {
             .draw_index = 0,
