@@ -100,8 +100,9 @@ fn void! main()
     .transpose();
 
     for (uint i = 0; i < 6; i += 2) {
-        float padding = 20.0;
+
         Vec2f box_size = {WIDTH / 4, HEIGHT / 2};
+        float padding = 20.0;
         float offset = padding + i * (box_size.x / 2 + padding);
 
         canvas.push({
@@ -604,79 +605,6 @@ fn void! main()
 
 
 fn void! loadTextures() {
-
-    depth_texture.imageLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-    depth_image = vk::imageCreateInfoBuilder()
-    .setImageType(vk::IMAGE_TYPE_2D)
-    .setExtent({.width = WIDTH, .height = HEIGHT, .depth = 1 })
-    .setMipLevels(1)
-    .setArrayLayers(1)
-    .setSamples(vk::SAMPLE_COUNT_1_BIT)
-    .setUsage(vk::IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
-    .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
-    .setTiling(vk::IMAGE_TILING_OPTIMAL)
-    .setFormat(depth_format)
-    .build(device)!;
-
-    depth_image.bind(&device_allocation)!;
-
-    depth_texture.sampler = vk::samplerCreateInfoBuilder()
-        .setMagFilter(vk::FILTER_LINEAR)
-        .setMinFilter(vk::FILTER_LINEAR)
-        .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-        .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-        .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-        .setMipLodBias(0.0)
-        .setMinLod(0.0)
-        .setMaxLod(1.0)
-        .setMaxAnisotropy(1.0)
-        .setAnisotropyEnable(vk::FALSE)
-        .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
-        .build(device)!;
-        
-    depth_texture.imageView = vk::imageViewCreateInfoBuilder()
-        .setViewType(vk::IMAGE_VIEW_TYPE_2D)
-        .setFormat(depth_format)
-        .setSubresourceRange({
-          .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
-          .baseMipLevel = 0,
-          .baseArrayLayer = 0,
-          .layerCount = 1,
-          .levelCount = 1,
-        })
-        .setImage(depth_image)
-        .build(device)!;
-
-    device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
-       ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrierBuilder()
-       .setImage(depth_image)
-       .setSubresourceRange({
-          .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
-          .baseMipLevel = 0,
-          .baseArrayLayer = 0,
-          .layerCount = 1,
-          .levelCount = 1,
-       })
-       .setSrcAccessMask(0)
-       .setDstAccessMask(vk::ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
-       .setOldLayout(vk::IMAGE_LAYOUT_UNDEFINED)
-       .setNewLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-
-       vk::cmdPipelineBarrier(
-           command_buffer,
-           vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-           vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-           0,
-           0,
-           null,
-           0,
-           null,
-           1,
-           &imageMemoryBarrier
-       );
-    }!;
-
-
+    depth_texture.createDepthTexture(.allocator = &device_allocation, .queue = queue_family, .size = {WIDTH, HEIGHT}, .format = depth_format)!;
     foreach (source : images) textures.loadPath(source, .allocator = &device_allocation, .queue = queue_family)!;
 }
