@@ -1,18 +1,11 @@
 
 { 
   "provides" : "stb",
+  "c-sources" : ["./native/stb_image.c"],
+  "cflags": "-fPIE",
   "targets" : {
-    "macos-x64" : {
-        "c-sources-add": ["./native/*"],
-		"cflags-add": "-fPIE"
-    },
-    "linux-x64" : {
-        "c-sources-add": ["./native/*"],
-		"cflags-add": "-fPIE"
-    },
-	"windows-x64" : {
-        "c-sources-add": ["./native/*"],
-		"cflags-add": "-fPIE"
-	}
+    "macos-x64" : {},
+    "linux-x64" : {},
+	  "windows-x64" : {}
   }
 }
