@@ -39,6 +39,7 @@ DebugUtilsMessengerEXT debug_messenger;
 PhysicalDevice physical_device;
 QueueFamily queue_family;
 Device device;
+GLFWwindow window;
 
 Gltf gltf;
 
@@ -72,7 +73,7 @@ fn void! main()
     glfw::windowHint(glfw::GLFW_RESIZABLE, glfw::GLFW_FALSE);
     glfw::windowHint(glfw::CONTEXT_VERSION_MAJOR, 4);
     glfw::windowHint(glfw::CONTEXT_VERSION_MINOR, 1);
-    GLFWwindow window = glfw::createWindow(WIDTH, HEIGHT, "GLTF basic", null, null);
+ 
 
    defer {
         glfw::destroyWindow(window);
@@ -80,12 +81,6 @@ fn void! main()
         validations.free();
         extensions.free();
         device_extensions.free();
-    }
-
-    if (window == null)
-    {
-        io::printfn("Failed to init glfw window");
-        return;
     }
 
     // Load gltf
@@ -176,8 +171,6 @@ fn void! main()
         }
     }
 
-    EventHandler eventHandler = { .window = window };
-    eventHandler.init();
     camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
 
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
@@ -228,6 +221,16 @@ fn void! main()
     if (ENABLE_VALIDATION_LAYERS) {
      debug_messenger = debug_info.build(instance)!;
     }
+
+    window = glfw::createWindow(WIDTH, HEIGHT, "GLTF basic", null, null);
+    if (window == null)
+    {
+        io::printfn("Failed to init glfw window");
+        return;
+    }
+
+    EventHandler eventHandler = { .window = window };
+    eventHandler.init();
 
     SurfaceKHR surface = glfw::createWindowSurface(instance, window, null)!;
 

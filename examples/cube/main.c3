@@ -63,7 +63,7 @@ Instance instance;
 DebugUtilsMessengerEXT debug_messenger;
 PhysicalDevice physical_device;
 QueueFamily queue_family;
-
+GLFWwindow window;
 
 ZStringList validations;
 ZStringList extensions;
@@ -76,7 +76,7 @@ fn void! main()
     glfw::windowHint(glfw::GLFW_RESIZABLE, glfw::GLFW_FALSE);
     glfw::windowHint(glfw::CONTEXT_VERSION_MAJOR, 4);
     glfw::windowHint(glfw::CONTEXT_VERSION_MINOR, 1);
-    GLFWwindow window = glfw::createWindow(WIDTH, HEIGHT, "Vulkan triangle", null, null);
+ 
 
    defer {
         glfw::destroyWindow(window);
@@ -86,14 +86,6 @@ fn void! main()
         device_extensions.free();
     }
 
-    if (window == null)
-    {
-        io::printfn("Failed to init glfw window");
-        return;
-    }
-
-    EventHandler eventHandler = { .window = window };
-    eventHandler.init();
     camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
 
     //"VK_LAYER_LUNARG_api_dump"
@@ -146,6 +138,15 @@ fn void! main()
      debug_messenger = debug_info.build(instance)!;
     }
 
+    window = glfw::createWindow(WIDTH, HEIGHT, "Vulkan triangle", null, null);
+    if (window == null)
+    {
+        io::printfn("Failed to init glfw window");
+        return;
+    }
+
+    EventHandler eventHandler = { .window = window };
+    eventHandler.init();
     SurfaceKHR surface = glfw::createWindowSurface(instance, window, null)!;
 
     bool found_device = false;
