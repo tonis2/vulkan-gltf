@@ -30,7 +30,7 @@ fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator
         return TextureError.FILE_NOT_FOUND?;
     }
 
-    vk::Image texture_image = vk::imageCreateInfoBuilder()
+    vk::Image texture_image = vk::imageCreateInfo()
         .setImageType(vk::IMAGE_TYPE_2D)
         .setExtent({.width = image_data.width, .height = image_data.height, .depth = 1 })
         .setMipLevels(1)
@@ -43,7 +43,7 @@ fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator
         .build(device)!;
         texture_image.bind(allocator)!;
 
-    MemoryBlock stage_image = device.staging_buffer(.size = (usz)image_data.width * image_data.height * 4, .data = image_data.pixels, .pdevice = pdevice)!;
+    MemoryBlock stage_image = device.staging_buffer(size: (usz)image_data.width * image_data.height * 4, data: image_data.pixels, pdevice: pdevice)!;
     defer stage_image.free(device);
 
     vk::ImageMemoryBarrier2 transfer_barrier = {
@@ -81,9 +81,9 @@ fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator
         }
     };
 
-    device.@single_time_command(.queue = queue.graphics_handle, .queue_index = queue.graphics; CommandBuffer command_buffer) {
+    device.@single_time_command(queue: queue.graphics_handle, queue_index: queue.graphics; CommandBuffer command_buffer) {
         
-        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers({ transfer_barrier }));
 
         BufferImageCopy bufferCopyRegion = {
@@ -109,11 +109,11 @@ fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator
             &bufferCopyRegion
         );
 
-        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers({ finalize_barrier }));
     }!;
 
-    texture.sampler = vk::samplerCreateInfoBuilder()
+    texture.sampler = vk::samplerCreateInfo()
                         .setMagFilter(vk::FILTER_NEAREST)
                         .setMinFilter(vk::FILTER_NEAREST)
                         .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
@@ -127,7 +127,7 @@ fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator
                         .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
                         .build(device)!;
 
-    texture.imageView = vk::imageViewCreateInfoBuilder()
+    texture.imageView = vk::imageViewCreateInfo()
                     .setViewType(vk::IMAGE_VIEW_TYPE_2D)
                     .setFormat(image_format)
                     .setSubresourceRange({
@@ -149,7 +149,7 @@ fn void! DescriptorImageInfo.createDepthTexture(&self, vk::Allocation* allocator
 
     self.imageLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
-    vk::Image depth_image = vk::imageCreateInfoBuilder()
+    vk::Image depth_image = vk::imageCreateInfo()
     .setImageType(vk::IMAGE_TYPE_2D)
     .setExtent({.width = (uint)size.x, .height = (uint)size.y, .depth = 1 })
     .setMipLevels(1)
@@ -163,7 +163,7 @@ fn void! DescriptorImageInfo.createDepthTexture(&self, vk::Allocation* allocator
 
     depth_image.bind(allocator)!;
 
-    self.sampler = vk::samplerCreateInfoBuilder()
+    self.sampler = vk::samplerCreateInfo()
     .setMagFilter(vk::FILTER_LINEAR)
     .setMinFilter(vk::FILTER_LINEAR)
     .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
@@ -177,7 +177,7 @@ fn void! DescriptorImageInfo.createDepthTexture(&self, vk::Allocation* allocator
     .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
     .build(device)!;
 
-    self.imageView = vk::imageViewCreateInfoBuilder()
+    self.imageView = vk::imageViewCreateInfo()
     .setViewType(vk::IMAGE_VIEW_TYPE_2D)
     .setFormat(format)
     .setSubresourceRange({
@@ -190,8 +190,8 @@ fn void! DescriptorImageInfo.createDepthTexture(&self, vk::Allocation* allocator
     .setImage(depth_image)
     .build(device)!;
 
-    device.@single_time_command(.queue = queue.graphics_handle, .queue_index = queue.graphics; CommandBuffer command_buffer) {
-        ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrierBuilder()
+    device.@single_time_command(queue: queue.graphics_handle, queue_index: queue.graphics; CommandBuffer command_buffer) {
+        ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrier()
         .setImage(depth_image)
         .setSubresourceRange({
             .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
@@ -250,12 +250,12 @@ fn void RenderState.free(self, Device device) {
 
 fn RenderState! RenderState.build(&self, Device device) {
 
-    PipelineVertexInputStateCreateInfo vertex_info = vk::pipelineVertexInputStateCreateInfoBuilder().setVertexBindingDescriptionCount(0);
+    PipelineVertexInputStateCreateInfo vertex_info = vk::pipelineVertexInputStateCreateInfo().setVertexBindingDescriptionCount(0);
 
-    PipelineInputAssemblyStateCreateInfo assembly_state = vk::pipelineInputAssemblyStateCreateInfoBuilder()
+    PipelineInputAssemblyStateCreateInfo assembly_state = vk::pipelineInputAssemblyStateCreateInfo()
     .setTopology(self.topology);
 
-    PipelineRasterizationStateCreateInfo rasterization_state = vk::pipelineRasterizationStateCreateInfoBuilder()
+    PipelineRasterizationStateCreateInfo rasterization_state = vk::pipelineRasterizationStateCreateInfo()
     .setDepthClampEnable(vk::FALSE)
     .setRasterizerDiscardEnable(vk::FALSE)
     .setDepthBiasEnable(vk::FALSE)
@@ -270,35 +270,35 @@ fn RenderState! RenderState.build(&self, Device device) {
         .scissorCount = 1,
     };
 
-    PipelineMultisampleStateCreateInfo multi_sample_state = vk::pipelineMultisampleStateCreateInfoBuilder()
+    PipelineMultisampleStateCreateInfo multi_sample_state = vk::pipelineMultisampleStateCreateInfo()
     .setSampleShadingEnable(vk::FALSE)
     .setRasterizationSamples(vk::SAMPLE_COUNT_1_BIT)
     .setMinSampleShading(1.0)
     .setAlphaToCoverageEnable(vk::FALSE)
     .setAlphaToOneEnable(vk::FALSE);
 
-    PipelineColorBlendStateCreateInfo color_blend_state = vk::pipelineColorBlendStateCreateInfoBuilder()
+    PipelineColorBlendStateCreateInfo color_blend_state = vk::pipelineColorBlendStateCreateInfo()
     .setBlendConstants({ 0.0, 0.0, 0.0, 0.0 })
     .setLogicOp(vk::LOGIC_OP_COPY)
     .setAttachments(self.blend_attachments);
 
-    PipelineDynamicStateCreateInfo dynamic_states = vk::pipelineDynamicStateCreateInfoBuilder()
+    PipelineDynamicStateCreateInfo dynamic_states = vk::pipelineDynamicStateCreateInfo()
     .setDynamicStates(self.dynamic_states);
 
-    PipelineRenderingCreateInfo rendering_info = vk::pipelineRenderingCreateInfoBuilder()
+    PipelineRenderingCreateInfo rendering_info = vk::pipelineRenderingCreateInfo()
     .setColorAttachmentFormats(self.color_attachments)
     .setDepthAttachmentFormat(self.depth_format);
 
-    PipelineDepthStencilStateCreateInfo depth_state = vk::pipelineDepthStencilStateCreateInfoBuilder()
+    PipelineDepthStencilStateCreateInfo depth_state = vk::pipelineDepthStencilStateCreateInfo()
     .setDepthTestEnable((uint)self.enable_depth)
     .setDepthWriteEnable((uint)self.enable_depth)
     .setDepthCompareOp(vk::COMPARE_OP_LESS_OR_EQUAL)
     .setBack({.compareOp = vk::COMPARE_OP_ALWAYS});
-    // DescriptorSetLayoutCreateInfo descriptorLayoutInfo = vk::descriptorSetLayoutCreateInfoBuilder()
+    // DescriptorSetLayoutCreateInfo descriptorLayoutInfo = vk::descriptorSetLayoutCreateInfo()
     //                         .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR);
 
     // foreach (descriptor: self.descriptors) {
-    //     WriteDescriptorSet data = vk::writeDescriptorSetBuilder()
+    //     WriteDescriptorSet data = vk::writeDescriptorSet()
     //         .setDstBinding(descriptor.binding)
     //         .setDescriptorType(descriptor.type);
 
@@ -332,11 +332,11 @@ fn RenderState! RenderState.build(&self, Device device) {
     // .setBindings(self.descriptor_layout_bindings.array_view())
     // .build(device)!;
 
-    self.pipeline_layout = vk::pipelineLayoutCreateInfoBuilder()
+    self.pipeline_layout = vk::pipelineLayoutCreateInfo()
     .setPushConstantRanges(self.push_constants)
     .setSetLayouts({ self.descriptor_layout }).build(device)!;
 
-    GraphicsPipelineCreateInfo pipeline_info = vk::graphicsPipelineCreateInfoBuilder()
+    GraphicsPipelineCreateInfo pipeline_info = vk::graphicsPipelineCreateInfo()
     .setStages(&self.shader.stages)
     .setLayout(self.pipeline_layout)
     .setVertexInputState(&vertex_info)

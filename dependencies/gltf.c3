@@ -420,7 +420,7 @@ fn void Mesh.fromJson(&self, Object* json) {
             if (try mode) data.attributes["mode"] = mode;
 
             if (try attributes) {
-                foreach (key : attributes.map.key_tlist()) {
+                foreach (key : attributes.map.tcopy_keys()) {
                     data.attributes[key] = (usz)attributes.map[key]!!.f;
                 }
             }
@@ -428,7 +428,7 @@ fn void Mesh.fromJson(&self, Object* json) {
             if (try targets) {
                 foreach (target : targets.array) {
                     AttributeMap target_attibutes;
-                    foreach (key : target.map.key_tlist()) {
+                    foreach (key : target.map.tcopy_keys()) {
                         target_attibutes[key] = (usz)target.map[key]!!.f;
                     }
                     data.targets.push(target_attibutes);

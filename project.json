@@ -4,10 +4,10 @@
 	"authors": [],
 	"version": "0.1.0",
 	"dependency-search-paths": [ "./dependencies"],
-	"dependencies": ["glfw", "vk", "stb"],
-	"features": ["GLFW_VK"],
-	"linked-libraries": ["glfw"],
-	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/render_state.c3", "./dependencies/2d.c3"],
+	"dependencies": ["rgfw", "vk", "stb"],
+	"features": [],
+	"linked-libraries": [],
+	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/render_state.c3"],
 	"targets": {
 		"pbr": {
 			"type": "executable",
@@ -20,10 +20,6 @@
 		"basic": {
 			"type": "executable",
 			"sources-add": ["examples/basic/main.c3"]
-		},
-		"ui": {
-			"type": "executable",
-			"sources-add": ["examples/ui/main.c3"]
 		}
 	},
 	"output": "./build"
