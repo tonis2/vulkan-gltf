@@ -2,7 +2,7 @@ module renderer;
 
 import std::io;
 import vk;
-import glfw;
+import c3w;
 import camera;
 import std::math;
 import gltf;
@@ -109,25 +109,22 @@ Extent2D extent = { WIDTH, HEIGHT };
 
 fn void! main()
 {
-    glfw::init();
-    glfw::windowHint(glfw::GLFW_CLIENT_API, glfw::GLFW_NO_API);
-    glfw::windowHint(glfw::GLFW_RESIZABLE, glfw::GLFW_FALSE);
-    glfw::windowHint(glfw::CONTEXT_VERSION_MAJOR, 4);
-    glfw::windowHint(glfw::CONTEXT_VERSION_MINOR, 1);
-    GLFWwindow window = glfw::createWindow(WIDTH, HEIGHT, "GLTF example", null, null);
+   c3w::Window win = c3w::new(
+        params: {
+            .width = WIDTH,
+            .height = HEIGHT,
+            .x = 0,
+            .y = 0
+        },
+        name: "GLTF animation"
+    );
+
+    defer win.free();
 
     defer {
-        glfw::destroyWindow(window);
-        glfw::terminate();
         validations.free();
         extensions.free();
         device_extensions.free();
-    }
-    
-    if (window == null)
-    {
-        io::printfn("Failed to init glfw window");
-        return;
     }
 
     gltf = gltf::loadFile("assets/scene_test.glb")!;
@@ -146,9 +143,7 @@ fn void! main()
             default: {}
         }
     }
-
-    EventHandler eventHandler = { .window = window };
-    eventHandler.init();
+    
     camera = camera::new(.eye = {0.0, 0.0, 20}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
 
     // Load animations

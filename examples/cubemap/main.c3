@@ -1,6 +1,6 @@
 import std::io;
 import vk;
-import glfw;
+import c3w;
 import stb;
 import camera;
 import std::math;
@@ -69,6 +69,7 @@ DebugUtilsMessengerEXT debug_messenger;
 PhysicalDevice physical_device;
 QueueFamily queue_family;
 Device device;
+SurfaceKHR surface;
 
 ZStringList validations;
 ZStringList extensions;
@@ -86,25 +87,22 @@ vk::Allocation device_allocation;
 
 fn void! main()
 {
-    glfw::init();
-    glfw::windowHint(glfw::GLFW_CLIENT_API, glfw::GLFW_NO_API);
-    glfw::windowHint(glfw::GLFW_RESIZABLE, glfw::GLFW_FALSE);
-    glfw::windowHint(glfw::CONTEXT_VERSION_MAJOR, 4);
-    glfw::windowHint(glfw::CONTEXT_VERSION_MINOR, 1);
-    GLFWwindow window = glfw::createWindow(WIDTH, HEIGHT, "GLTF basic", null, null);
+    c3w::Window win = c3w::new(
+        params: {
+            .width = WIDTH,
+            .height = HEIGHT,
+            .x = 0,
+            .y = 0
+        },
+        name: "GLTF cubemap"
+    );
 
-   defer {
-        glfw::destroyWindow(window);
-        glfw::terminate();
+    defer win.free();
+
+    defer {
         validations.free();
         extensions.free();
         device_extensions.free();
-    }
-
-    if (window == null)
-    {
-        io::printfn("Failed to init glfw window");
-        return;
     }
 
     // Load gltf
@@ -200,30 +198,28 @@ fn void! main()
         }
     }
 
-    EventHandler eventHandler = { .window = window };
-    eventHandler.init();
-    camera::Camera camera = camera::new(.eye = {0.0, 5.0, 10}, .aspect = 800/600, .min_zoom = 0.01, .max_zoom = 1000);
+    camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: 800/600, min_zoom: 0.01, max_zoom: 1000);
 
-    validations.add_array({"VK_LAYER_KHRONOS_validation"});
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
+    validations.add_array({"VK_LAYER_KHRONOS_validation"});
+    extensions.add_array({"VK_KHR_surface", "VK_EXT_debug_utils"});
 
-    // SETUP extensions
-    ZStringList glfw_extensions = glfw::getRequiredExtensions();
-    extensions.add_all(&glfw_extensions);
-    glfw_extensions.free();
-
-    if (ENABLE_VALIDATION_LAYERS) {
-     extensions.add_array({"VK_EXT_debug_utils"});
+    if (env::OS_TYPE == MACOS) {
+        extensions.add_array({"VK_MVK_macos_surface", "VK_KHR_portability_enumeration"});
+        device_extensions.push("VK_KHR_portability_subset");
     }
 
-    if (env::os_is_darwin()) {
-      extensions.push("VK_KHR_portability_enumeration");
-      device_extensions.push("VK_KHR_portability_subset");
+    if (env::OS_TYPE == WIN32) {
+        extensions.add_array({"VK_KHR_win32_surface"});
     }
 
-    vk::checkExtensionSupport(extensions)!;
+    if (env::OS_TYPE == LINUX) {
+        extensions.add_array({"VK_KHR_xlib_surface"});
+    }
 
-    InstanceCreateInfo instanceInfo = vk::instanceCreateInfoBuilder()
+    vk::checkInstanceExtensionSupport(extensions)!;
+
+    InstanceCreateInfo instanceInfo = vk::instanceCreateInfo()
     .setApplicationInfo(&&ApplicationInfo{
       .pApplicationName = "Hello GLTF",
       .pEngineName = "Super engine",
@@ -234,7 +230,7 @@ fn void! main()
     .setFlags(env::os_is_darwin() ? vk::INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0)
     .setEnabledExtensionNames(extensions.array_view());
 
-    DebugUtilsMessengerCreateInfoEXT debug_info = vk::debugUtilsMessengerCreateInfoEXTBuilder()
+    DebugUtilsMessengerCreateInfoEXT debug_info = vk::debugUtilsMessengerCreateInfoEXT()
              .setMessageSeverity(vk::DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
              .setMessageType(vk::DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
              .setPfnUserCallback((PFN_vkDebugUtilsMessengerCallbackEXT)&vk::debugCallback);
@@ -253,25 +249,59 @@ fn void! main()
      debug_messenger = debug_info.build(instance)!;
     }
 
-    SurfaceKHR surface = glfw::createWindowSurface(instance, window, null)!;
+    // Create surface
+    $switch(env::OS_TYPE)
+        $case LINUX: {
+            XlibSurfaceCreateInfoKHR createInfo = {
+                vk::STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR, 
+                null, 
+                0, 
+                win.src.display, 
+                win.src.window, 
+            };
 
+            vk::createXlibSurfaceKHR(instance, &createInfo, null, &surface)!!;
+        }
+        $case MACOS: {
+            MacOSSurfaceCreateInfoMVK createInfo = { 
+                vk::STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK, 
+                null, 
+                0, 
+                win.src.window
+            };
+        }
+        $case WIN32: {
+            Win32SurfaceCreateInfoKHR createInfo = {
+                vk::STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+                null,
+                0,
+                win.src.window,
+                &win.src.hdc
+            };
+        }
+        $default: {}
+    $endswitch
+
+    DeviceList devices = instance.getDevices()!!;
     bool found_device = false;
-    // Macro to find a valid device
-    instance.@requestDevice(;PhysicalDevice pdevice) {
-      QueueFamily queue;
-      // Check for device extension support
-      bool supports_extensions = pdevice.checkExtensionSupport(device_extensions)!;
-      QueuePropertiesList queue_properties = pdevice.getQueueProperties()!;
 
-      queue.graphics = queue_properties.find(fn (usz index, QueueFamilyProperties props) => (QueueFlagBits)props.queueFlags & vk::QUEUE_GRAPHICS_BIT != 0);
-      if (surface.checkSurfaceSupport(queue.graphics, pdevice)!) queue.present = queue.graphics;
+    foreach (entry: devices) {
+        QueueFamily queue;
+        // Check for device extension support
+        bool supports_extensions = entry.checkExtensionSupport(device_extensions)!!;
+        QueuePropertiesList queue_properties = entry.getQueueProperties()!!;
 
-      if (queue.is_ready() && supports_extensions) {
-         physical_device = pdevice;
-         queue_family = queue;
-         found_device = true;
-      }
-    }!;
+        queue.graphics = queue_properties.find(fn (usz index, QueueFamilyProperties props) => (QueueFlagBits)props.queueFlags & vk::QUEUE_GRAPHICS_BIT != 0);
+        if (surface.checkSurfaceSupport(queue.graphics, entry)!!) queue.present = queue.graphics;
+
+        if (queue.is_ready() && supports_extensions) {
+            physical_device = entry;
+            queue_family = queue;
+            found_device = true;
+        }
+    }
+
+    devices.free();
 
     if (!found_device) {
       io::printfn("Did not found suitable device!");
@@ -309,16 +339,16 @@ fn void! main()
 
 
     // Required for using push descriptors
-    PhysicalDeviceProperties2 deviceProps2 = vk::physicalDeviceProperties2Builder()
-                                                .setNext(&&vk::physicalDevicePushDescriptorPropertiesKHRBuilder().setMaxPushDescriptors(1));
+    PhysicalDeviceProperties2 deviceProps2 = vk::physicalDeviceProperties2()
+                                                .setNext(&&vk::physicalDevicePushDescriptorProperties().setMaxPushDescriptors(1));
 
     vk::getPhysicalDeviceProperties2(physical_device, &deviceProps2);
 
-    DeviceQueueCreateInfo graphicsInfo = vk::deviceQueueCreateInfoBuilder()
+    DeviceQueueCreateInfo graphicsInfo = vk::deviceQueueCreateInfo()
     .setQueueFamilyIndex(queue_family.graphics)
     .setQueuePriorities({1.0});
 
-    device = vk::deviceCreateInfoBuilder()
+    device = vk::deviceCreateInfo()
       .setQueueCreateInfos({ graphicsInfo })
       .setEnabledExtensionNames(device_extensions.array_view())
       .setNext(&device_features)
@@ -336,11 +366,11 @@ fn void! main()
       present_modes.free();
     }
     
-    depth_format = vk::findDepthFormat(.device = physical_device, .features = vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+    depth_format = vk::findDepthFormat(features: vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, device: physical_device);
     SurfaceFormatKHR format = SurfaceFormatKHR {.format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR};
 
     uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
-    SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfoKHRBuilder()
+    SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfo()
       .setMinImageCount(min_images)
       .setImageUsage(vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
       .setImageSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -353,12 +383,12 @@ fn void! main()
       .setImageArrayLayers(1)
       .setImageExtent({ .width = WIDTH, .height = HEIGHT });
 
-    SwapchainKHR swapchain = swapchain_info.buildKHR(device)!;
+    SwapchainKHR swapchain = swapchain_info.build(device)!;
     ImageViewList swapchain_views;
     vk::ImageList swapchain_images = swapchain.getImages(device, swapchain_info.minImageCount)!;
 
     for (int i = 0; i < swapchain_info.minImageCount; ++i) {
-        ImageView view = vk::imageViewCreateInfoBuilder()
+        ImageView view = vk::imageViewCreateInfo()
         .setViewType(vk::IMAGE_VIEW_TYPE_2D)
         .setFormat(format.format)
         .setComponents({
@@ -379,7 +409,7 @@ fn void! main()
         swapchain_views.push(view);
     }
 
-    CommandPool command_pool = device.createCommandPool(.queue = queue_family.graphics)!;
+    CommandPool command_pool = device.createCommandPool(queue: queue_family.graphics)!;
     CommandBufferList command_buffers = device.createCommandBuffers(command_pool, swapchain_info.minImageCount)!;
 
     // Create allocator of 50MB - DEVICE_ONLY memory
@@ -401,37 +431,37 @@ fn void! main()
     }.build()!;
 
     // Creating buffers
-    vertex_buffer = vk::bufferCreateInfoBuilder()
+    vertex_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(vertices.byte_size())
                 .bind(&device_allocation)!;
 
-    index_buffer = vk::bufferCreateInfoBuilder()
+    index_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(indices.byte_size())
                 .bind(&device_allocation)!;
 
-    uniform_buffer = vk::bufferCreateInfoBuilder()
+    uniform_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(UniformData.sizeof)
                 .bind(&local_allocation)!;
 
-    material_buffer = vk::bufferCreateInfoBuilder()
+    material_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(gltf_scene.materials.byte_size())
                 .bind(&local_allocation)!;
 
-    joint_buffer = vk::bufferCreateInfoBuilder()
+    joint_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(joint_data.byte_size())
                 .bind(&local_allocation)!;
 
-    cube_buffer = vk::bufferCreateInfoBuilder()
+    cube_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(cube.buffers[0].size)
@@ -442,11 +472,11 @@ fn void! main()
     material_buffer.upload(gltf_scene.materials.entries, gltf_scene.materials.byte_size(), device);
 
     // Create stage buffers and then copy the data to GPU only buffers
-    MemoryBlock vertex_stage_buffer = device.staging_buffer(.size = vertices.byte_size(), .data = vertices.entries, .pdevice = physical_device)!;
-    MemoryBlock index_stage_buffer = device.staging_buffer(.size = indices.byte_size(), .data = indices.entries, .pdevice = physical_device)!;
-    MemoryBlock cube_stage_buffer = device.staging_buffer(.size = cube.buffers[0].size, .data = cube.buffers[0].data, .pdevice = physical_device)!;
+    MemoryBlock vertex_stage_buffer = device.staging_buffer(size: vertices.byte_size(), data: vertices.entries, pdevice: physical_device)!;
+    MemoryBlock index_stage_buffer = device.staging_buffer(size: indices.byte_size(), data: indices.entries, pdevice: physical_device)!;
+    MemoryBlock cube_stage_buffer = device.staging_buffer(size: cube.buffers[0].size, data: cube.buffers[0].data, pdevice: physical_device)!;
 
-    device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
+    device.@single_time_command(queue: queue_family.graphics_handle, queue_index: queue_family.graphics; CommandBuffer command_buffer) {
          vk::cmdCopyBuffer(command_buffer, index_stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
              .srcOffset = 0,
              .dstOffset = 0,
@@ -473,7 +503,7 @@ fn void! main()
     loadTextures()!;
 
     WriteDescriptorSet[] descriptorSets = {
-        vk::writeDescriptorSetBuilder()
+        vk::writeDescriptorSet()
         .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
         .setDstBinding(0)
         .setBufferInfo({
@@ -483,14 +513,14 @@ fn void! main()
                 .range = uniform_buffer.size,
             },
         }),
-        vk::writeDescriptorSetBuilder()
+        vk::writeDescriptorSet()
         .setDstBinding(1)
         .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
         .setImageInfo(material_textures.array_view()),
     };
 
     WriteDescriptorSet[] cubeDescriptorSets = {
-        vk::writeDescriptorSetBuilder()
+        vk::writeDescriptorSet()
         .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
         .setDstBinding(0)
         .setBufferInfo({
@@ -500,13 +530,13 @@ fn void! main()
                 .range = uniform_buffer.size,
             },
         }),
-        vk::writeDescriptorSetBuilder()
+        vk::writeDescriptorSet()
         .setDstBinding(1)
         .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
         .setImageInfo({ cube_texture }),
     };
 
-   DescriptorSetLayout render_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
+   DescriptorSetLayout render_descriptor_layout = vk::descriptorSetLayoutCreateInfo()
         .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
         .setBindings({
             {
@@ -524,7 +554,7 @@ fn void! main()
     }).build(device)!;
 
 
-   DescriptorSetLayout cube_descriptor_layout = vk::descriptorSetLayoutCreateInfoBuilder()
+   DescriptorSetLayout cube_descriptor_layout = vk::descriptorSetLayoutCreateInfo()
         .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
         .setBindings({
             {
@@ -543,7 +573,7 @@ fn void! main()
 
     RenderState render_pipeline = RenderState {
         .descriptor_layout = render_descriptor_layout,
-        .shader = device.createShader(.vertex = &vertex_shader_data, .fragment = &fragment_shader_data)!,
+        .shader = device.createShader(vertex: &vertex_shader_data, fragment: &fragment_shader_data)!,
         .cull_mode = vk::CULL_MODE_NONE,
         .front_face = vk::FRONT_FACE_COUNTER_CLOCKWISE,
         .topology = vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -615,29 +645,46 @@ fn void! main()
     FenceList frame_fences;
 
     for (uint i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        wait_semaphores.push(vk::semaphoreCreateInfoBuilder().build(device))!;
-        signal_semaphores.push(vk::semaphoreCreateInfoBuilder().build(device))!;
-        frame_fences.push(vk::fenceCreateInfoBuilder().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(device))!;
+        wait_semaphores.push(vk::semaphoreCreateInfo().build(device))!;
+        signal_semaphores.push(vk::semaphoreCreateInfo().build(device))!;
+        frame_fences.push(vk::fenceCreateInfo().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(device))!;
     }
 
     Clock time = clock::now();
 
     // Rendering loop
+    // Rendering loop
+    bool running = true;
     uint frame = 0;
-    while(!glfw::windowShouldClose(window)) {
-        eventHandler.update();
+    MouseParams last_params;
 
-        if (animations.len() > 0) gltf_scene.animate(.animation = &animations[0], .time = time.mark());
-        
-        if (eventHandler.scrolling) {
-            camera.zoom((float)eventHandler.scrollY * 5);
+    while (running) {
+        c3w::Event event = win.getEvent();
+
+        if (animations.len() > 0) gltf_scene.animate(animation: &animations[0], time: time.mark());
+
+        if (event.mouse_click == LEFT_MOUSE) {
+            MouseParams params = c3w::getMousePos(win);
+            camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
             uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+            last_params = params;
         }
 
-        // Update camera  rotation on left-mouse click
-        if (eventHandler.left_mouse_click) {
-            camera.rotate((float)eventHandler.mouse_x_delta, (float)eventHandler.mouse_y_delta);
-            uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+        switch (event.type) {
+            case c3w::MOUSE_PRESSED: {
+                if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
+                    camera.zoom(5);
+                    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+                }
+                if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
+                    camera.zoom(-5);
+                    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+                }
+            }
+            case c3w::MOUSE_RELEASED: {}
+            case c3w::KEY_PRESSED: {
+                if (event.value == c3w::ESCAPE) running = false;
+            }
         }
 
         Fence frame_fence = frame_fences[frame];
@@ -650,14 +697,14 @@ fn void! main()
         uint next_image = swapchain.getNextImage(device, wait_semaphore);
 
         // Start dynamic rendering
-        RenderingInfo rendering_info = vk::renderingInfoBuilder()
+        RenderingInfo rendering_info = vk::renderingInfo()
         .setLayerCount(1)
         .setRenderArea({
             .offset = Offset2D{ .x = 0, .y = 0 },
             .extent = swapchain_info.imageExtent,
         })
         .setColorAttachments({
-            vk::renderingAttachmentInfoBuilder()
+            vk::renderingAttachmentInfo()
             .setImageView(swapchain_views[next_image])
             .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
             .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
@@ -666,7 +713,7 @@ fn void! main()
                 .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
             })
         })
-        .setDepthAttachment(&&vk::renderingAttachmentInfoBuilder()
+        .setDepthAttachment(&&vk::renderingAttachmentInfo()
             .setImageView(depth_texture.imageView)
             .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
             .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
@@ -677,9 +724,9 @@ fn void! main()
 
         CommandBuffer command_buffer = command_buffers[next_image];
         vk::resetCommandBuffer(command_buffer, 0)!;
-        vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfoBuilder())!;
+        vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!;
 
-        ImageMemoryBarrier image_memory_start = vk::imageMemoryBarrierBuilder()
+        ImageMemoryBarrier image_memory_start = vk::imageMemoryBarrier()
         .setDstAccessMask(vk::ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
         .setOldLayout(vk::IMAGE_LAYOUT_UNDEFINED)
         .setNewLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
@@ -705,7 +752,7 @@ fn void! main()
             &image_memory_start
         );
 
-        vk::cmdBeginRenderingKHR(command_buffer, &rendering_info);
+        vk::cmdBeginRendering(command_buffer, &rendering_info);
 
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = -HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = HEIGHT, .x = 0 });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = swapchain_info.imageExtent, .offset = { .x = 0, .y = 0 }});
@@ -732,9 +779,9 @@ fn void! main()
         vk::cmdBindIndexBuffer(command_buffer, cube_buffer.buffer, 768, vk::INDEX_TYPE_UINT16);
         vk::cmdDrawIndexed(command_buffer, 36, 1, 0, 0, 0);
 
-        vk::cmdEndRenderingKHR(command_buffer);
+        vk::cmdEndRendering(command_buffer);
 
-        ImageMemoryBarrier image_memory_end = vk::imageMemoryBarrierBuilder()
+        ImageMemoryBarrier image_memory_end = vk::imageMemoryBarrier()
         .setSrcAccessMask(vk::ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
         .setOldLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
         .setNewLayout(vk::IMAGE_LAYOUT_PRESENT_SRC_KHR)
@@ -760,7 +807,7 @@ fn void! main()
             &image_memory_end
         );
 
-        SubmitInfo submit_info = vk::submitInfoBuilder()
+        SubmitInfo submit_info = vk::submitInfo()
         .setWaitSemaphores({ wait_semaphore })
         .setCommandBuffers({ command_buffer })
         .setSignalSemaphores({ signal_semaphore })
@@ -769,7 +816,7 @@ fn void! main()
         vk::endCommandBuffer(command_buffer)!;
         vk::queueSubmit(queue_family.graphics_handle, 1, &submit_info, frame_fence)!;
 
-        PresentInfoKHR present_info = vk::presentInfoKHRBuilder()
+        PresentInfoKHR present_info = vk::presentInfo()
         .setWaitSemaphores({ signal_semaphore })
         .setSwapchains({ swapchain })
         .setImageIndices({ next_image });
@@ -880,7 +927,7 @@ fn void! loadTextures() {
             return;
         }
 
-        vk::Image texture_image = vk::imageCreateInfoBuilder()
+        vk::Image texture_image = vk::imageCreateInfo()
             .setImageType(vk::IMAGE_TYPE_2D)
             .setExtent({.width = image_data.width, .height = image_data.height, .depth = 1 })
             .setMipLevels(1)
@@ -893,7 +940,7 @@ fn void! loadTextures() {
             .build(device)!;
             texture_image.bind(&device_allocation)!;
 
-        MemoryBlock stage_image = device.staging_buffer(.size = (usz)image_data.width * image_data.height * 4, .data = image_data.pixels, .pdevice = physical_device)!;
+        MemoryBlock stage_image = device.staging_buffer(.size = (usz)image_data.width * image_data.height * 4, .data = image_data.pixels, pdevice: physical_device)!;
         defer stage_image.free(device);
 
         vk::ImageMemoryBarrier2 transfer_barrier = {
@@ -931,9 +978,9 @@ fn void! loadTextures() {
             }
         };
 
-        device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
+        device.@single_time_command(queue: queue_family.graphics_handle, queue_index: queue_family.graphics; CommandBuffer command_buffer) {
            
-            vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
+            vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
             .setImageMemoryBarriers({ transfer_barrier }));
 
             BufferImageCopy bufferCopyRegion = {
@@ -959,11 +1006,11 @@ fn void! loadTextures() {
                 &bufferCopyRegion
             );
 
-            vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
+            vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
             .setImageMemoryBarriers({ finalize_barrier }));
         }!;
 
-        texture.sampler = vk::samplerCreateInfoBuilder()
+        texture.sampler = vk::samplerCreateInfo()
                             .setMagFilter(vk::FILTER_LINEAR)
                             .setMinFilter(vk::FILTER_LINEAR)
                             .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
@@ -977,7 +1024,7 @@ fn void! loadTextures() {
                             .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
                             .build(device)!;
 
-        texture.imageView = vk::imageViewCreateInfoBuilder()
+        texture.imageView = vk::imageViewCreateInfo()
                         .setViewType(vk::IMAGE_VIEW_TYPE_2D)
                         .setFormat(image_format)
                         .setSubresourceRange({
@@ -996,7 +1043,7 @@ fn void! loadTextures() {
 
     depth_texture.imageLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
-    depth_image = vk::imageCreateInfoBuilder()
+    depth_image = vk::imageCreateInfo()
     .setImageType(vk::IMAGE_TYPE_2D)
     .setExtent({.width = WIDTH, .height = HEIGHT, .depth = 1 })
     .setMipLevels(1)
@@ -1010,7 +1057,7 @@ fn void! loadTextures() {
 
     depth_image.bind(&device_allocation)!;
 
-    depth_texture.sampler = vk::samplerCreateInfoBuilder()
+    depth_texture.sampler = vk::samplerCreateInfo()
         .setMagFilter(vk::FILTER_LINEAR)
         .setMinFilter(vk::FILTER_LINEAR)
         .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
@@ -1024,7 +1071,7 @@ fn void! loadTextures() {
         .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
         .build(device)!;
         
-    depth_texture.imageView = vk::imageViewCreateInfoBuilder()
+    depth_texture.imageView = vk::imageViewCreateInfo()
         .setViewType(vk::IMAGE_VIEW_TYPE_2D)
         .setFormat(depth_format)
         .setSubresourceRange({
@@ -1037,8 +1084,8 @@ fn void! loadTextures() {
         .setImage(depth_image)
         .build(device)!;
 
-    device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
-       ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrierBuilder()
+    device.@single_time_command(queue: queue_family.graphics_handle, queue_index: queue_family.graphics; CommandBuffer command_buffer) {
+       ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrier()
        .setImage(depth_image)
        .setSubresourceRange({
           .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
@@ -1073,7 +1120,7 @@ fn void! loadTextures() {
     
     cube_texture.imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    cube_image = vk::imageCreateInfoBuilder()
+    cube_image = vk::imageCreateInfo()
             .setImageType(vk::IMAGE_TYPE_2D)
             .setExtent({.width = cube_map_width, .height = cube_map_width, .depth = 1 })
             .setMipLevels(1)
@@ -1088,7 +1135,7 @@ fn void! loadTextures() {
 
     cube_image.bind(&device_allocation)!;
 
-    cube_texture.sampler = vk::samplerCreateInfoBuilder()
+    cube_texture.sampler = vk::samplerCreateInfo()
         .setMagFilter(vk::FILTER_LINEAR)
         .setMinFilter(vk::FILTER_LINEAR)
         .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
@@ -1102,7 +1149,7 @@ fn void! loadTextures() {
         .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
         .build(device)!;
 
-    cube_texture.imageView = vk::imageViewCreateInfoBuilder()
+    cube_texture.imageView = vk::imageViewCreateInfo()
         .setViewType(vk::IMAGE_VIEW_TYPE_CUBE)
         .setFormat(cube_format)
         .setSubresourceRange({
@@ -1115,10 +1162,10 @@ fn void! loadTextures() {
     .setImage(cube_image)
     .build(device)!;
 
-    MemoryBlock stage_image = device.staging_buffer(.size = (usz)cube_map_image.width * cube_map_image.height * 4, .data = cube_map_image.pixels, .pdevice = physical_device)!;
+    MemoryBlock stage_image = device.staging_buffer(.size = (usz)cube_map_image.width * cube_map_image.height * 4, .data = cube_map_image.pixels, pdevice: physical_device)!;
     defer stage_image.free(device);
 
-    device.@single_time_command(.queue = queue_family.graphics_handle, .queue_index = queue_family.graphics; CommandBuffer command_buffer) {
+    device.@single_time_command(queue: queue_family.graphics_handle, queue_index: queue_family.graphics; CommandBuffer command_buffer) {
         BufferImageCopy[6] bufferCopyRegions;
         ImageMemoryBarrier2[6] transfer_barriers;
         ImageMemoryBarrier2[6] finalize_barriers;
@@ -1174,7 +1221,7 @@ fn void! loadTextures() {
             };
         }
 
-        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers(&transfer_barriers));
 
         vk::cmdCopyBufferToImage(
@@ -1186,7 +1233,7 @@ fn void! loadTextures() {
             &bufferCopyRegions
         );
 
-        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfoBuilder()
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers(&finalize_barriers));
     }!;
 }

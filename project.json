@@ -9,9 +9,9 @@
 	"linked-libraries": [],
 	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/render_state.c3"],
 	"targets": {
-		"pbr": {
+		"cubemap": {
 			"type": "executable",
-			"sources-add": ["examples/pbr2/main.c3"]
+			"sources-add": ["examples/cubemap/main.c3"]
 		},
 		"cube": {
 			"type": "executable",
