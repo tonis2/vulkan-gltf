@@ -198,7 +198,7 @@ fn void! main()
         }
     }
 
-    camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: 800/600, min_zoom: 0.01, max_zoom: 1000);
+       camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: 800/600, min_zoom: 0.01, max_zoom: 1000);
 
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
@@ -221,7 +221,7 @@ fn void! main()
 
     InstanceCreateInfo instanceInfo = vk::instanceCreateInfo()
     .setApplicationInfo(&&ApplicationInfo{
-      .pApplicationName = "Hello GLTF",
+      .pApplicationName = "TEST",
       .pEngineName = "Super engine",
       .applicationVersion = vk::@makeApiVersion(0,1,0,0),
       .engineVersion = vk::@makeApiVersion(0,1,0,0),
@@ -230,23 +230,25 @@ fn void! main()
     .setFlags(env::os_is_darwin() ? vk::INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0)
     .setEnabledExtensionNames(extensions.array_view());
 
-    DebugUtilsMessengerCreateInfoEXT debug_info = vk::debugUtilsMessengerCreateInfoEXT()
-             .setMessageSeverity(vk::DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-             .setMessageType(vk::DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
-             .setPfnUserCallback((PFN_vkDebugUtilsMessengerCallbackEXT)&vk::debugCallback);
+    DebugUtilsMessengerCreateInfoEXT debug_info = DebugUtilsMessengerCreateInfoEXT {
+        .sType = vk::STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+        .messageSeverity = vk::DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+        .messageType = vk::DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+        .pfnUserCallback = (PFN_vkDebugUtilsMessengerCallbackEXT)&vk::debugCallback
+    };
 
     // Debug enabled
     if (ENABLE_VALIDATION_LAYERS) {
-      vk::checkValidationLayersSupport(validations)!;
+      vk::checkValidationLayersSupport(validations)!!;
       instanceInfo.enabledLayerCount = (uint)validations.len();
       instanceInfo.ppEnabledLayerNames = (char*)validations.entries;
     }
 
-    vk::createInstance(&instanceInfo, null, &instance)!;
+    vk::createInstance(&instanceInfo, null, &instance)!!;
     vk::loadExtensions(instance);
 
     if (ENABLE_VALIDATION_LAYERS) {
-     debug_messenger = debug_info.build(instance)!;
+        debug_messenger = debug_info.build(instance)!!;
     }
 
     // Create surface
@@ -510,7 +512,7 @@ fn void! main()
             {
                 .buffer = uniform_buffer.buffer,
                 .offset = 0,
-                .range = uniform_buffer.size,
+                .range = UniformData.sizeof,
             },
         }),
         vk::writeDescriptorSet()
@@ -527,7 +529,7 @@ fn void! main()
             {
                 .buffer = uniform_buffer.buffer,
                 .offset = 0,
-                .range = uniform_buffer.size,
+                .range = UniformData.sizeof,
             },
         }),
         vk::writeDescriptorSet()
@@ -607,7 +609,7 @@ fn void! main()
 
     RenderState cube_pipeline = RenderState {
         .descriptor_layout = cube_descriptor_layout,
-        .shader = device.createShader(.vertex = &cube_vert_data, .fragment = &cube_frag_data)!,
+        .shader = device.createShader(vertex: &cube_vert_data, fragment:&cube_frag_data)!,
         .cull_mode = vk::CULL_MODE_NONE,
         .front_face = vk::FRONT_FACE_COUNTER_CLOCKWISE,
         .topology = vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -940,7 +942,7 @@ fn void! loadTextures() {
             .build(device)!;
             texture_image.bind(&device_allocation)!;
 
-        MemoryBlock stage_image = device.staging_buffer(.size = (usz)image_data.width * image_data.height * 4, .data = image_data.pixels, pdevice: physical_device)!;
+        MemoryBlock stage_image = device.staging_buffer(size: (usz)image_data.width * image_data.height * 4, data: image_data.pixels, pdevice: physical_device)!;
         defer stage_image.free(device);
 
         vk::ImageMemoryBarrier2 transfer_barrier = {
@@ -1162,7 +1164,7 @@ fn void! loadTextures() {
     .setImage(cube_image)
     .build(device)!;
 
-    MemoryBlock stage_image = device.staging_buffer(.size = (usz)cube_map_image.width * cube_map_image.height * 4, .data = cube_map_image.pixels, pdevice: physical_device)!;
+    MemoryBlock stage_image = device.staging_buffer(size: (usz)cube_map_image.width * cube_map_image.height * 4, data: cube_map_image.pixels, pdevice: physical_device)!;
     defer stage_image.free(device);
 
     device.@single_time_command(queue: queue_family.graphics_handle, queue_index: queue_family.graphics; CommandBuffer command_buffer) {
