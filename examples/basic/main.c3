@@ -7,7 +7,7 @@ import vk;
 import stb;
 import camera;
 import gltf;
-import rgfw;
+import c3w;
 
 def TextureList = List(<DescriptorImageInfo>);
 
@@ -158,8 +158,16 @@ fn void! main()
         }
     }
 
-    rgfw::Window* win = rgfw::createWindow("Vulkan Example", rgfw::Rect{0, 0, WIDTH, HEIGHT}, rgfw::CENTER);
-    defer rgfw::close(win);
+    c3w::Window win = c3w::new(
+        params: {
+            .width = WIDTH,
+            .height = HEIGHT,
+            .x = 0,
+            .y = 0
+        },
+        name: "GLTF animation"
+    );
+    defer win.free();
     
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: 800/600, min_zoom: 0.01, max_zoom: 1000);
 
@@ -180,7 +188,7 @@ fn void! main()
         extensions.add_array({"VK_KHR_xlib_surface"});
     }
 
-    vk::checkExtensionSupport(extensions)!;
+    vk::checkInstanceExtensionSupport(extensions)!;
 
     InstanceCreateInfo instanceInfo = vk::instanceCreateInfo()
     .setApplicationInfo(&&ApplicationInfo{
@@ -630,18 +638,36 @@ fn void! main()
     // Rendering loop
     bool running = true;
     uint frame = 0;
+    MouseParams last_params;
 
     while (running) {
-        // win.update();
-
+        c3w::Event event = win.getEvent();
 
         if (animations.len() > 0) gltf.animate(animation: &animations[0], time: time.mark());
 
-        // Update camera  rotation on left-mouse click
-        // if (eventHandler.left_mouse_click) {
-        //     camera.rotate((float)eventHandler.mouse_x_delta, (float)eventHandler.mouse_y_delta);
-        //     uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
-        // }
+        if (event.mouse_click == LEFT_MOUSE) {
+           MouseParams params = c3w::getMousePos(win);
+           camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
+           uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+           last_params = params;
+        }
+
+        switch (event.type) {
+            case c3w::MOUSE_PRESSED: {
+                if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
+                    camera.zoom(5);
+                    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+                }
+                if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
+                    camera.zoom(-5);
+                    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+                }
+            }
+            case c3w::MOUSE_RELEASED: {}
+            case c3w::KEY_PRESSED: {
+                if (event.value == c3w::ESCAPE) running = false;
+            }
+        }
 
         Fence frame_fence = frame_fences[frame];
         Semaphore wait_semaphore = wait_semaphores[frame];

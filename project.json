@@ -4,7 +4,7 @@
 	"authors": [],
 	"version": "0.1.0",
 	"dependency-search-paths": [ "./dependencies"],
-	"dependencies": ["rgfw", "vk", "stb"],
+	"dependencies": ["c3w", "vk", "stb"],
 	"features": [],
 	"linked-libraries": [],
 	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/render_state.c3"],
