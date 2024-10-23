@@ -11,15 +11,15 @@
 	"targets": {
 		"cubemap": {
 			"type": "executable",
-			"sources-add": ["examples/cubemap/main.c3"]
+			"sources": ["examples/cubemap/main.c3"]
 		},
 		"cube": {
 			"type": "executable",
-			"sources-add": ["examples/cube/main.c3"]
+			"sources": ["examples/cube/main.c3"]
 		},
 		"basic": {
 			"type": "executable",
-			"sources-add": ["examples/basic/main.c3"]
+			"sources": ["examples/basic/main.c3"]
 		}
 	},
 	"output": "./build"

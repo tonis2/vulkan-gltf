@@ -340,7 +340,7 @@ fn void! main()
     
     depth_format = vk::findDepthFormat(features: vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, device: physical_device);
     SurfaceFormatKHR format = SurfaceFormatKHR {.format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR};
-
+    Extent2D extent = capabilities.maxImageExtent;
     uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
     SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfo()
       .setMinImageCount(min_images)
@@ -353,7 +353,7 @@ fn void! main()
       .setImageFormat(format.format)
       .setSurface(surface)
       .setImageArrayLayers(1)
-      .setImageExtent({ .width = WIDTH, .height = HEIGHT });
+      .setImageExtent(extent);
 
     SwapchainKHR swapchain = swapchain_info.build(device)!;
     ImageViewList swapchain_views;
