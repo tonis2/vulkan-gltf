@@ -10,6 +10,8 @@ Then run with `c3c run basic` inside the cloned repository
 
 All available examples can be seen in *project.json*
 
+GLTF parser repo is [here](https://github.com/tonis2/gltf.c3)
+
 
 ![screenshot](screenshots/screenshot.png?raw=true)
 ![screenshot](screenshots/screenshot1.png?raw=true)
