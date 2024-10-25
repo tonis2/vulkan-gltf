@@ -13,7 +13,7 @@ def TextureList = List(<DescriptorImageInfo>);
 
 const WIDTH = 800;
 const HEIGHT = 600;
-const ENABLE_VALIDATION_LAYERS = false;
+const ENABLE_VALIDATION_LAYERS = true;
 const MAX_FRAMES_IN_FLIGHT = 2;
 const VK_API_VERSION_1_3 = vk::@makeApiVersion(0,1,3,0);
 
@@ -29,11 +29,8 @@ struct PushConstantData {
     int material_index;
     bool has_skin;
     vk::DeviceAddress skins;
+    vk::DeviceAddress materials;
 }
-
-// Load shaders
-char[*] vertex_shader_data = $embed("./shaders/vertex.spv");
-char[*] fragment_shader_data = $embed("./shaders/fragment.spv");
 
 Instance instance;
 DebugUtilsMessengerEXT debug_messenger;
@@ -105,7 +102,6 @@ fn void! main()
                     Accessor accessor = gltf.accessors[attribute];
                     return gltf.@castBuffer(accessor, i, Vec2f);
                 |};
-
 
                 Vec4f skin_pos = {|
                     usz! attribute = primitive.attributes["JOINTS_0"];
@@ -339,9 +335,11 @@ fn void! main()
     }
     
     depth_format = vk::findDepthFormat(features: vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, device: physical_device);
+
     SurfaceFormatKHR format = SurfaceFormatKHR {.format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR};
     Extent2D extent = capabilities.maxImageExtent;
     uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
+
     SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfo()
       .setMinImageCount(min_images)
       .setImageUsage(vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
@@ -415,7 +413,7 @@ fn void! main()
                 .bind(&device_allocation)!;
 
     material_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_STORAGE_BUFFER_BIT)
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(gltf.materials.byte_size())
                 .bind(&local_allocation)!;
@@ -469,14 +467,8 @@ fn void! main()
                 .descriptorCount = 1,
                 .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
             },
-            {
+         {
                 .binding = 1,
-                .descriptorType = vk::DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = (uint)gltf.materials.len(),
-                .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
-            },
-            {
-                .binding = 2,
                 .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount = (uint)material_textures.len(),
                 .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
@@ -485,47 +477,54 @@ fn void! main()
 
     // Descriptor sets for push descriptors
     WriteDescriptorSet[] descriptorSets = {
-            vk::writeDescriptorSet()
-            .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-            .setDstBinding(0)
-            .setBufferInfo({
-              {
-                   .buffer = uniform_buffer.buffer,
-                   .offset = 0,
-                   .range = UniformData.sizeof,
-               },
-           }),
-           vk::writeDescriptorSet()
-            .setDescriptorType(vk::DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .setDstBinding(1)
-            .setBufferInfo({
-              {
-                   .buffer = material_buffer.buffer,
-                   .offset = 0,
-                   .range = gltf.materials.byte_size(),
-               },
-           }),
-            vk::writeDescriptorSet()
-            .setDstBinding(2)
-            .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-            .setImageInfo(material_textures.array_view())
+        vk::writeDescriptorSet()
+        .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+        .setDstBinding(0)
+        .setBufferInfo({
+            {
+                .buffer = uniform_buffer.buffer,
+                .offset = 0,
+                .range = UniformData.sizeof,
+            },
+        }),
+        vk::writeDescriptorSet()
+        .setDstBinding(1)
+        .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+        .setImageInfo(material_textures.array_view())
     };
-
-    Shader draw_shaders = device.createShader(vertex: &vertex_shader_data, fragment: &fragment_shader_data)!;
     
     PipelineLayout pipeline_layout = vk::pipelineLayoutCreateInfo()
     .setPushConstantRanges({
         {
             .offset = 0,
             .size = PushConstantData.sizeof,
-            .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
+            .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
         },
     })
     .setSetLayouts({ descriptor_set_layout }).build(device)!;
 
+
+    char[*] shader = $embed("./shaders/shader.spv");
+
+    ShaderModule shader_module = vk::shaderModuleCreateInfo()
+    .setCodeSize(shader.len)
+    .setCode((uint*)&shader[0])
+    .build(device)!;
+
+    defer shader_module.free(device);
+
     // Create Renderpipeline info
     Pipeline pipeline = vk::graphicsPipelineCreateInfo()
-    .setStages(&draw_shaders.stages)
+    .setStages({
+        vk::pipelineShaderStageCreateInfo()
+        .setStage(vk::SHADER_STAGE_VERTEX_BIT)
+        .setMod(shader_module)
+        .setName("main"),
+        vk::pipelineShaderStageCreateInfo()
+        .setStage(vk::SHADER_STAGE_FRAGMENT_BIT)
+        .setMod(shader_module)
+        .setName("main")
+    })
      .setLayout(pipeline_layout)
      .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo()
         .setVertexBindingDescriptions(
@@ -616,7 +615,7 @@ fn void! main()
             .setViewports({{}})
             .setScissors({{}}))
     .setNext(&&vk::pipelineRenderingCreateInfo()
-                .setColorAttachmentFormats({swapchain_info.imageFormat})
+                .setColorAttachmentFormats({ swapchain_info.imageFormat })
                 .setDepthAttachmentFormat(depth_format)
             )
     .build(device)!;
@@ -700,9 +699,8 @@ fn void! main()
             .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
             .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
             .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-            .depthStencil = { 1.0f, 0 }
-        }));
+            .setClearValue({ .depthStencil = { 1.0f, 0 } })
+        );
 
         CommandBuffer command_buffer = command_buffers[next_image];
         vk::resetCommandBuffer(command_buffer, 0)!;
@@ -813,7 +811,6 @@ fn void! main()
     command_pool.free(device);
 
     descriptor_set_layout.free(device);
-    draw_shaders.free(device);
     pipeline.free(device);
     pipeline_layout.free(device);
 
@@ -849,9 +846,10 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
                 .material_index = (int)primitive.attributes["material"] ?? -1,
                 .has_skin = node.hasSkin(),
                 .skins = joint_buffer.address,
+                .materials = material_buffer.address
             };
 
-            vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
+            vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexed(buffer, index_accessor.count, 1, (uint)primitive.attributes["first_index"] ?? 0, (uint)primitive.attributes["first_vertex"] ?? 0, 0);
         }
     }

@@ -8,7 +8,14 @@
 	"features": [],
 	"linked-libraries": [],
 	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/render_state.c3"],
+	"script-dir": "./",
 	"targets": {
+		"shaders": {
+			"type": "static-lib",
+			"exec": [
+				"slangc examples/basic/shaders/shader.slang  -profile glsl_460 -target spirv -o examples/basic/shaders/shader.spv"
+			]
+		},
 		"cubemap": {
 			"type": "executable",
 			"sources": ["examples/cubemap/main.c3"]
