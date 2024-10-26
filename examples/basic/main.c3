@@ -66,7 +66,6 @@ vk::Allocation device_allocation;
 
 fn void! main()
 {
-
     // Load gltf
     gltf = gltf::loadFile("assets/scene_test.glb")!;
     defer gltf.free();
@@ -261,12 +260,18 @@ fn void! main()
         QueuePropertiesList queue_properties = entry.getQueueProperties()!!;
 
         queue.graphics = queue_properties.find(fn (usz index, QueueFamilyProperties props) => (QueueFlagBits)props.queueFlags & vk::QUEUE_GRAPHICS_BIT != 0);
-        if (surface.checkSurfaceSupport(queue.graphics, entry)!!) queue.present = queue.graphics;
 
-        if (queue.is_ready() && supports_extensions) {
+        PhysicalDeviceProperties properties;
+        vk::getPhysicalDeviceProperties(entry, &properties);
+
+        if (surface.checkSurfaceSupport(queue.graphics, entry)!!) queue.present = queue.graphics;
+        if (queue.is_ready() && supports_extensions && properties.vendorID != 0) {
+            io::printfn("Device selected %s", (ZString)properties.deviceName[0..]);
+
             physical_device = entry;
             queue_family = queue;
             found_device = true;
+            break;
         }
     }
 
@@ -502,7 +507,6 @@ fn void! main()
         },
     })
     .setSetLayouts({ descriptor_set_layout }).build(device)!;
-
 
     char[*] shader = $embed("./shaders/shader.spv");
 
