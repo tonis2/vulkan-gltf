@@ -1,7 +1,4 @@
 // Shader written in Slang https://github.com/shader-slang/slang
-
-
-
 struct Texture {
     int samp;
     int source;
