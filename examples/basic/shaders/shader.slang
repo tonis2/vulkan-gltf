@@ -48,7 +48,6 @@ cbuffer Uniforms
 [vk_binding(1)]
 uniform Sampler2D materialSamplers[];
 
-
 struct VertexInput
 {
     float3	position;
@@ -75,7 +74,12 @@ struct VertexOutPut
 [shader("vertex")]
 VertexOutPut vertexMain(VertexInput input)
 {
-    float4x4 skin_matrix = float4x4(1);
+    float4x4 skin_matrix = {
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    };
 
     if (push_constant.has_skin) {
         skin_matrix =
@@ -85,13 +89,13 @@ VertexOutPut vertexMain(VertexInput input)
              input.skin_weight[3] * push_constant.joints[uint(input.skin_pos[3])];
         
     }
-
+ 
     VertexOutPut output = {
         {
             input.tex_cord,
             push_constant.material_index,
         },
-        mul(mul(mul(projection, view), push_constant.model_matrix), float4(input.position, 1.0))
+        mul(mul(mul(mul(projection, view), push_constant.model_matrix), skin_matrix), float4(input.position, 1.0))
     };
 
     return output;
