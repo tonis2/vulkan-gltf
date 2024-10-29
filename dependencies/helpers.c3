@@ -35,6 +35,7 @@ struct DeviceContext {
     CommandBufferList command_buffers;
     QueueFamily queue_family;
     Format depth_format;
+    SurfaceFormatKHR surface_format;
     Extent2D extent;
     DebugUtilsMessengerEXT debug_messenger;
     SurfaceKHR surface;
@@ -241,6 +242,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     context.depth_format = vk::findDepthFormat(features: vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, device: context.pdevice);
 
     SurfaceFormatKHR format = SurfaceFormatKHR {.format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR};
+    context.surface_format = format;
     context.extent = capabilities.maxImageExtent;
     uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
 
@@ -298,7 +300,6 @@ fn void BufferMap.delete(self) {
 
 fn void! BufferMap.upload(self, String name, void* data, ulong size) {
     MemoryBlock buffer = self[name]!;
-    Device device = buffer.allocator.device;
     mem::copy(buffer.mapped + buffer.offset, &data, size);
 }
 
@@ -321,21 +322,12 @@ fn void! BufferMap.upload_device(self, String name, void* data, usz size, QueueF
     stage_buffer.free(device);
 }
 
-fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator, QueueFamily queue) {
+fn void! DescriptorImages.createImage(&self, stb::Image image_data, vk::Allocation* allocator, QueueFamily queue) {
     vk::Device device = allocator.device;
     vk::PhysicalDevice pdevice = allocator.pdevice; 
 
     Format image_format = vk::FORMAT_R8G8B8A8_UNORM;
     DescriptorImageInfo texture = { .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-
-    stb::Image! image_data = stb::loadImage(path, stb::Channel.STBI_RGB_ALPHA);
-
-    defer image_data.free()!!;
-
-    if (catch err = image_data) {
-        io::printfn("Failed loading image");
-        return TextureError.FILE_NOT_FOUND?;
-    }
 
     vk::Image texture_image = vk::imageCreateInfo()
         .setImageType(vk::IMAGE_TYPE_2D)
@@ -450,11 +442,13 @@ fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator
     self.push(texture);
 }
 
-fn void! DescriptorImageInfo.createDepthTexture(&self, vk::Allocation* allocator, QueueFamily queue, Vec2f size, vk::Format format) {
+fn void! DescriptorImages.createDepthTexture(&self, vk::Allocation* allocator, QueueFamily queue, Vec2f size, vk::Format format) {
+    DescriptorImageInfo texture;
+
     vk::Device device = allocator.device;
     vk::PhysicalDevice pdevice = allocator.pdevice; 
 
-    self.imageLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    texture.imageLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
     vk::Image depth_image = vk::imageCreateInfo()
     .setImageType(vk::IMAGE_TYPE_2D)
@@ -470,7 +464,7 @@ fn void! DescriptorImageInfo.createDepthTexture(&self, vk::Allocation* allocator
 
     depth_image.bind(allocator)!;
 
-    self.sampler = vk::samplerCreateInfo()
+    texture.sampler = vk::samplerCreateInfo()
     .setMagFilter(vk::FILTER_LINEAR)
     .setMinFilter(vk::FILTER_LINEAR)
     .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
@@ -484,7 +478,7 @@ fn void! DescriptorImageInfo.createDepthTexture(&self, vk::Allocation* allocator
     .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
     .build(device)!;
 
-    self.imageView = vk::imageViewCreateInfo()
+    texture.imageView = vk::imageViewCreateInfo()
     .setViewType(vk::IMAGE_VIEW_TYPE_2D)
     .setFormat(format)
     .setSubresourceRange({
@@ -525,6 +519,8 @@ fn void! DescriptorImageInfo.createDepthTexture(&self, vk::Allocation* allocator
             &imageMemoryBarrier
         );
     }!;
+
+    self.push(texture);
 }
 
 struct RenderState {

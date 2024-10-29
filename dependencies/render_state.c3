@@ -14,7 +14,7 @@ fault TextureError
     FILE_NOT_FOUND,
 }
 
-fn void! DescriptorImages.loadPath(&self, String path, vk::Allocation* allocator, QueueFamily queue) {
+fn void! DescriptorImages.createImage(&self, String path, vk::Allocation* allocator, QueueFamily queue) {
     vk::Device device = allocator.device;
     vk::PhysicalDevice pdevice = allocator.pdevice; 
 
