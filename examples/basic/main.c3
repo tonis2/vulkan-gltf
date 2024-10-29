@@ -862,8 +862,6 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
     foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout, device);
 }
 
-
-
 fn void! loadTextures() {
     // Create texture-images from gltf buffer
     foreach (image : gltf.images) {

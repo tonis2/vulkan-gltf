@@ -34,6 +34,7 @@ struct PushData {
     bool has_skin;
     float4x4* joints;
     Material* materials;
+    Vertex* vertices;
 };
 
 [vk_push_constant]
@@ -49,7 +50,7 @@ cbuffer Uniforms
 [vk_binding(1)]
 uniform Sampler2D materialSamplers[];
 
-struct VertexInput
+struct Vertex
 {
     float3	position;
     float2	tex_cord;
@@ -73,8 +74,9 @@ struct VertexOutPut
 
 
 [shader("vertex")]
-VertexOutPut vertexMain(VertexInput input)
+VertexOutPut vertexMain(uint vertexIndex : VERTEX_INDEX)
 {
+    Vertex vertex = push_constant.vertices[vertexIndex];
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -84,19 +86,19 @@ VertexOutPut vertexMain(VertexInput input)
 
     if (push_constant.has_skin) {
         skin_matrix =
-             input.skin_weight[0] * push_constant.joints[uint(input.skin_pos[0])] +
-             input.skin_weight[1] * push_constant.joints[uint(input.skin_pos[1])] +
-             input.skin_weight[2] * push_constant.joints[uint(input.skin_pos[2])] +
-             input.skin_weight[3] * push_constant.joints[uint(input.skin_pos[3])];
+             vertex.skin_weight[0] * push_constant.joints[uint(vertex.skin_pos[0])] +
+             vertex.skin_weight[1] * push_constant.joints[uint(vertex.skin_pos[1])] +
+             vertex.skin_weight[2] * push_constant.joints[uint(vertex.skin_pos[2])] +
+             vertex.skin_weight[3] * push_constant.joints[uint(vertex.skin_pos[3])];
         
     }
  
     VertexOutPut output = {
         {
-            input.tex_cord,
+            vertex.tex_cord,
             push_constant.material_index,
         },
-        mul(mul(mul(mul(projection, view), push_constant.model_matrix), skin_matrix), float4(input.position, 1.0))
+        mul(mul(mul(mul(projection, view), push_constant.model_matrix), skin_matrix), float4(vertex.position, 1.0))
     };
 
     return output;

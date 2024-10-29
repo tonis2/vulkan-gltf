@@ -198,7 +198,7 @@ fn void! main()
         }
     }
 
-       camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: 800/600, min_zoom: 0.01, max_zoom: 1000);
+    camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: 800/600, min_zoom: 0.01, max_zoom: 1000);
 
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
@@ -261,7 +261,6 @@ fn void! main()
                 win.src.display, 
                 win.src.window, 
             };
-
             vk::createXlibSurfaceKHR(instance, &createInfo, null, &surface)!!;
         }
         $case MACOS: {
@@ -555,7 +554,6 @@ fn void! main()
             },
     }).build(device)!;
 
-
    DescriptorSetLayout cube_descriptor_layout = vk::descriptorSetLayoutCreateInfo()
         .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
         .setBindings({
@@ -584,7 +582,7 @@ fn void! main()
             {
                 .offset = 0,
                 .size = PushConstantData.sizeof,
-                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
             },
         },
         .dynamic_states = {
@@ -654,7 +652,6 @@ fn void! main()
 
     Clock time = clock::now();
 
-    // Rendering loop
     // Rendering loop
     bool running = true;
     uint frame = 0;
@@ -892,7 +889,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
                 .vertices = vertex_buffer.address
             };
 
-            vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
+            vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdDrawIndexed(buffer, index_accessor.count, 1, (uint)primitive.attributes["first_index"] ?? 0, (uint)primitive.attributes["first_vertex"] ?? 0, 0);
         }
     }
@@ -1038,7 +1035,6 @@ fn void! loadTextures() {
                         })
                         .setImage(texture_image)
                         .build(device)!;
-
 
         material_textures.push(texture);
     }
