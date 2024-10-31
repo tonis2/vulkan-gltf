@@ -27,7 +27,11 @@ struct PushConstantData {
     vk::DeviceAddress materials;
 }
 
-BufferMap buffer_map;
+MemoryBlock index_buffer;
+MemoryBlock vertex_buffer;
+MemoryBlock material_buffer;
+MemoryBlock uniform_buffer;
+MemoryBlock joint_buffer;
 
 Gltf gltf;
 List(<Vertex>) vertices;
@@ -154,63 +158,74 @@ fn void! main()
         .size = 20_000_000
     }.build()!;
 
-    buffer_map = *BufferMap{}.new_init_with_key_values(
-        "vertex", vk::bufferCreateInfo()
-            .setUsage(vk::BUFFER_USAGE_VERTEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-            .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-            .setSize(vertices.byte_size())
-            .bind(&device_allocation)!,
-        "index", vk::bufferCreateInfo()
-            .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-            .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-            .setSize(indices.byte_size())
-            .bind(&device_allocation)!,
-        "material", vk::bufferCreateInfo()
-            .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-            .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-            .setSize(gltf.materials.byte_size())
-            .bind(&local_allocation)!,
-        "uniform", vk::bufferCreateInfo()
-            .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
-            .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-            .setSize(UniformData.sizeof)
-            .bind(&local_allocation)!,
-        "joints", vk::bufferCreateInfo()
-            .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-            .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-            .setSize(joints.byte_size())
-            .bind(&local_allocation)!,
-    );
+    defer {
+        device_allocation.free();
+        local_allocation.free();
+    }
 
-    defer buffer_map.delete();
+   // Creating buffers
+    vertex_buffer = vk::bufferCreateInfo()
+               .setUsage(vk::BUFFER_USAGE_VERTEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+               .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+               .setSize(vertices.byte_size())
+               .bind(&device_allocation)!;
+
+    index_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(indices.byte_size())
+                .bind(&device_allocation)!;
+
+    material_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(gltf.materials.byte_size())
+                .bind(&local_allocation)!;
+
+    uniform_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(UniformData.sizeof)
+                .bind(&local_allocation)!;
+
+    joint_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(joints.byte_size())
+                .bind(&local_allocation)!;
 
     // Upload data to buffer
-    buffer_map.upload(
-        name: "uniform",
-        data: &&camera.matrix(), 
-        size: UniformData.sizeof,
-    )!;
+    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size);
 
-    buffer_map.upload(
-        name: "joints",
-        data: joints.entries, 
-        size: joints.byte_size(),
-    )!;
+    // Create stage buffers and then copy the data to GPU only buffers
+    MemoryBlock vertex_stage_buffer = context.device.staging_buffer(size: vertices.byte_size(), data: vertices.entries, pdevice: context.pdevice)!;
+    MemoryBlock index_stage_buffer = context.device.staging_buffer(size: indices.byte_size(), data: indices.entries, pdevice: context.pdevice)!;
+    MemoryBlock material_stage_buffer = context.device.staging_buffer(size: gltf.materials.byte_size(), data: gltf.materials.entries, pdevice: context.pdevice)!;
 
-    buffer_map.upload_device(
-        name: "vertex",
-        data: vertices.entries, 
-        size: vertices.byte_size(),
-        queue: context.queue_family
-    )!;
+    context.device.@single_time_command(queue: context.queue_family.graphics_handle, queue_index: context.queue_family.graphics; CommandBuffer command_buffer) {
+         vk::cmdCopyBuffer(command_buffer, index_stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
+             .srcOffset = 0,
+             .dstOffset = 0,
+             .size = indices.byte_size()
+         });
 
-    buffer_map.upload_device(
-        name: "index",
-        data: indices.entries, 
-        size: indices.byte_size(),
-        queue: context.queue_family
-    )!;
-    
+         vk::cmdCopyBuffer(command_buffer, vertex_stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = vertices.byte_size()
+         });
+
+        vk::cmdCopyBuffer(command_buffer, material_stage_buffer.buffer, material_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = gltf.materials.byte_size()
+         });
+    }!;
+
+    index_stage_buffer.free(context.device);
+    vertex_stage_buffer.free(context.device);
+    material_stage_buffer.free(context.device);
+
     // Create GLTF texture images
     foreach (image : gltf.images) {
         stb::Image image_data;
@@ -263,7 +278,7 @@ fn void! main()
         .setDstBinding(0)
         .setBufferInfo({
             {
-                .buffer = buffer_map["uniform"]!!.buffer,
+                .buffer = uniform_buffer.buffer,
                 .offset = 0,
                 .range = UniformData.sizeof,
             },
@@ -294,7 +309,7 @@ fn void! main()
 
     defer shader_module.free(context.device);
 
-     Pipeline pipeline = vk::graphicsPipelineCreateInfo()
+    Pipeline pipeline = vk::graphicsPipelineCreateInfo()
     .setStages({
         vk::pipelineShaderStageCreateInfo()
         .setStage(vk::SHADER_STAGE_VERTEX_BIT)
@@ -400,6 +415,12 @@ fn void! main()
             )
     .build(context.device)!;
 
+    defer {
+        descriptor_set_layout.free(context.device);
+        pipeline_layout.free(context.device);
+        pipeline.free(context.device);
+    }
+
 
     SemaphoreList wait_semaphores;
     SemaphoreList signal_semaphores;
@@ -418,7 +439,7 @@ fn void! main()
     uint frame = 0;
     MouseParams last_params;
 
-        while (running) {
+    while (running) {
         c3w::Event event = win.getEvent();
 
         if (animations.len() > 0) gltf.animate(animation: &animations[0], time: time.mark());
@@ -426,7 +447,7 @@ fn void! main()
         if (event.mouse_click == LEFT_MOUSE) {
            MouseParams params = c3w::getMousePos(win);
            camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
-           buffer_map["uniform"]!!.upload(&&camera.matrix(), UniformData.sizeof);
+           uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
            last_params = params;
         }
 
@@ -434,11 +455,11 @@ fn void! main()
             case c3w::MOUSE_PRESSED: {
                 if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
                     camera.zoom(5);
-                    buffer_map["uniform"]!!.upload(&&camera.matrix(), UniformData.sizeof);
+                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
                 }
                 if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
                     camera.zoom(-5);
-                    buffer_map["uniform"]!!.upload(&&camera.matrix(), UniformData.sizeof);
+                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
                 }
             }
             case c3w::MOUSE_RELEASED: {}
@@ -519,8 +540,8 @@ fn void! main()
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
 
-        vk::cmdBindVertexBuffers(command_buffer, 0, 1, &&vk::Buffer[1]{buffer_map["vertex"]!!.buffer}, &&vk::DeviceSize[1]{0});
-        vk::cmdBindIndexBuffer(command_buffer, buffer_map["index"]!!.buffer, 0, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindVertexBuffers(command_buffer, 0, 1, &&vk::Buffer[1]{vertex_buffer.buffer}, &&vk::DeviceSize[1]{0});
+        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout);
 
@@ -569,6 +590,11 @@ fn void! main()
         vk::queuePresentKHR(context.queue_family.graphics_handle, &present_info)!;
         frame = (frame + 1) % 2;
     }
+
+    context.device.waitIdle();
+    wait_semaphores.release(context.device);
+    signal_semaphores.release(context.device);
+    frame_fences.release(context.device);
 }
 
 fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout) {
@@ -579,7 +605,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
            Node joint_node = gltf.nodes[joint];
            joints[joint_index] = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
         }
-        buffer_map["joints"]!!.upload(joints.entries, joints.byte_size());
+        joint_buffer.upload(joints.entries, joints.byte_size());
     }
 
     if (node.hasMesh()) {
@@ -592,8 +618,8 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
                 .matrix = node.globalMatrix().transpose(),
                 .material_index = (int)primitive.attributes["material"] ?? -1,
                 .has_skin = node.hasSkin(),
-                .skins = buffer_map["joints"]!!.address,
-                .materials = buffer_map["materials"]!!.address
+                .skins = joint_buffer.address,
+                .materials = material_buffer.address
             };
 
             vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);

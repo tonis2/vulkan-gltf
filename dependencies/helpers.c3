@@ -46,12 +46,13 @@ fn void DeviceContext.free(self) {
     self.device.waitIdle();
     if (self.debug) self.debug_messenger.free(self.instance);
 
-    self.swapchain.free(self.device);
     foreach (view : self.swapchain_views) view.free(self.device);
+    self.swapchain.free(self.device);
 
     self.swapchain_images.free();
     self.swapchain_views.free();
     self.command_pool.free(self.device);
+    self.command_buffers.free();
     self.surface.free(self.instance);
 
     self.device.free();
@@ -182,21 +183,15 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
         return ContextErrors.NO_SUITABLE_DEVICE?;
     }
 
-    // Required for using push descriptors
-    PhysicalDeviceProperties2 deviceProps2 = vk::physicalDeviceProperties2()
-                                                .setNext(&&vk::physicalDevicePushDescriptorProperties().setMaxPushDescriptors(1));
-
-    vk::getPhysicalDeviceProperties2(context.pdevice, &deviceProps2);
-
     PhysicalDeviceDescriptorIndexingFeatures device_indexing_feature = {
-       .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
     };
 
-   PhysicalDeviceBufferDeviceAddressFeatures buffer_device_feature = {
-       .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
-       .pNext = &device_indexing_feature,
-       .bufferDeviceAddress = vk::TRUE,
-       .bufferDeviceAddressCaptureReplay = vk::TRUE
+    PhysicalDeviceBufferDeviceAddressFeatures buffer_device_feature = {
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
+        .pNext = &device_indexing_feature,
+        .bufferDeviceAddress = vk::TRUE,
+        .bufferDeviceAddressCaptureReplay = vk::TRUE
     };
 
     PhysicalDeviceDynamicRenderingFeatures dynamic_rendering_feature = {
@@ -260,7 +255,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
       .setImageExtent(context.extent);
 
     context.swapchain = swapchain_info.build(context.device)!;
-    ImageList swapchain_images = context.swapchain.getImages(context.device, swapchain_info.minImageCount)!;
+    context.swapchain_images = context.swapchain.getImages(context.device, swapchain_info.minImageCount)!;
 
     for (int i = 0; i < swapchain_info.minImageCount; ++i) {
         ImageView view = vk::imageViewCreateInfo()
@@ -279,23 +274,15 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
             .layerCount = 1,
             .levelCount = 1,
         })
-        .setImage(swapchain_images[i])
+        .setImage(context.swapchain_images[i])
         .build(context.device)!;
         context.swapchain_views.push(view);
     }
 
-    CommandPool command_pool = context.device.createCommandPool(queue: context.queue_family.graphics)!;
-    CommandBufferList command_buffers = context.device.createCommandBuffers(command_pool, swapchain_info.minImageCount)!;
+    context.command_pool = context.device.createCommandPool(queue: context.queue_family.graphics)!;
+    context.command_buffers = context.device.createCommandBuffers(context.command_pool, swapchain_info.minImageCount)!;
 
     return context;
-}
-
-fn void BufferMap.delete(self) {
-    self.@each(; String key, MemoryBlock buffer)
-    {
-         Device device = buffer.allocator.device;
-         buffer.free(device);
-    };
 }
 
 fn void! BufferMap.upload(self, String name, void* data, ulong size) {

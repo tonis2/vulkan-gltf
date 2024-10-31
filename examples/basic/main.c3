@@ -13,7 +13,7 @@ def TextureList = List(<DescriptorImageInfo>);
 
 const WIDTH = 800;
 const HEIGHT = 600;
-const ENABLE_VALIDATION_LAYERS = false;
+const ENABLE_VALIDATION_LAYERS = true;
 const MAX_FRAMES_IN_FLIGHT = 2;
 const VK_API_VERSION_1_3 = vk::@makeApiVersion(0,1,3,0);
 
@@ -283,10 +283,10 @@ fn void! main()
     }
 
     // Required for using push descriptors
-    PhysicalDeviceProperties2 deviceProps2 = vk::physicalDeviceProperties2()
-                                                .setNext(&&vk::physicalDevicePushDescriptorProperties().setMaxPushDescriptors(1));
+    // PhysicalDeviceProperties2 deviceProps2 = vk::physicalDeviceProperties2()
+    //                                             .setNext(&&vk::physicalDevicePushDescriptorProperties().setMaxPushDescriptors(1));
 
-    vk::getPhysicalDeviceProperties2(physical_device, &deviceProps2);
+    // vk::getPhysicalDeviceProperties2(physical_device, &deviceProps2);
 
     PhysicalDeviceDescriptorIndexingFeatures device_indexing_feature = {
        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
