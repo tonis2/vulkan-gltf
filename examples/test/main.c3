@@ -421,22 +421,10 @@ fn void! main()
         pipeline.free(context.device);
     }
 
-
-    SemaphoreList wait_semaphores;
-    SemaphoreList signal_semaphores;
-    FenceList frame_fences;
-
-    for (uint i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        wait_semaphores.push(vk::semaphoreCreateInfo().build(context.device))!;
-        signal_semaphores.push(vk::semaphoreCreateInfo().build(context.device))!;
-        frame_fences.push(vk::fenceCreateInfo().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(context.device))!;
-    }
-
     Scene scene = gltf.scenes[0];
     Clock time = clock::now();
 
     bool running = true;
-    uint frame = 0;
     MouseParams last_params;
 
     while (running) {
@@ -445,10 +433,10 @@ fn void! main()
         if (animations.len() > 0) gltf.animate(animation: &animations[0], time: time.mark());
 
         if (event.mouse_click == LEFT_MOUSE) {
-           MouseParams params = c3w::getMousePos(win);
-           camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
-           uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
-           last_params = params;
+            MouseParams params = c3w::getMousePos(win);
+            camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
+            uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+            last_params = params;
         }
 
         switch (event.type) {
@@ -468,14 +456,7 @@ fn void! main()
             }
         }
 
-        Fence frame_fence = frame_fences[frame];
-        Semaphore wait_semaphore = wait_semaphores[frame];
-        Semaphore signal_semaphore = signal_semaphores[frame];
-
-        frame_fence.wait(context.device)!;
-        frame_fence.reset(context.device)!;
-
-        uint next_image = context.swapchain.getNextImage(context.device, wait_semaphore);
+        uint next_image = context.next_image()!!;
 
         // Start dynamic rendering
         RenderingInfo rendering_info = vk::renderingInfo()
@@ -573,28 +554,11 @@ fn void! main()
             &image_memory_end
         );
 
-        SubmitInfo submit_info = vk::submitInfo()
-        .setWaitSemaphores({ wait_semaphore })
-        .setCommandBuffers({ command_buffer })
-        .setSignalSemaphores({ signal_semaphore })
-        .setWaitDstStageMask({vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT});
-
-        vk::endCommandBuffer(command_buffer)!;
-        vk::queueSubmit(context.queue_family.graphics_handle, 1, &submit_info, frame_fence)!;
-
-        PresentInfoKHR present_info = vk::presentInfo()
-        .setWaitSemaphores({ signal_semaphore })
-        .setSwapchains({ context.swapchain })
-        .setImageIndices({ next_image });
-
-        vk::queuePresentKHR(context.queue_family.graphics_handle, &present_info)!;
-        frame = (frame + 1) % 2;
+        vk::endCommandBuffer(command_buffer)!!;
+        context.present_image(next_image, command_buffer)!;
     }
-
+    
     context.device.waitIdle();
-    wait_semaphores.release(context.device);
-    signal_semaphores.release(context.device);
-    frame_fences.release(context.device);
 }
 
 fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout) {

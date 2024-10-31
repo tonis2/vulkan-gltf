@@ -10,6 +10,8 @@ import std::collections::list;
 import std::collections::map;
 import std::encoding::json;
 
+const MAX_FRAMES_IN_FLIGHT = 2;
+
 
 fault ContextErrors
 {
@@ -22,7 +24,6 @@ fault TextureError
 }
 
 def DescriptorImages = List(<DescriptorImageInfo>);
-def BufferMap = HashMap(<String, MemoryBlock>);
 
 struct DeviceContext {
     Instance instance;
@@ -40,6 +41,11 @@ struct DeviceContext {
     DebugUtilsMessengerEXT debug_messenger;
     SurfaceKHR surface;
     bool debug;
+
+    SemaphoreList wait_semaphores;
+    SemaphoreList signal_semaphores;
+    FenceList frame_fences;
+    uint frame;
 }
 
 fn void DeviceContext.free(self) {
@@ -55,8 +61,45 @@ fn void DeviceContext.free(self) {
     self.command_buffers.free();
     self.surface.free(self.instance);
 
+    self.wait_semaphores.release(self.device);
+    self.signal_semaphores.release(self.device);
+    self.frame_fences.release(self.device);
+
     self.device.free();
     self.instance.free();
+}
+
+fn uint! DeviceContext.next_image(self) {
+    Fence frame_fence = self.frame_fences[self.frame];
+    Semaphore wait_semaphore = self.wait_semaphores[self.frame];
+
+    frame_fence.wait(self.device)!;
+    frame_fence.reset(self.device)!;
+
+    return self.swapchain.getNextImage(self.device, wait_semaphore);
+}
+
+fn void! DeviceContext.present_image(&self, uint next_image, CommandBuffer command_buffer) {
+    Semaphore wait_semaphore = self.wait_semaphores[self.frame];
+    Semaphore signal_semaphore = self.signal_semaphores[self.frame];
+    Fence frame_fence = self.frame_fences[self.frame];
+
+    SubmitInfo submit_info = vk::submitInfo()
+    .setWaitSemaphores({ wait_semaphore })
+    .setCommandBuffers({ command_buffer })
+    .setSignalSemaphores({ signal_semaphore })
+    .setWaitDstStageMask({vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT});
+
+    vk::queueSubmit(self.queue_family.graphics_handle, 1, &submit_info, frame_fence)!;
+
+    PresentInfoKHR present_info = vk::presentInfo()
+    .setWaitSemaphores({ signal_semaphore })
+    .setSwapchains({ self.swapchain })
+    .setImageIndices({ next_image });
+
+    vk::queuePresentKHR(self.queue_family.graphics_handle, &present_info)!;
+
+    self.frame = (self.frame + 1) % 2;
 }
 
 fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
@@ -282,31 +325,13 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     context.command_pool = context.device.createCommandPool(queue: context.queue_family.graphics)!;
     context.command_buffers = context.device.createCommandBuffers(context.command_pool, swapchain_info.minImageCount)!;
 
+    for (uint i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        context.wait_semaphores.push(vk::semaphoreCreateInfo().build(context.device))!;
+        context.signal_semaphores.push(vk::semaphoreCreateInfo().build(context.device))!;
+        context.frame_fences.push(vk::fenceCreateInfo().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(context.device))!;
+    }
+
     return context;
-}
-
-fn void! BufferMap.upload(self, String name, void* data, ulong size) {
-    MemoryBlock buffer = self[name]!;
-    mem::copy(buffer.mapped + buffer.offset, &data, size);
-}
-
-fn void! BufferMap.upload_device(self, String name, void* data, usz size, QueueFamily queue) {
-    MemoryBlock buffer = self[name]!;
-    Device device = buffer.allocator.device;
-    PhysicalDevice pdevice = buffer.allocator.pdevice;
-
-    // Device only
-    MemoryBlock stage_buffer = device.staging_buffer(size: size, data: data, pdevice: pdevice)!;
-
-    device.@single_time_command(queue: queue.graphics_handle, queue_index: queue.graphics; CommandBuffer command_buffer) {
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
-            .dstOffset = 0,
-            .size = size
-        });
-    }!;
-
-    stage_buffer.free(device);
 }
 
 fn void! DescriptorImages.createImage(&self, stb::Image image_data, vk::Allocation* allocator, QueueFamily queue) {
