@@ -436,8 +436,8 @@ fn void! main()
                 .bind(&local_allocation)!;
 
     // Upload data to buffer
-    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
-    material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), device);
+    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size);
+    material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
 
     // Create stage buffers and then copy the data to GPU only buffers
     MemoryBlock vertex_stage_buffer = device.staging_buffer(size: vertices.byte_size(), data: vertices.entries, pdevice: physical_device)!;
@@ -651,7 +651,7 @@ fn void! main()
         if (event.mouse_click == LEFT_MOUSE) {
            MouseParams params = c3w::getMousePos(win);
            camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
-           uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+           uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size);
            last_params = params;
         }
 
@@ -659,11 +659,11 @@ fn void! main()
             case c3w::MOUSE_PRESSED: {
                 if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
                     camera.zoom(5);
-                    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+                    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size);
                 }
                 if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
                     camera.zoom(-5);
-                    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size, device);
+                    uniform_buffer.upload(&&camera.matrix(), uniform_buffer.size);
                 }
             }
             case c3w::MOUSE_RELEASED: {}
@@ -747,7 +747,7 @@ fn void! main()
         vk::cmdBindVertexBuffers(command_buffer, 0, 1, &&vk::Buffer[1]{vertex_buffer.buffer}, &&vk::DeviceSize[1]{0});
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
-        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout, device);
+        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout);
 
         vk::cmdEndRendering(command_buffer);
 
@@ -828,7 +828,7 @@ fn void! main()
 }
 
 
-fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout, Device device) {
+fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout) {
 
     if (node.hasSkin()) {
         Skin skin = gltf.skins[node.skin];
@@ -836,7 +836,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
            Node joint_node = gltf.nodes[joint];
            joint_data[joint_index] = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
         }
-        joint_buffer.upload(joint_data.entries, joint_data.byte_size(), device);
+        joint_buffer.upload(joint_data.entries, joint_data.byte_size());
     }
 
     if (node.hasMesh()) {
@@ -859,7 +859,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
     }
 
     // Draw child nodes
-    foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout, device);
+    foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout);
 }
 
 fn void! loadTextures() {
