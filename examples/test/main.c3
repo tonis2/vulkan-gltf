@@ -309,6 +309,64 @@ fn void! main()
 
     defer shader_module.free(context.device);
 
+    SubpassDescription subpass = {
+            .pipelineBindPoint = vk::PIPELINE_BIND_POINT_GRAPHICS,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &&AttachmentReference{
+                .attachment = 0,
+                .layout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+            },
+            .pDepthStencilAttachment = &&AttachmentReference {
+                .attachment = 1,
+                .layout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+            }
+    };
+
+    SubpassDependency depth_dependency = {
+        .srcSubpass = vk::SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        .dstAccessMask = vk::ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+    };
+
+    SubpassDependency dependency = {
+        .srcSubpass = vk::SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstAccessMask = vk::ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+    };
+
+    RenderPass render_pass = vk::renderPassCreateInfo()
+    .setAttachments({
+        AttachmentDescription {
+            .format = context.surface_format.format,
+            .samples = vk::SAMPLE_COUNT_1_BIT,
+            .initialLayout = vk::IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = vk::IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .loadOp = vk::ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = vk::ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = vk::ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = vk::ATTACHMENT_STORE_OP_DONT_CARE
+        },
+        AttachmentDescription {
+            .format = context.depth_format,
+            .samples = vk::SAMPLE_COUNT_1_BIT,
+            .loadOp = vk::ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = vk::ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilLoadOp = vk::ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = vk::ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = vk::IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        }
+    })
+    .setDependencies({dependency, depth_dependency})
+    .setSubpasses({subpass})
+    .build(context.device)!;
+
     Pipeline pipeline = vk::graphicsPipelineCreateInfo()
     .setStages({
         vk::pipelineShaderStageCreateInfo()
@@ -409,16 +467,31 @@ fn void! main()
     .setViewportState(&&vk::pipelineViewportStateCreateInfo()
             .setViewports({{}})
             .setScissors({{}}))
-    .setNext(&&vk::pipelineRenderingCreateInfo()
-                .setColorAttachmentFormats({ context.surface_format.format })
-                .setDepthAttachmentFormat(context.depth_format)
-            )
+    .setRenderPass(render_pass)
     .build(context.device)!;
 
+    FrameBufferList frame_buffers;
+    
+    foreach (i, swapchain: context.swapchain_views) {
+       FramebufferCreateInfo frame_buffer_info = vk::framebufferCreateInfo()
+        .setRenderPass(render_pass)
+        .setWidth((uint)window_size.x)
+        .setHeight((uint)window_size.y)
+        .setLayers(1)
+        .setAttachments({
+            context.swapchain_views[i],
+            descriptor_images.last().imageView
+        })!;
+
+        frame_buffers.push(frame_buffer_info.build(context.device)!);
+    }
+
     defer {
+        render_pass.free(context.device);
         descriptor_set_layout.free(context.device);
         pipeline_layout.free(context.device);
         pipeline.free(context.device);
+        frame_buffers.release(context.device);
     }
 
     Scene scene = gltf.scenes[0];
@@ -458,63 +531,27 @@ fn void! main()
 
         uint next_image = context.next_image()!!;
 
-        // Start dynamic rendering
-        RenderingInfo rendering_info = vk::renderingInfo()
-        .setLayerCount(1)
+        RenderPassBeginInfo render_pass_info = vk::renderPassBeginInfo()
+        .setFramebuffer(frame_buffers[next_image])
+        .setRenderPass(render_pass)
         .setRenderArea({
-            .offset = Offset2D{ .x = 0, .y = 0 },
-            .extent = context.extent,
+            .offset = {0, 0},
+            .extent = context.extent
         })
-        .setColorAttachments({
-            vk::renderingAttachmentInfo()
-            .setImageView(context.swapchain_views[next_image])
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-            })
-        })
-        .setDepthAttachment(&&vk::renderingAttachmentInfo()
-            .setImageView(descriptor_images[descriptor_images.len() - 1].imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({ .depthStencil = { 1.0f, 0 } })
-        );
+        .setClearValues({
+            ClearValue {
+                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }},
+            },
+            ClearValue {
+                .depthStencil = { 1.0, 0},
+            }
+        });
 
         CommandBuffer command_buffer = context.command_buffers[next_image];
         vk::resetCommandBuffer(command_buffer, 0)!;
         vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!;
 
-        ImageMemoryBarrier image_memory_start = vk::imageMemoryBarrier()
-        .setDstAccessMask(vk::ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
-        .setOldLayout(vk::IMAGE_LAYOUT_UNDEFINED)
-        .setNewLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-        .setImage(context.swapchain_images[next_image])
-        .setSubresourceRange({
-            .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
-        });
-
-        vk::cmdPipelineBarrier(
-            command_buffer,
-            vk::PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            0,
-            0,
-            null,
-            0,
-            null,
-            1,
-            &image_memory_start
-        );
-
-        vk::cmdBeginRendering(command_buffer, &rendering_info);
-
+        vk::cmdBeginRenderPass(command_buffer, &render_pass_info, vk::SUBPASS_CONTENTS_INLINE);
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = context.extent, .offset = { .x = 0, .y = 0 }});
 
@@ -526,35 +563,9 @@ fn void! main()
 
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout);
 
-        vk::cmdEndRendering(command_buffer);
-
-        ImageMemoryBarrier image_memory_end = vk::imageMemoryBarrier()
-        .setSrcAccessMask(vk::ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
-        .setOldLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-        .setNewLayout(vk::IMAGE_LAYOUT_PRESENT_SRC_KHR)
-        .setImage(context.swapchain_images[next_image])
-        .setSubresourceRange({
-            .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
-        });
-
-        vk::cmdPipelineBarrier(
-            command_buffer,
-            vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            vk::PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            0,
-            0,
-            null,
-            0,
-            null,
-            1,
-            &image_memory_end
-        );
-
+        vk::cmdEndRenderPass(command_buffer);
         vk::endCommandBuffer(command_buffer)!!;
+
         context.present_image(next_image, command_buffer)!;
     }
     

@@ -237,14 +237,9 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
         .bufferDeviceAddressCaptureReplay = vk::TRUE
     };
 
-    PhysicalDeviceDynamicRenderingFeatures dynamic_rendering_feature = {
-       .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
-       .pNext = &buffer_device_feature
-    };
-
     PhysicalDeviceSynchronization2Features syncronisation2_feature = {
        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
-       .pNext = &dynamic_rendering_feature,
+       .pNext = &buffer_device_feature,
        .synchronization2 = vk::TRUE
     };
 
