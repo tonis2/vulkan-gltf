@@ -1148,6 +1148,15 @@ fn Gltf! parse(InStream stream) {
          }
     }
 
+    // Build inverseBindMatrixes for skins
+    foreach (&skin: content.skins) {
+        Accessor skin_accessor = content.accessors[skin.inverseBindAccessor];
+        for (uint i; i < skin_accessor.count; i++) {
+            Matrix4f matrix = content.@castBuffer(skin_accessor, i, Matrix4f).transpose();
+            skin.inverseBindMatrices.push(matrix);
+        }
+    }
+
     return content;
 }
 
