@@ -1258,7 +1258,7 @@ fn AnimationMixer Animation.mixer(self) {
     return copy;
 }
 
-fn void Gltf.animate(&self, AnimationMixer* animation, NanoDuration time) {
+fn void Gltf.run_animation(&self, AnimationMixer* animation, NanoDuration time) {
    double current_time = time.to_sec();
 
    foreach (index, &channel: animation.channels) {

@@ -12,7 +12,6 @@ import std::encoding::json;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-
 fault ContextErrors
 {
     NO_SUITABLE_DEVICE,
@@ -25,6 +24,30 @@ fault TextureError
 
 def DescriptorImages = List(<DescriptorImageInfo>);
 
+fn DescriptorSetLayout! createDescriptorLayout(WriteDescriptorSet[] layouts, ShaderStageFlags[] flags, Device device) {
+    DescriptorSetLayoutBinding* bindings = mem::new_array(DescriptorSetLayoutBinding, flags.len);
+    defer mem::free(bindings);
+
+    foreach (uint i, set: layouts) {
+        DescriptorSetLayoutBinding binding = {
+            .binding = i,
+            .descriptorType = set.descriptorType,
+            .descriptorCount = set.descriptorCount,
+            .stageFlags = flags[i]
+        };
+
+        bindings[i] = binding;
+    }
+
+    DescriptorSetLayoutCreateInfo layoutCreateInfo = {
+        .sType = vk::STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .flags = vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+        .bindingCount = flags.len,
+        .pBindings = bindings
+    };
+
+    return layoutCreateInfo.build(device)!;
+}
 
 struct DeviceContext {
     Instance instance;
@@ -328,7 +351,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     return context;
 }
 
-fn void! DescriptorImages.createImage(&self, stb::Image image_data, vk::Allocation* allocator, DeviceQueue queue) {
+fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allocation* allocator, DeviceQueue queue) {
     vk::Device device = allocator.device;
     vk::PhysicalDevice pdevice = allocator.pdevice; 
 
@@ -448,7 +471,7 @@ fn void! DescriptorImages.createImage(&self, stb::Image image_data, vk::Allocati
     self.push(texture);
 }
 
-fn void! DescriptorImages.createDepthTexture(&self, vk::Allocation* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
+fn void! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
     DescriptorImageInfo texture;
 
     vk::Device device = allocator.device;

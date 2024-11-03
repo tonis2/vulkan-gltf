@@ -236,35 +236,17 @@ fn void! main()
         }
 
         // Create vulkan texture image
-        descriptor_images.createImage(image_data, &device_allocation, context.graphics_queue)!;
+        descriptor_images.addImageTexture(image_data, &device_allocation, context.graphics_queue)!;
         image_data.free();
     }
 
     // Create depth texture
-    descriptor_images.createDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
+    descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
 
     defer {
         foreach (texture: descriptor_images) texture.free(context.device);
         descriptor_images.free();
     }
-
-    // Pipeline stuff
-    DescriptorSetLayout descriptor_set_layout = vk::descriptorSetLayoutCreateInfo()
-    .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
-    .setBindings({
-        {
-            .binding = 0,
-            .descriptorType = vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags = vk::SHADER_STAGE_VERTEX_BIT
-        },
-        {
-            .binding = 1,
-            .descriptorType = vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = (uint)descriptor_images.len(),
-            .stageFlags = vk::SHADER_STAGE_FRAGMENT_BIT
-        },
-    }).build(context.device)!;
 
     // Descriptor sets for push descriptors
     WriteDescriptorSet[] descriptorSets = {
@@ -284,6 +266,16 @@ fn void! main()
         .setImageInfo(descriptor_images.array_view())
     };
 
+    DescriptorSetLayout descriptor_set_layout = helpers::createDescriptorLayout(
+        descriptorSets,
+        {
+        vk::SHADER_STAGE_VERTEX_BIT, 
+        vk::SHADER_STAGE_FRAGMENT_BIT
+    }, context.device)!;
+
+    defer descriptor_set_layout.free(context.device);
+
+    // Pipeline stuff
     PipelineLayout pipeline_layout = vk::pipelineLayoutCreateInfo()
     .setPushConstantRanges({
         {
@@ -293,7 +285,6 @@ fn void! main()
         },
     })
     .setSetLayouts({ descriptor_set_layout }).build(context.device)!;
-
 
     char[*] shader = $embed("./shaders/shader.spv");
 
@@ -483,7 +474,6 @@ fn void! main()
 
     defer {
         render_pass.free(context.device);
-        descriptor_set_layout.free(context.device);
         pipeline_layout.free(context.device);
         pipeline.free(context.device);
         foreach (buffer : frame_buffers) buffer.free(context.device);
@@ -498,7 +488,7 @@ fn void! main()
     while (running) {
         c3w::Event event = win.getEvent();
 
-        if (animations.len() > 0) gltf.animate(animation: &animations[0], time: time.mark());
+        if (animations.len() > 0) gltf.run_animation(animation: &animations[0], time: time.mark());
 
         if (event.mouse_click == LEFT_MOUSE) {
             MouseParams params = c3w::getMousePos(win);
