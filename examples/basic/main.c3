@@ -197,7 +197,7 @@ fn void! main()
     MemoryBlock index_stage_buffer = context.device.staging_buffer(size: indices.byte_size(), data: indices.entries, pdevice: context.pdevice)!;
     MemoryBlock material_stage_buffer = context.device.staging_buffer(size: gltf.materials.byte_size(), data: gltf.materials.entries, pdevice: context.pdevice)!;
 
-    context.device.@single_time_command(queue: context.queue_family.graphics_handle, queue_index: context.queue_family.graphics; CommandBuffer command_buffer) {
+    context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
          vk::cmdCopyBuffer(command_buffer, index_stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
              .srcOffset = 0,
              .dstOffset = 0,
@@ -236,12 +236,12 @@ fn void! main()
         }
 
         // Create vulkan texture image
-        descriptor_images.createImage(image_data, &device_allocation, context.queue_family)!;
+        descriptor_images.createImage(image_data, &device_allocation, context.graphics_queue)!;
         image_data.free();
     }
 
     // Create depth texture
-    descriptor_images.createDepthTexture(&device_allocation, context.queue_family, window_size, context.depth_format)!;
+    descriptor_images.createDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
 
     defer {
         foreach (texture: descriptor_images) texture.free(context.device);

@@ -25,6 +25,7 @@ fault TextureError
 
 def DescriptorImages = List(<DescriptorImageInfo>);
 
+
 struct DeviceContext {
     Instance instance;
     Device device;
@@ -34,7 +35,7 @@ struct DeviceContext {
     ImageList swapchain_images;
     CommandPool command_pool;
     CommandBufferList command_buffers;
-    QueueFamily queue_family;
+    DeviceQueue graphics_queue;
     Format depth_format;
     SurfaceFormatKHR surface_format;
     Extent2D extent;
@@ -90,14 +91,14 @@ fn void! DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
     .setSignalSemaphores({ signal_semaphore })
     .setWaitDstStageMask({vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT});
 
-    vk::queueSubmit(self.queue_family.graphics_handle, 1, &submit_info, frame_fence)!;
+    vk::queueSubmit(self.graphics_queue.handle, 1, &submit_info, frame_fence)!;
 
     PresentInfoKHR present_info = vk::presentInfo()
     .setWaitSemaphores({ signal_semaphore })
     .setSwapchains({ self.swapchain })
     .setImageIndices({ next_image });
 
-    vk::queuePresentKHR(self.queue_family.graphics_handle, &present_info)!;
+    vk::queuePresentKHR(self.graphics_queue.handle, &present_info)!;
 
     self.frame = (self.frame + 1) % 2;
 }
@@ -195,36 +196,34 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     $endswitch
 
     DeviceList devices = context.instance.getDevices()!!;
-    bool found_device = false;
 
     foreach (entry: devices) {
-        QueueFamily queue;
+        int queue_index = -1;
         // Check for device extension support
         bool supports_extensions = entry.checkExtensionSupport(device_extensions)!!;
         QueuePropertiesList queue_properties = entry.getQueueProperties()!!;
 
-        queue.graphics = queue_properties.find(fn (usz index, QueueFamilyProperties props) => (QueueFlagBits)props.queueFlags & vk::QUEUE_GRAPHICS_BIT != 0);
+        queue_index = queue_properties.find(fn (usz index, QueueFamilyProperties props) => 
+        (QueueFlagBits)props.queueFlags & vk::QUEUE_GRAPHICS_BIT != 0 && (QueueFlagBits)props.queueFlags & vk::QUEUE_TRANSFER_BIT);
 
         PhysicalDeviceProperties properties;
         vk::getPhysicalDeviceProperties(entry, &properties);
-
-        if (context.surface.checkSurfaceSupport(queue.graphics, entry)!!) queue.present = queue.graphics;
-        if (queue.is_ready() && supports_extensions && properties.vendorID != 0) {
+        assert(context.surface.checkSurfaceSupport((usz)queue_index, entry)!!);
+        
+        if (queue_index >= 0 && supports_extensions && properties.vendorID != 0) {
             io::printfn("Device selected %s", (ZString)properties.deviceName[0..]);
-
             context.pdevice = entry;
-            context.queue_family = queue;
-            found_device = true;
+            context.graphics_queue.index = queue_index;
             break;
         }
     }
 
-    devices.free();
-
-    if (!found_device) {
-        io::printfn("Did not found suitable device!");
+    if (context.pdevice == null) {
+        io::printfn("Found no suitable device");
         return ContextErrors.NO_SUITABLE_DEVICE?;
     }
+
+    devices.free();
 
     PhysicalDeviceDescriptorIndexingFeatures device_indexing_feature = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
@@ -251,7 +250,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     vk::getPhysicalDeviceFeatures2(context.pdevice, &device_features);
 
     DeviceQueueCreateInfo graphicsInfo = vk::deviceQueueCreateInfo()
-    .setQueueFamilyIndex(context.queue_family.graphics)
+    .setQueueFamilyIndex(context.graphics_queue.index)
     .setQueuePriorities({1.0});
 
     context.device = vk::deviceCreateInfo()
@@ -261,7 +260,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
       .build(context.pdevice)!;
 
     // Add actual queue handles to queue family, easier to keep them is one place
-    context.queue_family.graphics_handle = context.device.getQueue(context.queue_family.graphics);
+    context.graphics_queue.handle = context.device.getQueue(context.graphics_queue.index);
 
     SurfaceFormatList surface_formats = context.surface.getFormats(context.pdevice)!;
     PresentModeList present_modes = context.surface.getPresentModes(context.pdevice)!;
@@ -317,7 +316,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
         context.swapchain_views.push(view);
     }
 
-    context.command_pool = context.device.createCommandPool(queue: context.queue_family.graphics)!;
+    context.command_pool = context.device.createCommandPool(queue: context.graphics_queue.index)!;
     context.command_buffers = context.device.createCommandBuffers(context.command_pool, swapchain_info.minImageCount)!;
 
     for (uint i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -329,7 +328,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     return context;
 }
 
-fn void! DescriptorImages.createImage(&self, stb::Image image_data, vk::Allocation* allocator, QueueFamily queue) {
+fn void! DescriptorImages.createImage(&self, stb::Image image_data, vk::Allocation* allocator, DeviceQueue queue) {
     vk::Device device = allocator.device;
     vk::PhysicalDevice pdevice = allocator.pdevice; 
 
@@ -387,7 +386,7 @@ fn void! DescriptorImages.createImage(&self, stb::Image image_data, vk::Allocati
         }
     };
 
-    device.@single_time_command(queue: queue.graphics_handle, queue_index: queue.graphics; CommandBuffer command_buffer) {
+    device.@single_time_command(queue: queue; CommandBuffer command_buffer) {
         
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers({ transfer_barrier }));
@@ -449,7 +448,7 @@ fn void! DescriptorImages.createImage(&self, stb::Image image_data, vk::Allocati
     self.push(texture);
 }
 
-fn void! DescriptorImages.createDepthTexture(&self, vk::Allocation* allocator, QueueFamily queue, Vec2f size, vk::Format format) {
+fn void! DescriptorImages.createDepthTexture(&self, vk::Allocation* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
     DescriptorImageInfo texture;
 
     vk::Device device = allocator.device;
@@ -498,7 +497,7 @@ fn void! DescriptorImages.createDepthTexture(&self, vk::Allocation* allocator, Q
     .setImage(depth_image)
     .build(device)!;
 
-    device.@single_time_command(queue: queue.graphics_handle, queue_index: queue.graphics; CommandBuffer command_buffer) {
+    device.@single_time_command(queue: queue; CommandBuffer command_buffer) {
         ImageMemoryBarrier imageMemoryBarrier = vk::imageMemoryBarrier()
         .setImage(depth_image)
         .setSubresourceRange({
