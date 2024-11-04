@@ -32,9 +32,6 @@ struct PushData {
     float4x4 model_matrix;
     int material_index;
     bool has_skin;
-    float4x4* joints;
-    Material* materials;
-    Vertex* vertices;
 };
 
 [vk_push_constant]
@@ -45,15 +42,25 @@ cbuffer Uniforms
 {
     float4x4 projection;
     float4x4 view;
+    float3 eye;
 }
 
 [vk_binding(1)]
+cbuffer Buffers
+{
+    Vertex* vertices;
+    float4x4* joints;
+    Material* materials;
+}
+
+[vk_binding(2)]
 uniform Sampler2D materialSamplers[];
 
 struct Vertex
 {
-    float3	position;
+    float4	position;
     float2	tex_cord;
+    float2	offset2;
     float4	skin_pos;
     float4	skin_weight;
 };
@@ -74,9 +81,9 @@ struct VertexOutPut
 
 
 [shader("vertex")]
-VertexOutPut vertexMain(uint vertexIndex : VERTEX_INDEX)
+VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
 {
-    Vertex vertex = push_constant.vertices[vertexIndex];
+    Vertex vertex = vertices[vertID];
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -86,10 +93,10 @@ VertexOutPut vertexMain(uint vertexIndex : VERTEX_INDEX)
 
     if (push_constant.has_skin) {
         skin_matrix =
-             vertex.skin_weight[0] * push_constant.joints[uint(vertex.skin_pos[0])] +
-             vertex.skin_weight[1] * push_constant.joints[uint(vertex.skin_pos[1])] +
-             vertex.skin_weight[2] * push_constant.joints[uint(vertex.skin_pos[2])] +
-             vertex.skin_weight[3] * push_constant.joints[uint(vertex.skin_pos[3])];
+             vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
+             vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
+             vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
+             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
         
     }
  
@@ -98,7 +105,7 @@ VertexOutPut vertexMain(uint vertexIndex : VERTEX_INDEX)
             vertex.tex_cord,
             push_constant.material_index,
         },
-        mul(mul(mul(mul(projection, view), push_constant.model_matrix), skin_matrix), float4(vertex.position, 1.0))
+        mul(mul(mul(mul(projection, view), push_constant.model_matrix), skin_matrix), float4(vertex.position.xyz, 1.0))
     };
 
     return output;
@@ -112,7 +119,7 @@ float4 fragmentMain(FragmentData input) : SV_Target
     float4 color = float4(0.5, 0.5, 0.5, 1.0);
 
     if (input.material_index >= 0) {
-        material = push_constant.materials[input.material_index];
+        material = materials[input.material_index];
         return material.getBaseColor(input.tex_cord);
     }
 

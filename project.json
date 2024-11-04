@@ -19,17 +19,13 @@
 		},
 		"cubemap": {
 			"type": "executable",
-			"sources": ["examples/cubemap/main.c3"]
-		},
-		"test": {
-			"type": "executable",
-			"sources": ["examples/test/main.c3"]
+			"sources": ["examples/cubemap/main2.c3"]
 		},
 		"cube": {
 			"type": "executable",
 			"sources": ["examples/cube/main.c3"]
 		},
-		"basic": {
+		"basic": {	
 			"type": "executable",
 			"sources": ["examples/basic/main.c3"]
 		}

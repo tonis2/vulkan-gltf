@@ -247,7 +247,6 @@ fn void! main()
     vertex_stage_buffer.free(context.device);
     material_stage_buffer.free(context.device);
     address_stage_buffer.free(context.device);
-    
     // Create GLTF texture images
     foreach (image : gltf.images) {
         stb::Image image_data;
@@ -325,7 +324,7 @@ fn void! main()
     })
     .setSetLayouts({ descriptor_set_layout }).build(context.device)!;
 
-    char[*] shader = $embed("./shaders/shader.spv");
+    char[*] shader = $embed("./shaders/main.spv");
 
     ShaderModule shader_module = vk::shaderModuleCreateInfo()
     .setCodeSize(shader.len)

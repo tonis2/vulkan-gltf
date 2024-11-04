@@ -248,26 +248,24 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
 
     devices.free();
 
-    PhysicalDeviceDescriptorIndexingFeatures device_indexing_feature = {
-        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+    PhysicalDeviceVulkan13Features vulkan13Features = {
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .pNext = null,
     };
 
-    PhysicalDeviceBufferDeviceAddressFeatures buffer_device_feature = {
-        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
-        .pNext = &device_indexing_feature,
-        .bufferDeviceAddress = vk::TRUE,
-        .bufferDeviceAddressCaptureReplay = vk::TRUE
+    PhysicalDeviceVulkan12Features vulkan12Features = {
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .pNext = &vulkan13Features,
     };
 
-    PhysicalDeviceSynchronization2Features syncronisation2_feature = {
-       .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
-       .pNext = &buffer_device_feature,
-       .synchronization2 = vk::TRUE
+    PhysicalDeviceVulkan11Features vulkan11Features = {
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = &vulkan12Features,
     };
 
     PhysicalDeviceFeatures2 device_features = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &syncronisation2_feature,
+        .pNext = &vulkan11Features,
     };
 
     vk::getPhysicalDeviceFeatures2(context.pdevice, &device_features);
