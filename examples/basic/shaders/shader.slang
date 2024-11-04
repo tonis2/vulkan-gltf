@@ -34,33 +34,34 @@ struct PushData {
     bool has_skin;
 };
 
-[vk_push_constant]
-const PushData push_constant;
-
-[vk_binding(0)]
-cbuffer Uniforms
+struct Uniform
 {
     float4x4 projection;
     float4x4 view;
     float3 eye;
 }
 
-[vk_binding(1)]
+[vk_push_constant]
+const PushData push_constant;
+
+
+[vk_binding(0)]
 cbuffer Buffers
 {
     Vertex* vertices;
     float4x4* joints;
     Material* materials;
+    Uniform* uniform;
 }
 
-[vk_binding(2)]
+[vk_binding(1)]
 uniform Sampler2D materialSamplers[];
 
 struct Vertex
 {
     float4	position;
     float2	tex_cord;
-    float2	offset2;
+    float2	offset;
     float4	skin_pos;
     float4	skin_weight;
 };
@@ -105,7 +106,7 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
             vertex.tex_cord,
             push_constant.material_index,
         },
-        mul(mul(mul(mul(projection, view), push_constant.model_matrix), skin_matrix), float4(vertex.position.xyz, 1.0))
+        mul(mul(mul(mul(uniform.projection, uniform.view), push_constant.model_matrix), skin_matrix), float4(vertex.position.xyz, 1.0))
     };
 
     return output;

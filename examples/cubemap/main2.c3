@@ -30,6 +30,7 @@ struct AddressBuffer {
     vk::DeviceAddress vertices;
     vk::DeviceAddress joints;
     vk::DeviceAddress materials;
+    vk::DeviceAddress uniform;
 }
 
 MemoryBlock index_buffer;
@@ -167,7 +168,7 @@ fn void! main()
 
    // Creating buffers
     vertex_buffer = vk::bufferCreateInfo()
-               .setUsage(vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                .setSize(vertices.byte_size())
                .bind(&device_allocation)!;
@@ -191,7 +192,7 @@ fn void! main()
                 .bind(&device_allocation)!;
 
     uniform_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(UniformData.sizeof)
                 .bind(&local_allocation)!;
@@ -209,6 +210,7 @@ fn void! main()
         vertex_buffer.address,
         joint_buffer.address,
         material_buffer.address,
+        uniform_buffer.address,
     };
 
     // Create stage buffers and then copy the data to GPU only buffers
@@ -247,6 +249,7 @@ fn void! main()
     vertex_stage_buffer.free(context.device);
     material_stage_buffer.free(context.device);
     address_stage_buffer.free(context.device);
+    
     // Create GLTF texture images
     foreach (image : gltf.images) {
         stb::Image image_data;
@@ -281,23 +284,13 @@ fn void! main()
         .setDstBinding(0)
         .setBufferInfo({
             {
-                .buffer = uniform_buffer.buffer,
-                .offset = 0,
-                .range = UniformData.sizeof,
-            },
-        }),
-        vk::writeDescriptorSet()
-        .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-        .setDstBinding(1)
-        .setBufferInfo({
-            {
                 .buffer = address_buffer.buffer,
                 .offset = 0,
                 .range = AddressBuffer.sizeof,
             },
         }),
         vk::writeDescriptorSet()
-        .setDstBinding(2)
+        .setDstBinding(1)
         .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
         .setImageInfo(descriptor_images.array_view())
     };
@@ -305,7 +298,6 @@ fn void! main()
     DescriptorSetLayout descriptor_set_layout = helpers::createDescriptorLayout(
         descriptorSets,
         {
-            vk::SHADER_STAGE_VERTEX_BIT,
             vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
             vk::SHADER_STAGE_FRAGMENT_BIT
         }, context.device)!;
