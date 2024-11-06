@@ -7,8 +7,16 @@
 	"dependencies": ["c3w", "vk", "stb"],
 	"features": [],
 	"linked-libraries": [],
-	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/render_state.c3"],
+	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/helpers.c3"],
+	"script-dir": "./",
 	"targets": {
+		"shaders": {
+			"type": "static-lib",
+			"exec": [
+				"slangc examples/basic/shaders/shader.slang -profile glsl_460 -target spirv -emit-spirv-directly -o examples/basic/shaders/shader.spv",
+				"slangc examples/cubemap/shaders/cubemap.slang -profile glsl_460 -target spirv -emit-spirv-directly -o examples/cubemap/shaders/cube.spv"
+			]
+		},
 		"cubemap": {
 			"type": "executable",
 			"sources": ["examples/cubemap/main.c3"]
@@ -17,7 +25,7 @@
 			"type": "executable",
 			"sources": ["examples/cube/main.c3"]
 		},
-		"basic": {
+		"basic": {	
 			"type": "executable",
 			"sources": ["examples/basic/main.c3"]
 		}

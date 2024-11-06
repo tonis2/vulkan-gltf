@@ -1148,6 +1148,15 @@ fn Gltf! parse(InStream stream) {
          }
     }
 
+    // Build inverseBindMatrixes for skins
+    foreach (&skin: content.skins) {
+        Accessor skin_accessor = content.accessors[skin.inverseBindAccessor];
+        for (uint i; i < skin_accessor.count; i++) {
+            Matrix4f matrix = content.@castBuffer(skin_accessor, i, Matrix4f).transpose();
+            skin.inverseBindMatrices.push(matrix);
+        }
+    }
+
     return content;
 }
 
@@ -1249,7 +1258,7 @@ fn AnimationMixer Animation.mixer(self) {
     return copy;
 }
 
-fn void Gltf.animate(&self, AnimationMixer* animation, NanoDuration time) {
+fn void Gltf.run_animation(&self, AnimationMixer* animation, NanoDuration time) {
    double current_time = time.to_sec();
 
    foreach (index, &channel: animation.channels) {
