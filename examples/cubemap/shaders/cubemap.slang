@@ -41,13 +41,11 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
         push_constant.uniform.view._m20, push_constant.uniform.view._m21, push_constant.uniform.view._m22, 0,
         0, 0, 0, 1,
     );
-
-    // vertex.position.xy *= -1.0;
-    vertex.position.x = -vertex.position.x;
+    
     float4 pos = mul(mul(mul(push_constant.uniform.projection, view), push_constant.model_matrix), float4(vertex.position, 1.0));    
     VertexOutPut output = {
         vertex.position,
-        pos.xyww,
+        float4(pos.xy, pos.w, pos.w)
     };
     return output;
 }

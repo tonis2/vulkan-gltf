@@ -19,7 +19,7 @@
 		},
 		"cubemap": {
 			"type": "executable",
-			"sources": ["examples/cubemap/main2.c3"]
+			"sources": ["examples/cubemap/main.c3"]
 		},
 		"cube": {
 			"type": "executable",
