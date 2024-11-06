@@ -135,7 +135,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     ZStringList extensions;
     ZStringList device_extensions;
 
-    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_KHR_dynamic_rendering"});
+    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor"});
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     extensions.add_array({"VK_KHR_surface", "VK_EXT_debug_utils"});
 

@@ -763,9 +763,7 @@ fn void! main()
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         foreach (node: gltf_scene.scenes[0].nodes) drawNode(gltf_scene.nodes[node], command_buffer, render_pipeline.pipeline_layout, device, gltf_scene);
-
-        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = WIDTH, .height = HEIGHT, .minDepth = 0.0, .maxDepth = 1.0, .y = 0, .x = 0 });
-
+        
         CubeConstantData constant_data = {
             .matrix = MATRIX4F_IDENTITY.rotate_x(camera::radians(-90)),
             .vertices = cube_buffer.address
