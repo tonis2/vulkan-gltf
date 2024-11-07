@@ -11,7 +11,7 @@
 	"script-dir": "./",
 	"targets": {
 		"shaders": {
-			"type": "static-lib",
+			"type": "prepare",
 			"exec": [
 				"slangc examples/basic/shaders/shader.slang -profile glsl_460 -target spirv -emit-spirv-directly -o examples/basic/shaders/shader.spv",
 				"slangc examples/cubemap/shaders/cubemap.slang -profile glsl_460 -target spirv -emit-spirv-directly -o examples/cubemap/shaders/cube.spv"

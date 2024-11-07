@@ -14,3 +14,7 @@ GLTF parser repo is [here](https://github.com/tonis2/gltf.c3)
 
 ![screenshot](screenshots/screenshot1.png?raw=true)
 ![screenshot](screenshots/screenshot2.png?raw=true)
+
+
+It's possible to rebuild shaders running
+`c3c build shaders --trust=full`
