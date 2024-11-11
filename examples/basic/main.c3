@@ -29,13 +29,15 @@ struct PushConstantData {
 struct AddressBuffer {
     vk::DeviceAddress vertices;
     vk::DeviceAddress joints;
-    vk::DeviceAddress materials;
     vk::DeviceAddress uniform;
+    vk::DeviceAddress materials;
+    vk::DeviceAddress textures;
 }
 
 MemoryBlock index_buffer;
 MemoryBlock vertex_buffer;
 MemoryBlock material_buffer;
+MemoryBlock texture_buffer;
 MemoryBlock uniform_buffer;
 MemoryBlock joint_buffer;
 MemoryBlock address_buffer;
@@ -185,10 +187,10 @@ fn void! main()
                 .setSize(gltf.materials.byte_size())
                 .bind(&device_allocation)!;
 
-    address_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+    texture_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(AddressBuffer.sizeof)
+                .setSize(gltf.textures.byte_size())
                 .bind(&device_allocation)!;
 
     uniform_buffer = vk::bufferCreateInfo()
@@ -203,20 +205,28 @@ fn void! main()
                 .setSize(joints.byte_size())
                 .bind(&local_allocation)!;
 
+    address_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(AddressBuffer.sizeof)
+                .bind(&device_allocation)!;
+
     // Upload data to buffer
     uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
 
     AddressBuffer addresses = AddressBuffer {
         vertex_buffer.address,
         joint_buffer.address,
-        material_buffer.address,
         uniform_buffer.address,
+        material_buffer.address,
+        texture_buffer.address,
     };
 
     // Create stage buffers and then copy the data to GPU only buffers
     MemoryBlock vertex_stage_buffer = context.device.staging_buffer(size: vertices.byte_size(), data: vertices.entries, pdevice: context.pdevice)!;
     MemoryBlock index_stage_buffer = context.device.staging_buffer(size: indices.byte_size(), data: indices.entries, pdevice: context.pdevice)!;
     MemoryBlock material_stage_buffer = context.device.staging_buffer(size: gltf.materials.byte_size(), data: gltf.materials.entries, pdevice: context.pdevice)!;
+    MemoryBlock texture_stage_buffer = context.device.staging_buffer(size: gltf.textures.byte_size(), data: gltf.textures.entries, pdevice: context.pdevice)!;
     MemoryBlock address_stage_buffer = context.device.staging_buffer(size: AddressBuffer.sizeof, data: &addresses, pdevice: context.pdevice)!;
 
     context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
@@ -238,6 +248,12 @@ fn void! main()
             .size = gltf.materials.byte_size()
         });
 
+        vk::cmdCopyBuffer(command_buffer, texture_stage_buffer.buffer, texture_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = gltf.textures.byte_size()
+        });
+
         vk::cmdCopyBuffer(command_buffer, address_stage_buffer.buffer, address_buffer.buffer, 1, &&BufferCopy {
             .srcOffset = 0,
             .dstOffset = 0,
@@ -248,6 +264,7 @@ fn void! main()
     index_stage_buffer.free(context.device);
     vertex_stage_buffer.free(context.device);
     material_stage_buffer.free(context.device);
+    texture_stage_buffer.free(context.device);
     address_stage_buffer.free(context.device);
     
     // Create GLTF texture images

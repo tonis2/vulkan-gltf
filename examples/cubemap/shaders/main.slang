@@ -1,7 +1,12 @@
 // Shader written in Slang https://github.com/shader-slang/slang
+struct TextureInfo {
+    int index;
+    int transform;
+};
+
 struct Texture {
-    int samp;
-    int source;
+    int index;
+    int sampler;
 };
 
 struct Material
@@ -12,16 +17,17 @@ struct Material
     float roughnessFactor;
     float4 emissiveFactor;
     float4 baseColorFactor;
-    Texture normalTexture;
-    Texture occlusionTexture;
-    Texture emissiveTexture;
-    Texture baseColorTexture;
-    Texture metallicRoughnessTexture;
-    Texture padding;
+    TextureInfo normalTexture;
+    TextureInfo occlusionTexture;
+    TextureInfo emissiveTexture;
+    TextureInfo baseColorTexture;
+    TextureInfo metallicRoughnessTexture;
+    TextureInfo padding;
     
     float4 getBaseColor(float2 tex_pos) {
-        if (baseColorTexture.source >= 0) {
-            return materialSamplers[baseColorTexture.source].Sample(tex_pos) * baseColorFactor;
+        if (baseColorTexture.index >= 0) {
+            Texture texture = textures[baseColorTexture.index];
+            return image_samplers[texture.sampler].Sample(tex_pos) * baseColorFactor;
         }
 
         return baseColorFactor;
@@ -49,13 +55,14 @@ const PushData push_constant;
 cbuffer Buffers
 {
     Vertex* vertices;
-    float4x4* joints;
-    Material* materials;
-    Uniform* uniform;
+    float4x4 *joints;
+    Uniform *uniform;
+    Material *materials;
+    Texture *textures;
 }
 
 [vk_binding(1)]
-uniform Sampler2D materialSamplers[];
+uniform Sampler2D image_samplers[];
 
 struct Vertex
 {

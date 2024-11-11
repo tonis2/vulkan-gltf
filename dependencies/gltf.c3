@@ -17,6 +17,7 @@ def SkinList = List(<Skin>);
 def AttributeMap = HashMap(<String, usz>);
 
 const PUNCTUAL_LIGHT_EXTENSION = "KHR_lights_punctual";
+const TEXTURE_TRANSFORM_EXTENSION = "KHR_texture_transform";
 
 enum Targets {
     ARRAY_BUFFER,
@@ -129,6 +130,7 @@ struct Gltf {
     List(<Material>) materials;
     List(<Sampler>) samplers;
     List(<Texture>) textures;
+    List(<TextureTransform>) textureTransforms;
     List(<Animation>) animations;
     List(<Light>) lights;
     List(<String>) extensions;
@@ -225,16 +227,27 @@ struct Material {
     float roughnessFactor;
     Vec4f emissiveFactor;
     Vec4f baseColorFactor;
-    Texture normalTexture;
-    Texture occlusionTexture;
-    Texture emissiveTexture;
-    Texture baseColorTexture;
-    Texture metallicRoughnessTexture;
+    TextureInfo normalTexture;
+    TextureInfo occlusionTexture;
+    TextureInfo emissiveTexture;
+    TextureInfo baseColorTexture;
+    TextureInfo metallicRoughnessTexture;
+}
+
+struct TextureInfo {
+    int index;
+    int transform;
 }
 
 struct Texture {
     int sampler;
     int source;
+}
+
+struct TextureTransform {
+    Vec2f offset;
+    Vec2f scale;
+    float rotation;
 }
 
 struct Sampler {
@@ -666,15 +679,39 @@ fn void! Material.fromJson(&self, Object* json, Gltf data) {
     self.baseColorFactor = {1.0, 1.0, 1.0, 1.0};
     self.emissiveFactor = {1.0, 1.0, 1.0, 1.0};
 
-    self.baseColorTexture = {-1, -1};
-    self.metallicRoughnessTexture = {-1, -1};
-    self.occlusionTexture = {-1, -1};
-    self.emissiveTexture =  {-1, -1};
-    self.normalTexture =  {-1, -1};
-
     self.roughnessFactor = 0;
     self.metallicFactor = 0;
     self.emissiveStrength = 1.0;
+
+    if (try occlusionTexture) {
+        self.occlusionTexture.index = occlusionTexture.get_int("index") ?? -1;
+
+        Object*! extension = occlusionTexture.get("extensions");
+        if (try extension && try extension.get(TEXTURE_TRANSFORM_EXTENSION)) {
+            self.occlusionTexture.transform = (int)data.textureTransforms.len();
+            data.textureTransforms.push(TextureTransform{}.fromJson(extension));
+        }
+    };
+
+    if (try normalTexture) {
+        self.normalTexture.index = normalTexture.get_int("index") ?? -1;
+
+        Object*! extension = occlusionTexture.get("extensions");
+        if (try extension && try extension.get(TEXTURE_TRANSFORM_EXTENSION)) {
+            self.occlusionTexture.transform = (int)data.textureTransforms.len();
+            data.textureTransforms.push(TextureTransform{}.fromJson(extension));
+        }
+    };
+    
+    if (try emissiveTexture) {
+        self.emissiveTexture.index = emissiveTexture.get_int("index") ?? -1;
+
+        Object*! extension = occlusionTexture.get("extensions");
+        if (try extension && try extension.get(TEXTURE_TRANSFORM_EXTENSION)) {
+            self.occlusionTexture.transform = (int)data.textureTransforms.len();
+            data.textureTransforms.push(TextureTransform{}.fromJson(extension));
+        }
+    };
 
     if (try doubleSided) self.doubleSided = doubleSided;
     if (try emissiveFactor) {
@@ -698,13 +735,19 @@ fn void! Material.fromJson(&self, Object* json, Gltf data) {
             self.baseColorFactor = Vec4f {(float)baseColorFactor.get_at(0).f, (float)baseColorFactor.get_at(1).f, (float)baseColorFactor.get_at(2).f, (float)baseColorFactor.get_at(3).f};
         }
 
-        if (try baseColorTexture) self.baseColorTexture = data.textures[baseColorTexture.get_int("index")!];
-        if (try metallicRoughnessTexture) self.metallicRoughnessTexture = data.textures[metallicRoughnessTexture.get_int("index")!];
-    }
+        if (try baseColorTexture) {
+            self.baseColorTexture.index = baseColorTexture.get_int("index") ?? - 1;
 
-    if (try occlusionTexture) self.occlusionTexture = data.textures[occlusionTexture.get_int("index")!];
-    if (try normalTexture) self.normalTexture = data.textures[normalTexture.get_int("index")!];
-    if (try emissiveTexture) self.emissiveTexture = data.textures[emissiveTexture.get_int("index")!];
+            Object*! extension = occlusionTexture.get("extensions");
+            if (try extension && try extension.get(TEXTURE_TRANSFORM_EXTENSION)) {
+                self.occlusionTexture.transform = (int)data.textureTransforms.len();
+                data.textureTransforms.push(TextureTransform{}.fromJson(extension));
+            }
+        };
+        
+        if (try metallicRoughnessTexture) self.metallicRoughnessTexture.index = metallicRoughnessTexture.get_int("index") ?? - 1;
+
+    }
 }
 
 fn void Texture.fromJson(&self, Object* json) {
@@ -713,6 +756,17 @@ fn void Texture.fromJson(&self, Object* json) {
 
     if (try sampler) self.sampler = sampler;
     if (try source) self.source = source;
+}
+
+
+fn TextureTransform TextureTransform.fromJson(&self, Object* json) {
+    Object*! offset = json.get("offset");
+    Object*! scale = json.get("scale");
+    self.rotation = (float)json.get_float("rotation") ?? 0.0;
+
+    if (try offset) self.offset = Vec2f {(float)offset.get_at(0).f, (float)offset.get_at(1).f};
+    if (try scale) self.scale = Vec2f {(float)scale.get_at(0).f, (float)scale.get_at(1).f};
+    return *self;
 }
 
 fn void Sampler.fromJson(&self, Object* json) {
@@ -1168,6 +1222,7 @@ fn void Gltf.free(Gltf* self) {
     foreach (animation : self.animations) animation.free();
     foreach (accessor : self.accessors) accessor.free();
 
+
     self.cameras.free();
     self.accessors.free();
     self.bufferViews.free();
@@ -1178,6 +1233,7 @@ fn void Gltf.free(Gltf* self) {
     self.meshes.free();
     self.materials.free();
     self.textures.free();
+    self.textureTransforms.free();
     self.samplers.free();
     self.lights.free();
     self.extensions.free();
@@ -1435,6 +1491,11 @@ macro Gltf.@castBuffer(&self, Accessor accessor, usz index, #type) {
     return bitcast(*(char[#type.sizeof]*)buffer.data[(start_offset + (index * index_offset))..], #type);
 }
 
+// Todo https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_animation_pointer
+macro Gltf.get_pointer(self, String pointer) {
+//    return self.map["extensions"]!.map[extension];
+}
+
 
 
 fn void Gltf.debugBuffer(Gltf* self, Accessor accessor) {
@@ -1472,3 +1533,4 @@ fn void Animations.release(self) {
 fn Object*! Object.getExtension(self, String extension) {
    return self.map["extensions"]!.map[extension];
 }
+
