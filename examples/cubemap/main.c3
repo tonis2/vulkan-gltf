@@ -755,9 +755,18 @@ fn void! create_cube_map(String path, DeviceContext context, vk::Allocation* all
     defer stage_image.free(context.device);
 
     context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
-        BufferImageCopy[6] bufferCopyRegions;
+        BufferImageCopy2[6] bufferCopyRegions;
         ImageMemoryBarrier2[6] transfer_barriers;
         ImageMemoryBarrier2[6] finalize_barriers;
+
+        CopyBufferToImageInfo2 bufferCopyData = {
+            .sType = vk::STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+            .dstImage = cube_image,
+            .srcBuffer = stage_image.buffer,
+            .dstImageLayout = vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .regionCount = 6,
+            .pRegions = &bufferCopyRegions
+        };
 
         for (uint i; i < bufferCopyRegions.len; i++) {
             transfer_barriers[i] = {
@@ -795,7 +804,7 @@ fn void! create_cube_map(String path, DeviceContext context, vk::Allocation* all
                 } 
             };
 
-            bufferCopyRegions[i] = BufferImageCopy {
+            bufferCopyRegions[i] = BufferImageCopy2 {
                 .bufferOffset = (usz)cube_map_width * 4 * i,
                 .bufferRowLength = 0,
                 .bufferImageHeight = 0,
@@ -813,13 +822,9 @@ fn void! create_cube_map(String path, DeviceContext context, vk::Allocation* all
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers(&transfer_barriers));
 
-        vk::cmdCopyBufferToImage(
+        vk::cmdCopyBufferToImage2(
             command_buffer,
-            stage_image.buffer,
-            cube_image,
-            vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            bufferCopyRegions.len,
-            &bufferCopyRegions
+            &bufferCopyData
         );
 
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
