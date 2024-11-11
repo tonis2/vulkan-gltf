@@ -764,7 +764,7 @@ fn void! create_cube_map(String path, DeviceContext context, vk::Allocation* all
             .dstImage = cube_image,
             .srcBuffer = stage_image.buffer,
             .dstImageLayout = vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .regionCount = 6,
+            .regionCount = bufferCopyRegions.len,
             .pRegions = &bufferCopyRegions
         };
 
