@@ -5,7 +5,7 @@ struct TextureInfo {
 };
 
 struct Texture {
-    int index;
+    int source;
     int sampler;
 };
 

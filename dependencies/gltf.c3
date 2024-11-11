@@ -685,7 +685,7 @@ fn void! Material.fromJson(&self, Object* json, Gltf data) {
 
     if (try occlusionTexture) {
         self.occlusionTexture.index = occlusionTexture.get_int("index") ?? -1;
-
+        self.occlusionTexture.transform = - 1;
         Object*! extension = occlusionTexture.get("extensions");
         if (try extension && try extension.get(TEXTURE_TRANSFORM_EXTENSION)) {
             self.occlusionTexture.transform = (int)data.textureTransforms.len();
@@ -695,20 +695,22 @@ fn void! Material.fromJson(&self, Object* json, Gltf data) {
 
     if (try normalTexture) {
         self.normalTexture.index = normalTexture.get_int("index") ?? -1;
+        self.normalTexture.transform = -1;
 
-        Object*! extension = occlusionTexture.get("extensions");
+        Object*! extension = normalTexture.get("extensions");
         if (try extension && try extension.get(TEXTURE_TRANSFORM_EXTENSION)) {
-            self.occlusionTexture.transform = (int)data.textureTransforms.len();
+            self.normalTexture.transform = (int)data.textureTransforms.len();
             data.textureTransforms.push(TextureTransform{}.fromJson(extension));
         }
     };
     
     if (try emissiveTexture) {
         self.emissiveTexture.index = emissiveTexture.get_int("index") ?? -1;
-
-        Object*! extension = occlusionTexture.get("extensions");
+        self.emissiveTexture.transform = -1;
+        
+        Object*! extension = emissiveTexture.get("extensions");
         if (try extension && try extension.get(TEXTURE_TRANSFORM_EXTENSION)) {
-            self.occlusionTexture.transform = (int)data.textureTransforms.len();
+            self.emissiveTexture.transform = (int)data.textureTransforms.len();
             data.textureTransforms.push(TextureTransform{}.fromJson(extension));
         }
     };
@@ -737,10 +739,11 @@ fn void! Material.fromJson(&self, Object* json, Gltf data) {
 
         if (try baseColorTexture) {
             self.baseColorTexture.index = baseColorTexture.get_int("index") ?? - 1;
+            self.baseColorTexture.transform = -1;
 
-            Object*! extension = occlusionTexture.get("extensions");
+            Object*! extension = baseColorTexture.get("extensions");
             if (try extension && try extension.get(TEXTURE_TRANSFORM_EXTENSION)) {
-                self.occlusionTexture.transform = (int)data.textureTransforms.len();
+                self.baseColorTexture.transform = (int)data.textureTransforms.len();
                 data.textureTransforms.push(TextureTransform{}.fromJson(extension));
             }
         };

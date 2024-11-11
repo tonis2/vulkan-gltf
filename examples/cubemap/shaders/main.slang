@@ -5,8 +5,8 @@ struct TextureInfo {
 };
 
 struct Texture {
-    int index;
     int sampler;
+    int source;
 };
 
 struct Material
