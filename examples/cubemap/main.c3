@@ -760,7 +760,7 @@ fn void! create_cube_map(String path, DeviceContext context, vk::Allocation* all
         ImageMemoryBarrier2[6] finalize_barriers;
 
         CopyBufferToImageInfo2 bufferCopyData = {
-            .sType = vk::STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+            .sType = vk::STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
             .dstImage = cube_image,
             .srcBuffer = stage_image.buffer,
             .dstImageLayout = vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -805,6 +805,7 @@ fn void! create_cube_map(String path, DeviceContext context, vk::Allocation* all
             };
 
             bufferCopyRegions[i] = BufferImageCopy2 {
+                .sType = vk::STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
                 .bufferOffset = (usz)cube_map_width * 4 * i,
                 .bufferRowLength = 0,
                 .bufferImageHeight = 0,
