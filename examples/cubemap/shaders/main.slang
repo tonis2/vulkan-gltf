@@ -1,12 +1,16 @@
 // Shader written in Slang https://github.com/shader-slang/slang
-struct TextureInfo {
-    int index;
-    int transform;
+struct Texture
+{
+    int source;
+    int sampler;
 };
 
-struct Texture {
-    int sampler;
-    int source;
+struct TextureInfo
+{
+    int index;
+    float rotation;
+    float2 offset;
+    float2 scale;
 };
 
 struct Material
@@ -22,10 +26,12 @@ struct Material
     TextureInfo emissiveTexture;
     TextureInfo baseColorTexture;
     TextureInfo metallicRoughnessTexture;
-    TextureInfo padding;
+    float2 padding;
     
-    float4 getBaseColor(float2 tex_pos) {
-        if (baseColorTexture.index >= 0) {
+    float4 getBaseColor(float2 tex_pos)
+    {
+        if (baseColorTexture.index >= 0)
+        {
             Texture texture = textures[baseColorTexture.index];
             return image_samplers[texture.sampler].Sample(tex_pos) * baseColorFactor;
         }
@@ -34,7 +40,8 @@ struct Material
     }
 };
 
-struct PushData {
+struct PushData
+{
     float4x4 model_matrix;
     int material_index;
     bool has_skin;
@@ -50,14 +57,13 @@ struct Uniform
 [vk_push_constant]
 const PushData push_constant;
 
-
 [vk_binding(0)]
 cbuffer Buffers
 {
-    Vertex* vertices;
+    Vertex *vertices;
     float4x4 *joints;
     Uniform *uniform;
-    Material *materials;
+    Material* materials;
     Texture *textures;
 }
 
@@ -66,11 +72,11 @@ uniform Sampler2D image_samplers[];
 
 struct Vertex
 {
-    float4	position;
-    float2	tex_cord;
-    float2	offset;
-    float4	skin_pos;
-    float4	skin_weight;
+    float4 position;
+    float2 tex_cord;
+    float2 offset;
+    float4 skin_pos;
+    float4 skin_weight;
 };
 
 // Output of the fragment shader
@@ -80,13 +86,11 @@ struct FragmentData
     int material_index;
 };
 
-
 struct VertexOutPut
 {
     FragmentData vertex_output;
     float4 sv_position : SV_Position;
 };
-
 
 [shader("vertex")]
 VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
@@ -99,15 +103,15 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
         0, 0, 0, 1
     };
 
-    if (push_constant.has_skin) {
+    if (push_constant.has_skin)
+    {
         skin_matrix =
-             vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
-             vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
-             vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
-             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
-        
+            vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
+            vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
+            vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
+            vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
- 
+
     VertexOutPut output = {
         {
             vertex.tex_cord,
@@ -121,12 +125,14 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
 
 // Fragment Shader
 [shader("fragment")]
-float4 fragmentMain(FragmentData input) : SV_Target
+float4 fragmentMain(FragmentData input)
+    : SV_Target
 {
     Material material;
     float4 color = float4(0.5, 0.5, 0.5, 1.0);
 
-    if (input.material_index >= 0) {
+    if (input.material_index >= 0)
+    {
         material = materials[input.material_index];
         return material.getBaseColor(input.tex_cord);
     }

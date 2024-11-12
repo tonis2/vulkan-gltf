@@ -13,9 +13,9 @@
 		"shaders": {
 			"type": "prepare",
 			"exec": [
-				"slangc examples/basic/shaders/shader.slang -profile glsl_460 -target spirv -emit-spirv-directly -o examples/basic/shaders/shader.spv",
-				"slangc examples/cubemap/shaders/cubemap.slang -profile glsl_460 -target spirv -emit-spirv-directly -o examples/cubemap/shaders/cube.spv",
-				"slangc examples/cubemap/shaders/main.slang -profile glsl_460 -target spirv -emit-spirv-directly -o examples/cubemap/shaders/main.spv"
+				"slangc examples/basic/shaders/shader.slang -force-glsl-scalar-layout -target spirv -o examples/basic/shaders/shader.spv",
+				"slangc examples/cubemap/shaders/cubemap.slang -force-glsl-scalar-layout -target spirv -emit-spirv-directly -o examples/cubemap/shaders/cube.spv",
+				"slangc examples/cubemap/shaders/main.slang -force-glsl-scalar-layout -target spirv -emit-spirv-directly -o examples/cubemap/shaders/main.spv"
 			]
 		},
 		"cubemap": {
