@@ -54,7 +54,7 @@ enum LightType: uint {
 enum ResourceType {
     ENCODED_BIN,
     ENCODED_BASE64,
-    EXTERNAL_BIN
+    EXTERNAL_BIN,
 }
 
 enum AccessorType {
@@ -570,8 +570,7 @@ fn void! Image.fromJson(&self, Object* json) {
     String! name = json.get_string("name");
     String! mimeType = json.get_string("mimeType");
     String! uri = json.get_string("uri");
-    self.type = ResourceType.ENCODED_BIN;
-
+    
     if (try bufferView) self.view = bufferView;
     if (try name) self.name = name;
     if (try mimeType) {
@@ -584,19 +583,25 @@ fn void! Image.fromJson(&self, Object* json) {
 
     if (try uri) {
         String data_string = (String)uri;
-        usz offset = data_string.index_of_char(';')!;
-        switch (uri[0..offset]) {
-            case "data:image/jpeg": self.mimeType = ImageType.IMAGE_JPEG;
-            case "data:image/png": self.mimeType = ImageType.IMAGE_PNG;
-            case "data:image/bmp": self.mimeType = ImageType.IMAGE_BMP;
-        }
-        self.uri = uri.copy();
-        if (uri.ends_with(".bin")) {
-            self.type = ResourceType.EXTERNAL_BIN;
-        }
-        else {
+        usz! offset = data_string.index_of_char(';');
+        self.type = ResourceType.ENCODED_BIN;
+
+        // Parse image data from base64
+        if (try offset) {
+            switch (uri[0..offset]) {
+                case "data:image/jpeg": self.mimeType = ImageType.IMAGE_JPEG;
+                case "data:image/png": self.mimeType = ImageType.IMAGE_PNG;
+                case "data:image/bmp": self.mimeType = ImageType.IMAGE_BMP;
+            }
+            // if (uri.ends_with(".bin")) {
+            //     self.type = ResourceType.EXTERNAL_BIN;
+            //     self.uri = uri.copy();
+            // }
             self.type = ResourceType.ENCODED_BASE64;
             self.data = parse_base64(self.uri, uri.len)!;
+        } else {
+            self.type = ResourceType.EXTERNAL_BIN;
+            self.uri = uri.copy();
         }
     }
 }
@@ -718,26 +723,28 @@ fn Texture Texture.fromJson(&self, Object* data) {
 }
 
 fn TextureInfo TextureInfo.fromJson(&self, Object* data) {
-    if (data == null) return TextureInfo {
-        -1,
-        0,
-        Vec2f{0,0},
-        Vec2f{0,0}
+    TextureInfo info = {
+        .index = -1,
+        .rotation = 0,
+        .offset = Vec2f{0,0},
+        .scale = Vec2f{1.0, 1.0}
     };
 
-    self.index = data.get_int("index") ?? -1;
+    if (data == null) return info;
+
+    info.index = data.get_int("index") ?? -1;
 
     @when_extended(data, TEXTURE_TRANSFORM_EXTENSION; Object* extension) {
         Object*! offset = extension.get("offset");
         Object*! scale = extension.get("scale");
 
-        if (try offset) self.offset = Vec2f {(float)offset.get_at(0).f, (float)offset.get_at(1).f};
-        if (try scale) self.scale = Vec2f {(float)scale.get_at(0).f, (float)scale.get_at(1).f};
+        if (try offset) info.offset = Vec2f {(float)offset.get_at(0).f, (float)offset.get_at(1).f};
+        if (try scale) info.scale = Vec2f {(float)scale.get_at(0).f, (float)scale.get_at(1).f};
 
-        self.rotation = (float)extension.get_float("rotation") ?? 0.0;
+        info.rotation = (float)extension.get_float("rotation") ?? 0.0;
     };
 
-    return *self;
+    return info;
 }
 
 fn void Sampler.fromJson(&self, Object* json) {
@@ -833,6 +840,11 @@ fn void Animation.fromJson(&self, Object* json) {
             if (try target) {
                 uint! node = target.get_int("node");
                 String! path = target.get_string("path");
+
+                @when_extended(target, ANIMATION_POINTER_EXTENSION; Object* extension) {
+                    String! pointer = extension.get_string("pointer");
+                    if (try pointer) io::printfn("%s", pointer);
+                };
 
                 if (try node) channel_data.target.node = node;
                 if (try path) {
@@ -1050,7 +1062,7 @@ fn Gltf! parse(InStream stream) {
         }
     }
 
-    // Parse nodes
+    // // Parse nodes
     if (try nodes) {
         foreach (uint i, node : nodes.array) {
            Node data;
@@ -1073,7 +1085,7 @@ fn Gltf! parse(InStream stream) {
         }
     }
 
-    // Parse accessors
+    // // Parse accessors
     if (try accessors) {
         foreach (accessor : accessors.array) {
             Accessor data;
@@ -1082,7 +1094,7 @@ fn Gltf! parse(InStream stream) {
         }
     }
 
-    // Parse cameras
+    // // Parse cameras
     if (try cameras) {
         foreach (camera : cameras.array) {
             Camera data;
@@ -1107,7 +1119,7 @@ fn Gltf! parse(InStream stream) {
         }
     }
 
-    // Parse materials
+    // // Parse materials
     if (try materials) {
         foreach (json : materials.array) {
             Material material;
@@ -1116,7 +1128,7 @@ fn Gltf! parse(InStream stream) {
         }
     }
 
-    // Parse meshes
+    // // Parse meshes
     if (try meshes) {
         foreach (mesh : meshes.array) {
             Mesh data;
@@ -1125,7 +1137,7 @@ fn Gltf! parse(InStream stream) {
         }
     }
 
-    // Parse buffers
+    // // Parse buffers
     if (try buffers) {
         foreach (buffer : buffers.array) {
             Buffer data;
@@ -1139,7 +1151,7 @@ fn Gltf! parse(InStream stream) {
         }
     }
 
-    // Parse images
+    // // Parse images
     if (try images) {
         foreach (image : images.array) {
             Image data;
