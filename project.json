@@ -14,6 +14,7 @@
 			"type": "prepare",
 			"exec": [
 				"slangc examples/basic/shaders/shader.slang -force-glsl-scalar-layout -target spirv -o examples/basic/shaders/shader.spv",
+				"slangc examples/mini/shaders/shader.slang -force-glsl-scalar-layout -target spirv -o examples/mini/shaders/shader.spv",
 				"slangc examples/cubemap/shaders/cubemap.slang -force-glsl-scalar-layout -target spirv -emit-spirv-directly -o examples/cubemap/shaders/cube.spv",
 				"slangc examples/cubemap/shaders/main.slang -force-glsl-scalar-layout -target spirv -emit-spirv-directly -o examples/cubemap/shaders/main.spv",
 				"slangc examples/texture_anim/shaders/main.slang -force-glsl-scalar-layout -target spirv -emit-spirv-directly -o examples/texture_anim/shaders/main.spv"
@@ -30,6 +31,10 @@
 		"basic": {	
 			"type": "executable",
 			"sources": ["examples/basic/main.c3"]
+		},
+		"mini": {	
+			"type": "executable",
+			"sources": ["examples/mini/main.c3"]
 		}
 	},
 	"output": "./build"

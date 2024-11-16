@@ -44,6 +44,7 @@
 	],
 	"animations":[
 		{
+			"name":"Cube transform",
 			"channels":[
 				{
 					"sampler":0,
@@ -51,29 +52,21 @@
 						"node":1,
 						"path":"translation"
 					}
-				}
-			],
-			"name":"Cube transform",
-			"samplers":[
+				},
 				{
-					"input":9,
-					"interpolation":"LINEAR",
-					"output":10
-				}
-			]
-		},
-		{
-			"channels":[
-				{
-					"sampler":0,
+					"sampler":1,
 					"target":{
 						"node":0,
 						"path":"translation"
 					}
 				}
 			],
-			"name":"Cube transform 2",
 			"samplers":[
+				{
+					"input":9,
+					"interpolation":"LINEAR",
+					"output":10
+				},
 				{
 					"input":9,
 					"interpolation":"LINEAR",
@@ -81,6 +74,7 @@
 				}
 			]
 		},
+
 		{
 			"channels":[
 				{
