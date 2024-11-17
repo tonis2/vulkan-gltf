@@ -15,6 +15,7 @@ import std::collections::map;
 def Animations = List(<AnimationMixer>);
 def SkinList = List(<Skin>);
 def AttributeMap = HashMap(<String, usz>);
+def AnimationChannels = List(<AnimationFrame>);
 
 const PUNCTUAL_LIGHT_EXTENSION = "KHR_lights_punctual";
 const TEXTURE_TRANSFORM_EXTENSION = "KHR_texture_transform";
@@ -1028,7 +1029,6 @@ fn Gltf! parse(InStream stream) {
     Object*! extensions = gltfJson.get("extensions");
     Object*! extensionsUsed = gltfJson.get("extensionsUsed");
 
-
     // Parse extensions used
     if (try extensionsUsed) {
         foreach (value : extensionsUsed.array) {
@@ -1205,7 +1205,6 @@ fn void Gltf.free(Gltf* self) {
     foreach (animation : self.animations) animation.free();
     foreach (accessor : self.accessors) accessor.free();
 
-
     self.cameras.free();
     self.accessors.free();
     self.bufferViews.free();
@@ -1296,6 +1295,46 @@ fn AnimationMixer Animation.mixer(self) {
     return copy;
 }
 
+struct FrameValue {
+    float time;
+    Vec4 value;
+}
+
+struct AnimationFrame {
+    uint path;
+    uint node;
+    uint interpolation;
+    List(<FrameValue>) values;
+}
+
+fn AnimationChannels Gltf.animation_data(&self, Animation animation) {
+    AnimationChannels channels;
+
+    foreach (uint index, channel : animation.channels) {
+        AnimationSampler sampler = animation.samplers[channel.sampler];
+        Node animation_node = self.nodes[channel.target.node];
+
+        Accessor time_accessor = self.accessors[sampler.input];
+        Accessor value_accessor = self.accessors[sampler.output];
+
+        AnimationFrame frame = {
+            .path = (uint)channel.target.path,
+            .node = (uint)channel.target.node,
+            .interpolation = (uint)sampler.interpolation,
+        };
+
+        for (ulong i; i < time_accessor.count; i++) {
+            frame.values.push({
+                .time = self.@castBuffer(time_accessor, i, float),
+                .value = self.@castBuffer(value_accessor, i, Vec4f),
+            });
+        }
+        channels.push(frame);
+    };
+
+    return channels;
+}
+
 fn void Gltf.run_animation(&self, AnimationMixer* animation, NanoDuration time) {
    double current_time = time.to_sec();
 
@@ -1325,7 +1364,6 @@ fn void Gltf.run_animation(&self, AnimationMixer* animation, NanoDuration time) 
             AnimationValue next_value = channel.values[time_index];
             double interpolation_value = (channel.time - prev_time) / (next_time - prev_time);
 
-            //io::printfn("%d %s", index, channel.target.path);
             if (sampler.interpolation == LINEAR) {
                 switch (channel.target.path) {
                     case TRANSLATION: {
