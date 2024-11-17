@@ -12,10 +12,9 @@ import std::encoding::json;
 import std::encoding::base64;
 import std::collections::map;
 
-def Animations = List(<AnimationMixer>);
 def SkinList = List(<Skin>);
 def AttributeMap = HashMap(<String, usz>);
-def AnimationChannels = List(<AnimationFrame>);
+def AnimationChannels = List(<AnimationChannel>);
 
 const PUNCTUAL_LIGHT_EXTENSION = "KHR_lights_punctual";
 const TEXTURE_TRANSFORM_EXTENSION = "KHR_texture_transform";
@@ -43,7 +42,8 @@ enum AnimationProperty {
     TRANSLATION,
     ROTATION,
     SCALE,
-    WEIGHTS
+    WEIGHTS,
+    POINTER
 }
 
 enum LightType: uint {
@@ -188,29 +188,8 @@ struct Channel {
     struct target {
         uint node;
         AnimationProperty path;
+        String pointer;
     }
-}
-
-union AnimationValue
-{
-    Vec3f translation;
-    Vec3f scale;
-    Quaternionf rotation;
-    float weight;
-}
-
-struct MixerChannel {
-    inline Channel channel;
-    double time;
-    double max_time;
-    List(<float>) times;
-    List(<AnimationValue>) values;
-}
-
-struct AnimationMixer {
-    String name;
-    List(<AnimationSampler>) samplers;
-    List(<MixerChannel>) channels;
 }
 
 struct Skin {
@@ -219,6 +198,13 @@ struct Skin {
     uint skeleton;
     List(<uint>) joints;
     List(<Matrix4f>) inverseBindMatrices;
+}
+
+struct TextureInfo {
+    int index;
+    float rotation;
+    Vec2f offset;
+    Vec2f scale;
 }
 
 struct Material {
@@ -239,13 +225,6 @@ struct Material {
 struct Texture {
     int sampler;
     int source;
-}
-
-struct TextureInfo {
-    int index;
-    float rotation;
-    Vec2f offset;
-    Vec2f scale;
 }
 
 struct Sampler {
@@ -313,6 +292,21 @@ struct Light {
     float inner_cone_angle;
     float outer_cone_angle;
     uint node;
+}
+
+struct AnimationValue {
+    float time;
+    Vec4f value;
+}
+
+struct AnimationChannel {
+    double elapsed_time;
+    double max_time;
+    AnimationProperty path;
+    uint node;
+    any node_ptr;
+    Interpolation interpolation;
+    List(<AnimationValue>) values;
 }
 
 // Parsing JSON to structs
@@ -826,7 +820,6 @@ fn void Animation.fromJson(&self, Object* json) {
                     case "CUBICSPLINE": animation_sampler.interpolation = Interpolation.CUBICSPLINE;
                 }
             }
-
             self.samplers.push(animation_sampler);
         }
     }
@@ -844,7 +837,7 @@ fn void Animation.fromJson(&self, Object* json) {
 
                 @when_extended(target, ANIMATION_POINTER_EXTENSION; Object* extension) {
                     String! pointer = extension.get_string("pointer");
-                    if (try pointer) io::printfn("%s", pointer);
+                    if (try pointer) channel_data.target.pointer = pointer.copy();
                 };
 
                 if (try node) channel_data.target.node = node;
@@ -854,6 +847,7 @@ fn void Animation.fromJson(&self, Object* json) {
                         case "rotation": channel_data.target.path = AnimationProperty.ROTATION;
                         case "scale": channel_data.target.path = AnimationProperty.SCALE;
                         case "weights": channel_data.target.path = AnimationProperty.WEIGHTS;
+                        case "pointer": channel_data.target.path = AnimationProperty.POINTER;
                     }
                 }
             };
@@ -868,15 +862,6 @@ fn void Animation.free(&self) {
     self.name.free();
 }
 
-fn void AnimationMixer.free(&self) {
-    foreach (channel: self.channels) {
-        channel.times.free();
-        channel.values.free();
-    };
-    self.channels.free();
-    self.samplers.free();
-    self.name.free();
-}
 
 fn void Skin.fromJson(&self, Object* json) {
     String! name = json.get_string("name");
@@ -1038,7 +1023,6 @@ fn Gltf! parse(InStream stream) {
             }
         }
     }
-
 
     if (try extensions) {
         Object*! lights = gltfJson.getExtension(PUNCTUAL_LIGHT_EXTENSION);
@@ -1229,172 +1213,117 @@ fn Node! Gltf.getNode(Gltf* self, String name) {
     return ParseError.KEY_NOT_FOUND?;
 }
 
-fn AnimationMixer Gltf.loadAnimation(self, Animation animation) {
-    AnimationMixer mixer = animation.mixer();
-
-    foreach (index, &channel: mixer.channels) {
-        AnimationSampler sampler = mixer.samplers[channel.sampler];
-        Accessor time_accessor = self.accessors[sampler.input];
-
-        if (time_accessor.max.len() > 0) {
-            channel.max_time = time_accessor.max[0];
-        } else {
-            io::printfn("Animation has no max time");
-        }
-
-        // Parse animation timing values, from buffer
-        for (ulong i; i < time_accessor.count; i++) {
-            channel.times.push(self.@castBuffer(time_accessor, i, float));
-        }
-
-        // Parse animation transform values, from buffer
-        Accessor value_accessor = self.accessors[sampler.output];
-        for (ulong i; i < value_accessor.count; i++) {
-            switch (channel.target.path) {
-                case TRANSLATION: {
-                    channel.values.push(AnimationValue {
-                        .translation = self.@castBuffer(value_accessor, i, Vec3f)
-                    });
-                }
-                case SCALE: {
-                    channel.values.push(AnimationValue {
-                        .scale = self.@castBuffer(value_accessor, i, Vec3f)
-                    });
-                }
-                case ROTATION: {
-                    channel.values.push(AnimationValue {
-                        .rotation = self.@castBuffer(value_accessor, i, Quaternionf)
-                    });
-                }
-                case WEIGHTS: {
-                    channel.values.push(AnimationValue {
-                       .weight = self.@castBuffer(value_accessor, i, float)
-                    });
-                }
-            }
-        }
-    }
-
-    return mixer;
-}
-
-fn AnimationMixer Animation.mixer(self) {
-    AnimationMixer copy = AnimationMixer {
-        .name = self.name.copy(),
-    };
-
-    foreach (value : self.samplers) copy.samplers.push(value);
-    foreach (value : self.channels) {
-        copy.channels.push(
-            MixerChannel {
-               .channel.sampler = value.sampler,
-               .channel.target = value.target
-            }
-        );
-    };
-    return copy;
-}
-
-struct FrameValue {
-    float time;
-    Vec4 value;
-}
-
-struct AnimationFrame {
-    uint path;
-    uint node;
-    uint interpolation;
-    List(<FrameValue>) values;
-}
-
-fn AnimationChannels Gltf.animation_data(&self, Animation animation) {
+fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
     AnimationChannels channels;
 
-    foreach (uint index, channel : animation.channels) {
-        AnimationSampler sampler = animation.samplers[channel.sampler];
-        Node animation_node = self.nodes[channel.target.node];
+    foreach (index: indexes) {
+        Animation animation = self.animations[index];
 
-        Accessor time_accessor = self.accessors[sampler.input];
-        Accessor value_accessor = self.accessors[sampler.output];
+        foreach (channel : animation.channels) {
+            AnimationSampler sampler = animation.samplers[channel.sampler];
+            Node animation_node = self.nodes[channel.target.node];
 
-        AnimationFrame frame = {
-            .path = (uint)channel.target.path,
-            .node = (uint)channel.target.node,
-            .interpolation = (uint)sampler.interpolation,
+            Accessor time_accessor = self.accessors[sampler.input];
+            Accessor value_accessor = self.accessors[sampler.output];
+            
+            AnimationChannel frame = {
+                .elapsed_time = 0,
+                .path = channel.target.path,
+                .node = (uint)channel.target.node,
+                .interpolation = sampler.interpolation,
+            };
+
+            if (channel.target.path == POINTER) {
+                String[] pointer_values = channel.target.pointer.split("/");
+
+                if (pointer_values[1] == "materials" && pointer_values[4] == "baseColorTexture") {
+                    frame.node = pointer_values[2].to_int()!!;
+                    frame.node_ptr = &self.materials[frame.node].baseColorTexture.offset;
+                }
+
+                mem::free(pointer_values);
+            }
+
+            if (time_accessor.max.len() > 0) {
+                frame.max_time = time_accessor.max[0];
+            } else {
+                io::printfn("Animation has no max time");
+            }
+
+            for (ulong i; i < time_accessor.count; i++) {
+                frame.values.push({
+                    .time = self.@castBuffer(time_accessor, i, float),
+                    .value = self.@castBuffer(value_accessor, i, Vec4f),
+                });
+            }
+            channels.push(frame);
         };
-
-        for (ulong i; i < time_accessor.count; i++) {
-            frame.values.push({
-                .time = self.@castBuffer(time_accessor, i, float),
-                .value = self.@castBuffer(value_accessor, i, Vec4f),
-            });
-        }
-        channels.push(frame);
-    };
+    }
 
     return channels;
 }
 
-fn void Gltf.run_animation(&self, AnimationMixer* animation, NanoDuration time) {
-   double current_time = time.to_sec();
+fn void AnimationChannels.run_animation(&self, Gltf* gltf, NanoDuration time) {
+    double current_time = time.to_sec();
 
-   foreach (index, &channel: animation.channels) {
-        AnimationSampler sampler = animation.samplers[channel.sampler];
-        channel.time += current_time;
-        if (channel.time > channel.max_time) channel.time = 0;
+    foreach (&channel: self) {
+        channel.elapsed_time += current_time;
+        if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
 
-        usz time_index = 0;
-        for (usz i; i < channel.times.len(); i++) {
-            if (channel.time < channel.times[i]) {
-                time_index = i;
+        foreach (index, entry: channel.values) {
+            if (channel.elapsed_time < entry.time) {
+                Node* node = &gltf.nodes[channel.node];
+
+                if (channel.path == WEIGHTS) {
+                    foreach (i, weight: node.weights) node.weights[i] = (float)channel.values[index * node.weights.len() + i].value.x;
+                } else {
+                    double prev_time = channel.values[index - 1].time;
+                    double next_time = entry.time;
+                    double interpolation_value = (channel.elapsed_time - prev_time) / (next_time - prev_time);
+
+                    Vec4f prev_value = channel.values[index - 1].value;
+                    Vec4f next_value = entry.value;
+
+                    switch (channel.path) {
+                        case POINTER: {
+                            any pointer = channel.node_ptr;
+                            switch (pointer.type) {
+                                case Vec2f.typeid: {
+                                    io::printfn("material update");
+                                    Material* material = &gltf.materials[channel.node];
+                                    material.baseColorTexture.offset = prev_value.xy.lerp(next_value.xy, (float)interpolation_value);
+                                    // mem::copy(&&, pointer.ptr, pointer.type.sizeof);
+                                }
+                            }
+                        }
+                        case TRANSLATION: {
+                            if (channel.interpolation == LINEAR) {
+                                node.translation = prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value);
+                            } else if (channel.interpolation == STEP) {
+                                node.translation = next_value.xyz;
+                            }
+                        }
+                        case ROTATION: {
+                            if (channel.interpolation == LINEAR) {
+                                node.rotation = Quaternionf{.v = prev_value}.slerp(Quaternionf{.v = next_value}, (float)interpolation_value);
+                            } else if (channel.interpolation == STEP) {
+                                node.rotation = Quaternionf{.v = next_value};
+                            }
+                        }
+                        case SCALE: {
+                            if (channel.interpolation == LINEAR) {
+                                node.scale = prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value);
+                            } else if (channel.interpolation == STEP) {
+                                node.scale = next_value.xyz;
+                            }
+                        }
+                        default: {}
+                    }
+                }
                 break;
-            };
+            }
         }
-
-       // Animation target node
-       Node* node = &self.nodes[channel.target.node];
-
-       if (channel.target.path == WEIGHTS) {
-            foreach (i, weight: node.weights) node.weights[i] = channel.values[time_index * node.weights.len() + i].weight;
-       } else {
-            double prev_time = channel.times[time_index - 1];
-            double next_time = channel.times[time_index];
-
-            AnimationValue prev_value = channel.values[time_index - 1];
-            AnimationValue next_value = channel.values[time_index];
-            double interpolation_value = (channel.time - prev_time) / (next_time - prev_time);
-
-            if (sampler.interpolation == LINEAR) {
-                switch (channel.target.path) {
-                    case TRANSLATION: {
-                        node.translation = prev_value.translation.lerp(next_value.translation, (float)interpolation_value);
-                    }
-                    case ROTATION: {
-                        node.rotation = prev_value.rotation.slerp(next_value.rotation, (float)interpolation_value);
-                    }
-                    case SCALE: {
-                        node.scale = prev_value.scale.lerp(next_value.scale, (float)interpolation_value);
-                    }
-                    default: {}
-                }
-            }
-
-            if (sampler.interpolation == STEP) {
-                switch (channel.target.path) {
-                    case TRANSLATION: {
-                        node.translation = next_value.translation;
-                    }
-                    case ROTATION: {
-                        node.rotation = next_value.rotation;
-                    }
-                    case SCALE: {
-                        node.scale = next_value.scale;
-                    }
-                    default: {}
-                }
-            }
-       }
-   }
+    }
 }
 
 fn uint Accessor.componentLen(Accessor* self) {
@@ -1511,11 +1440,6 @@ macro Gltf.@castBuffer(&self, Accessor accessor, usz index, #type) {
     return bitcast(*(char[#type.sizeof]*)buffer.data[(start_offset + (index * index_offset))..], #type);
 }
 
-// Todo https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_animation_pointer
-macro Gltf.get_pointer(self, String pointer) {
-//    return self.map["extensions"]!.map[extension];
-}
-
 fn void Gltf.debugBuffer(Gltf* self, Accessor accessor) {
     BufferView bufferView = self.bufferViews[accessor.view];
     Buffer buffer = self.buffers[bufferView.buffer];
@@ -1543,13 +1467,13 @@ fn void Gltf.debugBuffer(Gltf* self, Accessor accessor) {
     io::printf(" \n _______ \n%d");
 }
 
-fn void Animations.release(self) {
-    foreach (animation: self) animation.free();
-    self.free();
-}
-
 fn Object*! Object.getExtension(self, String extension) {
    return self.map["extensions"]!.map[extension];
+}
+
+fn void AnimationChannels.release(&self) {
+    foreach (entry: self) entry.values.free();
+    self.free();
 }
 
 macro @when_extended(Object* object, String extension_name; @callback(Object* extension)) {

@@ -54,7 +54,7 @@ Gltf cube;
 List(<Vertex>) vertices;
 List(<ushort>) indices;
 List(<Matrix4f>) joints;
-Animations animations;
+AnimationChannels animaton_data;
 
 DescriptorImages descriptor_images;
 DescriptorImageInfo cube_texture;
@@ -156,7 +156,10 @@ fn void! main()
         joints.free();
     }
 
-    foreach (animation: gltf_model.animations) animations.push(gltf_model.loadAnimation(animation));
+    
+    animaton_data = gltf_model.load_animations({0});
+    defer animaton_data.release();
+
     foreach (skin: gltf_model.skins) {
         foreach (matrix: skin.inverseBindMatrices) joints.push(matrix);
     }
@@ -601,7 +604,7 @@ fn void! main()
     while (running) {
         c3w::Event event = win.getEvent();
 
-        if (animations.len() > 0) gltf_model.run_animation(animation: &animations[0], time: time.mark());
+        if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf_model, time.mark());
 
         if (event.mouse_click == LEFT_MOUSE) {
             MouseParams params = c3w::getMousePos(win);

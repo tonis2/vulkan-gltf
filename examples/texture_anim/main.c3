@@ -46,7 +46,7 @@ Gltf gltf;
 List(<Vertex>) vertices;
 List(<ushort>) indices;
 List(<Matrix4f>) joints;
-Animations animations;
+AnimationChannels animaton_data;
 
 DescriptorImages descriptor_images;
 
@@ -141,7 +141,9 @@ fn void! main()
         joints.free();
     }
 
-    foreach (animation: gltf.animations) animations.push(gltf.loadAnimation(animation));
+    animaton_data = gltf.load_animations({0, 1});
+    defer animaton_data.release();
+
     foreach (skin: gltf.skins) {
         foreach (matrix: skin.inverseBindMatrices) joints.push(matrix);
     }
@@ -501,9 +503,8 @@ fn void! main()
 
     while (running) {
         c3w::Event event = win.getEvent();
+        if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
         
-        if (animations.len() > 0) gltf.run_animation(animation: &animations[0], time: time.mark());
-
         if (event.mouse_click == LEFT_MOUSE) {
             MouseParams params = c3w::getMousePos(win);
             camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
