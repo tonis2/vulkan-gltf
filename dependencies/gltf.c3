@@ -1213,9 +1213,12 @@ fn Node! Gltf.getNode(Gltf* self, String name) {
     return ParseError.KEY_NOT_FOUND?;
 }
 
+<*
+ @require self.animations.len() > 0 "GLTF animations must not be empty"
+ @require self.animations.len() >= indexes.len "Theres more load indexes, than GLTF animations"
+*>
 fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
     AnimationChannels channels;
-
     foreach (index: indexes) {
         Animation animation = self.animations[index];
 
@@ -1271,53 +1274,66 @@ fn void AnimationChannels.run_animation(&self, Gltf* gltf, NanoDuration time) {
         if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
 
         foreach (index, entry: channel.values) {
-            if (channel.elapsed_time < entry.time) {
+            if (channel.elapsed_time < entry.time && index > 0) {
                 Node* node = &gltf.nodes[channel.node];
+                Vec4f next_value = entry.value;
+                double next_time = entry.time;
 
                 if (channel.path == WEIGHTS) {
                     foreach (i, weight: node.weights) node.weights[i] = (float)channel.values[index * node.weights.len() + i].value.x;
                 } else {
-                    double prev_time = channel.values[index - 1].time;
-                    double next_time = entry.time;
-                    double interpolation_value = (channel.elapsed_time - prev_time) / (next_time - prev_time);
-
-                    Vec4f prev_value = channel.values[index - 1].value;
-                    Vec4f next_value = entry.value;
-
-                    switch (channel.path) {
-                        case POINTER: {
-                            any pointer = channel.node_ptr;
-                            switch (pointer.type) {
-                                case Vec2f.typeid: {
-                                    io::printfn("material update");
-                                    Material* material = &gltf.materials[channel.node];
-                                    material.baseColorTexture.offset = prev_value.xy.lerp(next_value.xy, (float)interpolation_value);
-                                    // mem::copy(&&, pointer.ptr, pointer.type.sizeof);
+                    if (channel.interpolation == STEP) {
+                        switch (channel.path) {
+                            case POINTER: {
+                                any pointer = channel.node_ptr;
+                                switch (pointer.type) {
+                                    case Vec2f.typeid: mem::copy(pointer.ptr, &&next_value.xy, pointer.type.sizeof);
+                                    case Vec3f.typeid: mem::copy(pointer.ptr, &&next_value.xyz, pointer.type.sizeof);
                                 }
                             }
-                        }
-                        case TRANSLATION: {
-                            if (channel.interpolation == LINEAR) {
-                                node.translation = prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value);
-                            } else if (channel.interpolation == STEP) {
+                            case TRANSLATION: {
                                 node.translation = next_value.xyz;
                             }
+                            case ROTATION: {
+                               node.rotation = Quaternionf{.v = next_value};
+                            }
+                            case SCALE: {
+                                 node.scale = next_value.xyz;
+                            }
+                            default: {}
                         }
-                        case ROTATION: {
-                            if (channel.interpolation == LINEAR) {
+                    }
+
+                    if (channel.interpolation == LINEAR) {
+                        double prev_time = channel.values[index - 1].time;
+                        Vec4f prev_value = channel.values[index - 1].value;
+                        double interpolation_value = (channel.elapsed_time - prev_time) / (next_time - prev_time);
+
+                        switch (channel.path) {
+                            case POINTER: {
+                                any pointer = channel.node_ptr;
+                                // Copy new interpolated animation value to pointer
+                                switch (pointer.type) {
+                                    case Vec2f.typeid: {
+                                        Vec2f value = next_value.xy;
+                                        mem::copy(pointer.ptr, &value, pointer.type.sizeof);
+                                    }
+                                    case Vec3f.typeid: {
+                                        mem::copy(pointer.ptr, &&prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value), pointer.type.sizeof);
+                                    }
+                                }
+                            }
+                            case TRANSLATION: {
+                                node.translation = prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value);
+                            }
+                            case ROTATION: {
                                 node.rotation = Quaternionf{.v = prev_value}.slerp(Quaternionf{.v = next_value}, (float)interpolation_value);
-                            } else if (channel.interpolation == STEP) {
-                                node.rotation = Quaternionf{.v = next_value};
                             }
-                        }
-                        case SCALE: {
-                            if (channel.interpolation == LINEAR) {
+                            case SCALE: {
                                 node.scale = prev_value.xyz.lerp(next_value.xyz, (float)interpolation_value);
-                            } else if (channel.interpolation == STEP) {
-                                node.scale = next_value.xyz;
                             }
+                            default: {}
                         }
-                        default: {}
                     }
                 }
                 break;

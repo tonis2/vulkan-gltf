@@ -73,7 +73,7 @@ fn void! main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/texture_test.gltf")!!;
+    gltf = gltf::loadFile("assets/uv_animation.gltf")!!;
     defer gltf.free();
 
     // Preload vertex data from GLTF
@@ -141,7 +141,7 @@ fn void! main()
         joints.free();
     }
 
-    animaton_data = gltf.load_animations({0, 1});
+    animaton_data = gltf.load_animations({0});
     defer animaton_data.release();
 
     foreach (skin: gltf.skins) {
@@ -184,12 +184,6 @@ fn void! main()
                 .setSize(indices.byte_size())
                 .bind(&device_allocation)!;
 
-    material_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(gltf.materials.byte_size())
-                .bind(&device_allocation)!;
-
     texture_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -200,6 +194,12 @@ fn void! main()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(UniformData.sizeof)
+                .bind(&local_allocation)!;
+
+    material_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(gltf.materials.byte_size())
                 .bind(&local_allocation)!;
 
     joint_buffer = vk::bufferCreateInfo()
@@ -216,6 +216,7 @@ fn void! main()
 
     // Upload data to buffer
     uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+    material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
 
     AddressBuffer addresses = AddressBuffer {
         vertex_buffer.address,
@@ -228,7 +229,6 @@ fn void! main()
     // Create stage buffers and then copy the data to GPU only buffers
     MemoryBlock vertex_stage_buffer = context.device.staging_buffer(size: vertices.byte_size(), data: vertices.entries, pdevice: context.pdevice)!;
     MemoryBlock index_stage_buffer = context.device.staging_buffer(size: indices.byte_size(), data: indices.entries, pdevice: context.pdevice)!;
-    MemoryBlock material_stage_buffer = context.device.staging_buffer(size: gltf.materials.byte_size(), data: gltf.materials.entries, pdevice: context.pdevice)!;
     MemoryBlock texture_stage_buffer = context.device.staging_buffer(size: gltf.textures.byte_size(), data: gltf.textures.entries, pdevice: context.pdevice)!;
     MemoryBlock address_stage_buffer = context.device.staging_buffer(size: AddressBuffer.sizeof, data: &addresses, pdevice: context.pdevice)!;
 
@@ -243,12 +243,6 @@ fn void! main()
             .srcOffset = 0,
             .dstOffset = 0,
             .size = vertices.byte_size()
-        });
-
-        vk::cmdCopyBuffer(command_buffer, material_stage_buffer.buffer, material_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
-            .dstOffset = 0,
-            .size = gltf.materials.byte_size()
         });
 
         vk::cmdCopyBuffer(command_buffer, texture_stage_buffer.buffer, texture_buffer.buffer, 1, &&BufferCopy {
@@ -266,7 +260,6 @@ fn void! main()
 
     index_stage_buffer.free(context.device);
     vertex_stage_buffer.free(context.device);
-    material_stage_buffer.free(context.device);
     texture_stage_buffer.free(context.device);
     address_stage_buffer.free(context.device);
     
@@ -504,6 +497,8 @@ fn void! main()
     while (running) {
         c3w::Event event = win.getEvent();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
+
+        material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
         
         if (event.mouse_click == LEFT_MOUSE) {
             MouseParams params = c3w::getMousePos(win);
