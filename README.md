@@ -1,4 +1,4 @@
-# vulkan-gltf
+## Code examples for running Vulkan GLTF examples in C3 language
 
 
 ### Running examples
