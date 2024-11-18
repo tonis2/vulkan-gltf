@@ -580,7 +580,7 @@ fn void! Image.fromJson(&self, Object* json) {
         String data_string = (String)uri;
         usz! offset = data_string.index_of_char(';');
         self.type = ResourceType.ENCODED_BIN;
-
+    
         // Parse image data from base64
         if (try offset) {
             switch (uri[0..offset]) {
@@ -588,12 +588,8 @@ fn void! Image.fromJson(&self, Object* json) {
                 case "data:image/png": self.mimeType = ImageType.IMAGE_PNG;
                 case "data:image/bmp": self.mimeType = ImageType.IMAGE_BMP;
             }
-            // if (uri.ends_with(".bin")) {
-            //     self.type = ResourceType.EXTERNAL_BIN;
-            //     self.uri = uri.copy();
-            // }
             self.type = ResourceType.ENCODED_BASE64;
-            self.data = parse_base64(self.uri, uri.len)!;
+            self.data = parse_base64(uri, uri.len)!;
         } else {
             self.type = ResourceType.EXTERNAL_BIN;
             self.uri = uri.copy();
@@ -1430,8 +1426,7 @@ fn char[]! parse_base64(char[] data, usz size) {
     decoder.init(base64::STD_ALPHABET, -1)!;
     // Decode buffer from base64
     // Offset base64 header
-    String data_string = (String)data;
-    usz offset = data_string.index_of_char(';')! + 8;
+    usz offset = ((String)data).index_of_char(';')! + 8;
     if (catch err = decoder.decode(data[offset..], buffer_data)) {
         io::printfn("Buffer parsing error: '%s'.", err);
         return ParseError.BROKEN_BUFFER?;
