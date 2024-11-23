@@ -304,7 +304,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
       .setImageUsage(vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
       .setImageSharingMode(vk::SHARING_MODE_EXCLUSIVE)
       .setCompositeAlpha(vk::COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
-      .setPresentMode(vk::PRESENT_MODE_MAILBOX_KHR)
+      .setPresentMode(vk::PRESENT_MODE_FIFO_KHR)
       .setPreTransform(capabilities.currentTransform)
       .setImageColorSpace(format.colorSpace)
       .setImageFormat(format.format)

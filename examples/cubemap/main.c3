@@ -31,7 +31,6 @@ struct AddressBuffer {
     vk::DeviceAddress joints;
     vk::DeviceAddress uniform;
     vk::DeviceAddress materials;
-    vk::DeviceAddress textures;
 }
  
 struct CubeConstant {
@@ -43,7 +42,6 @@ struct CubeConstant {
 MemoryBlock index_buffer;
 MemoryBlock vertex_buffer;
 MemoryBlock material_buffer;
-MemoryBlock texture_buffer;
 MemoryBlock uniform_buffer;
 MemoryBlock joint_buffer;
 MemoryBlock address_buffer;
@@ -206,12 +204,6 @@ fn void! main()
                 .setSize(gltf_model.materials.byte_size())
                 .bind(&device_allocation)!;
 
-    texture_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(gltf_model.textures.byte_size())
-                .bind(&device_allocation)!;
-
     address_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -244,14 +236,12 @@ fn void! main()
         joint_buffer.address,
         uniform_buffer.address,
         material_buffer.address,
-        texture_buffer.address,
     };
 
     // Create stage buffers and then copy the data to GPU only buffers
     MemoryBlock vertex_stage_buffer = context.device.staging_buffer(size: vertices.byte_size(), data: vertices.entries, pdevice: context.pdevice)!;
     MemoryBlock index_stage_buffer = context.device.staging_buffer(size: indices.byte_size(), data: indices.entries, pdevice: context.pdevice)!;
     MemoryBlock material_stage_buffer = context.device.staging_buffer(size: gltf_model.materials.byte_size(), data: gltf_model.materials.entries, pdevice: context.pdevice)!;
-    MemoryBlock texture_stage_buffer = context.device.staging_buffer(size: gltf_model.textures.byte_size(), data: gltf_model.textures.entries, pdevice: context.pdevice)!;
     MemoryBlock address_stage_buffer = context.device.staging_buffer(size: AddressBuffer.sizeof, data: &addresses, pdevice: context.pdevice)!;
     MemoryBlock cube_stage_buffer = context.device.staging_buffer(size: cube.buffers[0].size, data: cube.buffers[0].data, pdevice: context.pdevice)!;
 
@@ -274,12 +264,6 @@ fn void! main()
             .size = gltf_model.materials.byte_size()
         });
 
-        vk::cmdCopyBuffer(command_buffer, texture_stage_buffer.buffer, texture_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
-            .dstOffset = 0,
-            .size = gltf_model.textures.byte_size()
-        });
-
         vk::cmdCopyBuffer(command_buffer, address_stage_buffer.buffer, address_buffer.buffer, 1, &&BufferCopy {
             .srcOffset = 0,
             .dstOffset = 0,
@@ -296,7 +280,6 @@ fn void! main()
     index_stage_buffer.free(context.device);
     vertex_stage_buffer.free(context.device);
     material_stage_buffer.free(context.device);
-    texture_stage_buffer.free(context.device);
     address_stage_buffer.free(context.device);
     cube_stage_buffer.free(context.device);
     

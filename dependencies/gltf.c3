@@ -15,6 +15,7 @@ import std::collections::map;
 def SkinList = List(<Skin>);
 def AttributeMap = HashMap(<String, usz>);
 def AnimationChannels = List(<AnimationChannel>);
+def Materials = List(<Material>);
 
 const PUNCTUAL_LIGHT_EXTENSION = "KHR_lights_punctual";
 const TEXTURE_TRANSFORM_EXTENSION = "KHR_texture_transform";
@@ -30,6 +31,13 @@ enum ImageType {
     IMAGE_PNG,
     IMAGE_BMP,
     IMAGE_GIF,
+}
+
+enum AlphaMode {
+    OPAQUE,
+    BLEND,
+    MASK,
+    CUTOFF
 }
 
 enum Interpolation {
@@ -129,7 +137,7 @@ struct Gltf {
     List(<Image>) images;
     List(<Accessor>) accessors;
     List(<Camera>) cameras;
-    List(<Material>) materials;
+    Materials materials;
     List(<Sampler>) samplers;
     List(<Texture>) textures;
     List(<Animation>) animations;
@@ -201,7 +209,7 @@ struct Skin {
 }
 
 struct TextureInfo {
-    int index;
+    inline Texture texture;
     float rotation;
     Vec2f offset;
     Vec2f scale;
@@ -209,6 +217,8 @@ struct TextureInfo {
 
 struct Material {
     bool doubleSided;
+    AlphaMode alphaMode;
+    float alphaCutOff;
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
@@ -473,10 +483,10 @@ fn void BufferView.fromJson(&self, Object* json) {
     if (try target) {
         switch (target) {
             case 34962: {
-                self.target = Targets.ARRAY_BUFFER;
+                self.target = ARRAY_BUFFER;
             }
             case 34963: {
-                self.target = Targets.ELEMENT_ARRAY_BUFFER;
+                self.target = ELEMENT_ARRAY_BUFFER;
             }
         }
     }
@@ -500,19 +510,19 @@ fn void Accessor.fromJson(&self, Object* json) {
     if (try mode) {
         switch (mode) {
             case 0:
-                self.mode = Mode.POINTS;
+                self.mode = POINTS;
             case 1:
-                self.mode = Mode.LINES;
+                self.mode = LINES;
             case 2:
-                self.mode = Mode.LINE_LOOP;
+                self.mode = LINE_LOOP;
             case 3:
-                self.mode = Mode.LINE_STRIP;
+                self.mode = LINE_STRIP;
             case 4:
-                self.mode = Mode.TRIANGLES;
+                self.mode = TRIANGLES;
             case 5:
-                self.mode = Mode.TRIANGLE_STRIP;
+                self.mode = TRIANGLE_STRIP;
             case 6:
-                self.mode = Mode.TRIANGLE_FAN;
+                self.mode = TRIANGLE_FAN;
         }
     }
 
@@ -534,13 +544,13 @@ fn void Accessor.fromJson(&self, Object* json) {
 
         if (try objectType) {
             switch (objectType) {
-                case "SCALAR": self.type = AccessorType.SCALAR;
-                case "VEC2": self.type = AccessorType.VEC2;
-                case "VEC3": self.type = AccessorType.VEC3;
-                case "VEC4": self.type = AccessorType.VEC4;
-                case "MAT2": self.type = AccessorType.MAT2;
-                case "MAT3": self.type = AccessorType.MAT3;
-                case "MAT4": self.type = AccessorType.MAT4;
+                case "SCALAR": self.type = SCALAR;
+                case "VEC2": self.type = VEC2;
+                case "VEC3": self.type = VEC3;
+                case "VEC4": self.type = VEC4;
+                case "MAT2": self.type = MAT2;
+                case "MAT3": self.type = MAT3;
+                case "MAT4": self.type = MAT4;
             }
         }
 
@@ -570,28 +580,28 @@ fn void! Image.fromJson(&self, Object* json) {
     if (try name) self.name = name;
     if (try mimeType) {
         switch (mimeType) {
-            case "image/jpeg": self.mimeType = ImageType.IMAGE_JPEG;
-            case "image/png": self.mimeType = ImageType.IMAGE_PNG;
-            case "image/bmp": self.mimeType = ImageType.IMAGE_BMP;
+            case "image/jpeg": self.mimeType = IMAGE_JPEG;
+            case "image/png": self.mimeType = IMAGE_PNG;
+            case "image/bmp": self.mimeType = IMAGE_BMP;
         }
     }
 
     if (try uri) {
         String data_string = (String)uri;
         usz! offset = data_string.index_of_char(';');
-        self.type = ResourceType.ENCODED_BIN;
+        self.type = ENCODED_BIN;
     
         // Parse image data from base64
         if (try offset) {
             switch (uri[0..offset]) {
-                case "data:image/jpeg": self.mimeType = ImageType.IMAGE_JPEG;
-                case "data:image/png": self.mimeType = ImageType.IMAGE_PNG;
-                case "data:image/bmp": self.mimeType = ImageType.IMAGE_BMP;
+                case "data:image/jpeg": self.mimeType = IMAGE_JPEG;
+                case "data:image/png": self.mimeType = IMAGE_PNG;
+                case "data:image/bmp": self.mimeType = IMAGE_BMP;
             }
-            self.type = ResourceType.ENCODED_BASE64;
+            self.type = ENCODED_BASE64;
             self.data = parse_base64(uri, uri.len)!;
         } else {
-            self.type = ResourceType.EXTERNAL_BIN;
+            self.type = EXTERNAL_BIN;
             self.uri = uri.copy();
         }
     }
@@ -611,7 +621,7 @@ fn void! Buffer.fromJson(&self, Object* json) {
     String! uri = json.get_string("uri");
     String! data = json.get_string("data");
     String! name = json.get_string("name");
-    self.type = ResourceType.ENCODED_BIN;
+    self.type = ENCODED_BIN;
 
     if (try size) {
        self.size = size;
@@ -620,10 +630,10 @@ fn void! Buffer.fromJson(&self, Object* json) {
     if (try uri) {
         self.uri = uri.copy();
         if (uri.ends_with(".bin")) {
-            self.type = ResourceType.EXTERNAL_BIN;
+            self.type = EXTERNAL_BIN;
         }
         else {
-            self.type = ResourceType.ENCODED_BASE64;
+            self.type = ENCODED_BASE64;
             self.data = parse_base64(self.uri, self.size)!;
         }
     }
@@ -662,12 +672,14 @@ fn void Camera.fromJson(&self, Object* json) {
 }
 
 fn void! Material.fromJson(&self, Object* json, Gltf data) {
-    bool! doubleSided = json.get_bool("doubleSided");
+    String! alphaMode = json.get_string("alphaMode");
     Object*! pbrMetallicRoughness = json.get("pbrMetallicRoughness");
     Object*! occlusionTexture = json.get("occlusionTexture");
     Object*! normalTexture = json.get("normalTexture");
     Object*! emissiveTexture = json.get("emissiveTexture");
     Object*! emissiveFactor = json.get("emissiveFactor");
+
+    self.doubleSided = json.get_bool("doubleSided") ?? false;
 
     self.baseColorFactor = {1.0, 1.0, 1.0, 1.0};
     self.emissiveFactor = {1.0, 1.0, 1.0, 1.0};
@@ -679,9 +691,22 @@ fn void! Material.fromJson(&self, Object* json, Gltf data) {
     self.normalTexture = TextureInfo{}.fromJson(normalTexture ?? null);
     self.emissiveTexture = TextureInfo{}.fromJson(emissiveTexture ?? null);
 
-    if (try doubleSided) self.doubleSided = doubleSided;
+    self.alphaCutOff = (float)json.get_float("alphaCutoff") ?? 0.0;
+    self.alphaMode = AlphaMode.OPAQUE;
+
     if (try emissiveFactor) {
         self.emissiveFactor = {(float)emissiveFactor.get_at(0).f, (float)emissiveFactor.get_at(1).f, (float)emissiveFactor.get_at(2).f, 1.0};
+    }
+
+    if (try alphaMode) {
+        switch (alphaMode) {
+            case "BLEND":
+                self.alphaMode = AlphaMode.BLEND;
+            case "MASK":
+                self.alphaMode = AlphaMode.MASK;
+            case "CUTOFF":
+                self.alphaMode = AlphaMode.CUTOFF;
+        }
     }
 
     if (try pbrMetallicRoughness) {
@@ -703,7 +728,36 @@ fn void! Material.fromJson(&self, Object* json, Gltf data) {
         if (try baseColorFactor) {
             self.baseColorFactor = Vec4f {(float)baseColorFactor.get_at(0).f, (float)baseColorFactor.get_at(1).f, (float)baseColorFactor.get_at(2).f, (float)baseColorFactor.get_at(3).f};
         }
+    }
 
+    if (self.occlusionTexture.source > -1) {
+        Texture texture = data.textures[self.occlusionTexture.source];
+        self.occlusionTexture.source = texture.source;
+        self.occlusionTexture.sampler = texture.sampler;
+    }
+
+    if (self.normalTexture.source > -1) {
+        Texture texture = data.textures[self.normalTexture.source];
+        self.normalTexture.source = texture.source;
+        self.normalTexture.sampler = texture.sampler;
+    }
+
+    if (self.emissiveTexture.source > -1) {
+        Texture texture = data.textures[self.emissiveTexture.source];
+        self.emissiveTexture.source = texture.source;
+        self.emissiveTexture.sampler = texture.sampler;
+    }
+
+    if (self.baseColorTexture.source > -1) {
+        Texture texture = data.textures[self.baseColorTexture.source];
+        self.baseColorTexture.source = texture.source;
+        self.baseColorTexture.sampler = texture.sampler;
+    }
+
+    if (self.metallicRoughnessTexture.source > -1) {
+        Texture texture = data.textures[self.metallicRoughnessTexture.source];
+        self.metallicRoughnessTexture.source = texture.source;
+        self.metallicRoughnessTexture.sampler = texture.sampler;
     }
 }
 
@@ -715,7 +769,8 @@ fn Texture Texture.fromJson(&self, Object* data) {
 
 fn TextureInfo TextureInfo.fromJson(&self, Object* data) {
     TextureInfo info = {
-        .index = -1,
+        .source = -1,
+        .sampler = -1,
         .rotation = 0,
         .offset = Vec2f{0,0},
         .scale = Vec2f{1.0, 1.0}
@@ -723,7 +778,7 @@ fn TextureInfo TextureInfo.fromJson(&self, Object* data) {
 
     if (data == null) return info;
 
-    info.index = data.get_int("index") ?? -1;
+    info.source = data.get_int("index") ?? -1;
 
     @when_extended(data, TEXTURE_TRANSFORM_EXTENSION; Object* extension) {
         Object*! offset = extension.get("offset");
@@ -747,48 +802,48 @@ fn void Sampler.fromJson(&self, Object* json) {
     if (try wrapS) {
         switch (wrapS) {
             case 33071:
-                self.wrap_s = WrapMode.CLAMP_TO_EDGE;
+                self.wrap_s = CLAMP_TO_EDGE;
             case 33648:
-                self.wrap_s = WrapMode.MIRRORED_REPEAT;
+                self.wrap_s = MIRRORED_REPEAT;
             case 10497:
-                self.wrap_s = WrapMode.REPEAT;
+                self.wrap_s = REPEAT;
         }
     }
 
     if (try wrapT) {
         switch (wrapT) {
             case 33071:
-                self.wrap_t = WrapMode.CLAMP_TO_EDGE;
+                self.wrap_t = CLAMP_TO_EDGE;
             case 33648:
-                self.wrap_t = WrapMode.MIRRORED_REPEAT;
+                self.wrap_t = MIRRORED_REPEAT;
             case 10497:
-                self.wrap_t = WrapMode.REPEAT;
+                self.wrap_t = REPEAT;
         }
     }
 
     if (try magFilter) {
         switch (magFilter) {
             case 9728:
-                self.magFilter = MagFilter.LINEAR;
+                self.magFilter = LINEAR;
             case 9729:
-                self.magFilter = MagFilter.NEAREST;
+                self.magFilter = NEAREST;
         }
     }
 
     if (try minFilter) {
         switch (minFilter) {
             case 9728:
-                self.minFilter = MinFilter.NEAREST;
+                self.minFilter = NEAREST;
             case 9729:
-                self.minFilter = MinFilter.LINEAR;
+                self.minFilter = LINEAR;
             case 9984:
-                self.minFilter = MinFilter.NEAREST_MIPMAP_NEAREST;
+                self.minFilter = NEAREST_MIPMAP_NEAREST;
             case 9985:
-                self.minFilter = MinFilter.LINEAR_MIPMAP_NEAREST;
+                self.minFilter = LINEAR_MIPMAP_NEAREST;
             case 9986:
-                self.minFilter = MinFilter.NEAREST_MIPMAP_LINEAR;
+                self.minFilter = NEAREST_MIPMAP_LINEAR;
             case 9987:
-                self.minFilter = MinFilter.LINEAR_MIPMAP_LINEAR;
+                self.minFilter = LINEAR_MIPMAP_LINEAR;
         }
     }
 }
@@ -811,9 +866,9 @@ fn void Animation.fromJson(&self, Object* json) {
             if (try output) animation_sampler.output = output;
             if (try interpolation) {
                switch (interpolation) {
-                    case "LINEAR": animation_sampler.interpolation = Interpolation.LINEAR;
-                    case "STEP": animation_sampler.interpolation = Interpolation.STEP;
-                    case "CUBICSPLINE": animation_sampler.interpolation = Interpolation.CUBICSPLINE;
+                    case "LINEAR": animation_sampler.interpolation = LINEAR;
+                    case "STEP": animation_sampler.interpolation = STEP;
+                    case "CUBICSPLINE": animation_sampler.interpolation = CUBICSPLINE;
                 }
             }
             self.samplers.push(animation_sampler);
@@ -839,11 +894,11 @@ fn void Animation.fromJson(&self, Object* json) {
                 if (try node) channel_data.target.node = node;
                 if (try path) {
                     switch (path) {
-                        case "translation": channel_data.target.path = AnimationProperty.TRANSLATION;
-                        case "rotation": channel_data.target.path = AnimationProperty.ROTATION;
-                        case "scale": channel_data.target.path = AnimationProperty.SCALE;
-                        case "weights": channel_data.target.path = AnimationProperty.WEIGHTS;
-                        case "pointer": channel_data.target.path = AnimationProperty.POINTER;
+                        case "translation": channel_data.target.path = TRANSLATION;
+                        case "rotation": channel_data.target.path = ROTATION;
+                        case "scale": channel_data.target.path = SCALE;
+                        case "weights": channel_data.target.path = WEIGHTS;
+                        case "pointer": channel_data.target.path = POINTER;
                     }
                 }
             };
@@ -896,13 +951,13 @@ fn void Light.fromJson(&self, Object* json) {
     if (try range) self.range = range;
     if (try type) {
         switch (type) {
-            case "directional": self.type = LightType.DIRECTIONAL;
-            case "point": self.type = LightType.POINT;
-            case "spot": self.type = LightType.SPOT;
+            case "directional": self.type = DIRECTIONAL;
+            case "point": self.type = POINT;
+            case "spot": self.type = SPOT;
         }
     };
 
-    if (try spot && self.type == LightType.SPOT) {
+    if (try spot && self.type == SPOT) {
         self.inner_cone_angle = (float)spot.get_float("innerConeAngle") ?? 0.0;
         self.outer_cone_angle = (float)spot.get_float("outerConeAngle") ?? math::PI / 4.0;
     }
@@ -1486,6 +1541,7 @@ fn void AnimationChannels.release(&self) {
     foreach (entry: self) entry.values.free();
     self.free();
 }
+
 
 macro @when_extended(Object* object, String extension_name; @callback(Object* extension)) {
     Object*! extension = object.get("extensions");

@@ -1,14 +1,10 @@
 // Shader written in Slang https://github.com/shader-slang/slang
-struct Texture
+struct TextureInfo
 {
     int source;
     int sampler;
-};
-
-struct TextureInfo
-{
-    int index;
     float rotation;
+    float pad;
     float2 offset;
     float2 scale;
 };
@@ -16,9 +12,12 @@ struct TextureInfo
 struct Material
 {
     bool doubleSided;
+    uint alphaMode;
+    float cutOff;
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
+    float2 pad;
     float4 emissiveFactor;
     float4 baseColorFactor;
     TextureInfo normalTexture;
@@ -26,15 +25,12 @@ struct Material
     TextureInfo emissiveTexture;
     TextureInfo baseColorTexture;
     TextureInfo metallicRoughnessTexture;
-    float2 padding;
-
+    
     float4 getBaseColor(float2 tex_pos)
     {
-        if (baseColorTexture.index >= 0)
+        if (baseColorTexture.sampler >= 0)
         {
-
-            Texture texture = textures[baseColorTexture.index];
-            return image_samplers[texture.sampler].Sample(tex_pos) * baseColorFactor;
+            return image_samplers[baseColorTexture.sampler].Sample(tex_pos) * baseColorFactor;
         }
 
         return baseColorFactor;
@@ -64,8 +60,7 @@ cbuffer Buffers
     Vertex *vertices;
     float4x4 *joints;
     Uniform *uniform;
-    Material *materials;
-    Texture *textures;
+    Material* materials;
 }
 
 [vk_binding(1)]
@@ -73,7 +68,7 @@ uniform Sampler2D image_samplers[];
 
 struct Vertex
 {
-    float4 position;
+    float4 position;    
     float2 tex_cord;
     float2 offset;
     float4 skin_pos;
@@ -150,13 +145,14 @@ float4 fragmentMain(FragmentData input)
     : SV_Target
 {
     Material material;
-    float4 color = float4(0.5, 0.5, 0.5, 1.0);
+    float4 color = float4(0.4, 0.3, 0.3, 1.0);
 
     if (input.material_index >= 0)
     {
         material = materials[input.material_index];
-        return material.getBaseColor(input.tex_cord);
+        color = material.getBaseColor(input.tex_cord);
     }
+
 
     return color;
 }
