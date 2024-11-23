@@ -316,8 +316,6 @@ fn void! main()
     })
     .setSetLayouts({ descriptor_set_layout }).build(context.device)!;
 
-
-
     ShaderModule shader_module = vk::shaderModuleCreateInfo()
     .setCodeSize(shader.len)
     .setCode((uint*)&shader[0])
@@ -402,7 +400,8 @@ fn void! main()
         {
             vk::DYNAMIC_STATE_VIEWPORT,
             vk::DYNAMIC_STATE_LINE_WIDTH,
-            vk::DYNAMIC_STATE_SCISSOR
+            vk::DYNAMIC_STATE_SCISSOR,
+            vk::DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT
         })
     )
     .setRasterizationState(
@@ -430,7 +429,7 @@ fn void! main()
     .setColorBlendState(&&vk::pipelineColorBlendStateCreateInfo()
                     .setBlendConstants({ 1.0, 1.0, 1.0, 1.0 })
                     .setLogicOp(vk::LOGIC_OP_COPY)
-                    .setLogicOpEnable(vk::TRUE)
+                    .setLogicOpEnable(vk::FALSE)
                     .setAttachments({
                        {
                            .colorWriteMask =
@@ -564,6 +563,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
         }
         joint_buffer.upload(joints.entries, joints.byte_size());
     }
+    
 
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
@@ -571,9 +571,16 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
 
+            int material_index = (int)primitive.attributes["material"] ?? -1;
+            
+            if (material_index >= 0) {
+                Material material = gltf.materials[material_index];
+                vk::cmdSetColorBlendEnableEXT(buffer, 0, 1, &&uint[]{ material.alphaMode == BLEND ? vk::TRUE : vk::FALSE }[0]);
+            }
+    
             PushConstantData constant_data = {
                 .matrix = node.globalMatrix().transpose(),
-                .material_index = (int)primitive.attributes["material"] ?? -1,
+                .material_index = material_index,
                 .has_skin = node.hasSkin(),
             };
 

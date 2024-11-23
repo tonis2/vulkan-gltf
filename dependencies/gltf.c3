@@ -692,7 +692,7 @@ fn void! Material.fromJson(&self, Object* json, Gltf data) {
     self.emissiveTexture = TextureInfo{}.fromJson(emissiveTexture ?? null);
 
     self.alphaCutOff = (float)json.get_float("alphaCutoff") ?? 0.0;
-    self.alphaMode = AlphaMode.OPAQUE;
+    self.alphaMode = OPAQUE;
 
     if (try emissiveFactor) {
         self.emissiveFactor = {(float)emissiveFactor.get_at(0).f, (float)emissiveFactor.get_at(1).f, (float)emissiveFactor.get_at(2).f, 1.0};
@@ -701,11 +701,11 @@ fn void! Material.fromJson(&self, Object* json, Gltf data) {
     if (try alphaMode) {
         switch (alphaMode) {
             case "BLEND":
-                self.alphaMode = AlphaMode.BLEND;
+                self.alphaMode = BLEND;
             case "MASK":
-                self.alphaMode = AlphaMode.MASK;
+                self.alphaMode = MASK;
             case "CUTOFF":
-                self.alphaMode = AlphaMode.CUTOFF;
+                self.alphaMode = CUTOFF;
         }
     }
 

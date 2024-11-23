@@ -135,7 +135,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     ZStringList extensions;
     ZStringList device_extensions;
 
-    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor"});
+    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state3"});
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     extensions.add_array({"VK_KHR_surface", "VK_EXT_debug_utils"});
 
@@ -248,9 +248,15 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
 
     devices.free();
 
+    PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
+        .pNext = null,
+        .extendedDynamicState3ColorBlendEnable = vk::TRUE,
+    };
+
     PhysicalDeviceVulkan13Features vulkan13Features = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .pNext = null,
+        .pNext = &dynamicState,
     };
 
     PhysicalDeviceVulkan12Features vulkan12Features = {
