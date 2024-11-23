@@ -1,4 +1,3 @@
-# vulkan-gltf
 
 
 ### Running examples
