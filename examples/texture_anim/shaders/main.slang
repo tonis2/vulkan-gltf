@@ -153,6 +153,6 @@ float4 fragmentMain(FragmentData input)
         color = material.getBaseColor(input.tex_cord);
     }
 
-
+    if (color.a == 0.0) discard;
     return color;
 }
