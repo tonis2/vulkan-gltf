@@ -1301,6 +1301,7 @@ fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
             if (time_accessor.max.len() > 0) {
                 frame.max_time = time_accessor.max[0];
             } else {
+                frame.max_time = 1;
                 io::printfn("Animation has no max time");
             }
 

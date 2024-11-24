@@ -14,6 +14,8 @@ const MAX_FRAMES_IN_FLIGHT = 2;
 
 struct Vertex {
     Vec4f pos;
+    Vec4f normal;
+    Vec4f tangent;
     Vec2f tex_cord;
     Vec4f skin_pos;
     Vec4f skin_weight;
@@ -21,6 +23,7 @@ struct Vertex {
 
 struct PushConstantData {
     Matrix4f matrix;
+    Matrix4f matrix_inverse;
     int material_index;
     bool has_skin;
 }
@@ -31,6 +34,7 @@ struct AddressBuffer {
     vk::DeviceAddress joints;
     vk::DeviceAddress uniform;
     vk::DeviceAddress materials;
+    vk::DeviceAddress lights;
 }
 
 MemoryBlock index_buffer;
@@ -38,6 +42,7 @@ MemoryBlock vertex_buffer;
 MemoryBlock material_buffer;
 MemoryBlock uniform_buffer;
 MemoryBlock joint_buffer;
+MemoryBlock lights_buffer;
 MemoryBlock address_buffer;
 
 Gltf gltf;
@@ -109,8 +114,22 @@ fn void! main()
                         char[4] array = gltf.@castBuffer(accessor, i, char[4]);
                         return Vec4f{array[0], array[1], array[2], array[3]};
                     };
-
                     return Vec4f {0,0,0,0};
+                |};
+
+                Vec4f tangent = {|
+                    usz! attribute = primitive.attributes["TANGENT"];
+                    if (catch err = attribute) return Vec4f {0,0,0,0};
+                    Accessor accessor = gltf.accessors[attribute];
+                    return gltf.@castBuffer(accessor, i, Vec4f);
+                |};
+
+                Vec4f normal = {|
+                    usz! attribute = primitive.attributes["NORMAL"];
+                    if (catch err = attribute) return Vec4f {0,0,0,0};
+
+                    Accessor accessor = gltf.accessors[attribute];
+                    return gltf.@castBuffer(accessor, i, Vec4f);
                 |};
 
                 Vec4f skin_weight = {|
@@ -125,9 +144,11 @@ fn void! main()
 
                 vertices.push({
                     .pos = position,
+                    .normal = normal,
+                    .tangent = tangent,
                     .tex_cord = tex_cord,
                     .skin_pos = skin_pos,
-                    .skin_weight = skin_weight
+                    .skin_weight = skin_weight,
                 });
             }
         }
@@ -185,6 +206,12 @@ fn void! main()
                 .setSize(indices.byte_size())
                 .bind(&device_allocation)!;
 
+    lights_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(gltf.lights.byte_size())
+                .bind(&device_allocation)!;            
+
     uniform_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -218,11 +245,13 @@ fn void! main()
         joint_buffer.address,
         uniform_buffer.address,
         material_buffer.address,
+        lights_buffer.address,
     };
 
     // Create stage buffers and then copy the data to GPU only buffers
     MemoryBlock vertex_stage_buffer = context.device.staging_buffer(size: vertices.byte_size(), data: vertices.entries, pdevice: context.pdevice)!;
     MemoryBlock index_stage_buffer = context.device.staging_buffer(size: indices.byte_size(), data: indices.entries, pdevice: context.pdevice)!;
+    MemoryBlock light_stage_buffer = context.device.staging_buffer(size: gltf.lights.byte_size(), data: gltf.lights.entries, pdevice: context.pdevice)!;
     MemoryBlock address_stage_buffer = context.device.staging_buffer(size: AddressBuffer.sizeof, data: &addresses, pdevice: context.pdevice)!;
 
     context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
@@ -238,6 +267,13 @@ fn void! main()
             .size = vertices.byte_size()
         });
 
+
+        vk::cmdCopyBuffer(command_buffer, light_stage_buffer.buffer, lights_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = gltf.lights.byte_size()
+        });
+
         vk::cmdCopyBuffer(command_buffer, address_stage_buffer.buffer, address_buffer.buffer, 1, &&BufferCopy {
             .srcOffset = 0,
             .dstOffset = 0,
@@ -248,6 +284,7 @@ fn void! main()
     index_stage_buffer.free(context.device);
     vertex_stage_buffer.free(context.device);
     address_stage_buffer.free(context.device);
+    light_stage_buffer.free(context.device);
     
     // Create GLTF texture images
     foreach (image : gltf.images) {
@@ -563,7 +600,6 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
         joint_buffer.upload(joints.entries, joints.byte_size());
     }
     
-
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
         foreach (index, primitive: mesh.primitives) {
@@ -571,9 +607,12 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
 
             int material_index = (int)primitive.attributes["material"] ?? -1;
+
+            Matrix4f node_matrix = node.globalMatrix();
     
             PushConstantData constant_data = {
-                .matrix = node.globalMatrix().transpose(),
+                .matrix = node_matrix.transpose(),
+                .matrix_inverse = node_matrix.inverse()!.transpose(),
                 .material_index = material_index,
                 .has_skin = node.hasSkin(),
             };
