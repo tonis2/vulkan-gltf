@@ -248,15 +248,15 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
 
     devices.free();
 
-    PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
-        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
-        .pNext = null,
-        .extendedDynamicState3ColorBlendEnable = vk::TRUE,
-    };
+    // PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
+    //     .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
+    //     .pNext = null,
+    //     .extendedDynamicState3ColorBlendEnable = vk::TRUE,
+    // };
 
     PhysicalDeviceVulkan13Features vulkan13Features = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .pNext = &dynamicState,
+        .pNext = null,
     };
 
     PhysicalDeviceVulkan12Features vulkan12Features = {

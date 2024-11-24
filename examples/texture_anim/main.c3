@@ -400,8 +400,7 @@ fn void! main()
         {
             vk::DYNAMIC_STATE_VIEWPORT,
             vk::DYNAMIC_STATE_LINE_WIDTH,
-            vk::DYNAMIC_STATE_SCISSOR,
-            vk::DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT
+            vk::DYNAMIC_STATE_SCISSOR
         })
     )
     .setRasterizationState(
@@ -572,11 +571,6 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
 
             int material_index = (int)primitive.attributes["material"] ?? -1;
-            
-            if (material_index >= 0) {
-                Material material = gltf.materials[material_index];
-                vk::cmdSetColorBlendEnableEXT(buffer, 0, 1, &&uint[]{ material.alphaMode == BLEND ? vk::TRUE : vk::FALSE }[0]);
-            }
     
             PushConstantData constant_data = {
                 .matrix = node.globalMatrix().transpose(),
