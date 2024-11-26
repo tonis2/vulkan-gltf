@@ -14,6 +14,8 @@ const MAX_FRAMES_IN_FLIGHT = 2;
 
 struct Vertex {
     Vec4f pos;
+    Vec4f normal;
+    Vec4f tangent;
     Vec2f tex_cord;
     Vec4f skin_pos;
     Vec4f skin_weight;
@@ -21,6 +23,7 @@ struct Vertex {
 
 struct PushConstantData {
     Matrix4f matrix;
+    Matrix4f matrix_inverse;
     int material_index;
     bool has_skin;
 }
@@ -28,17 +31,14 @@ struct PushConstantData {
 // Used to send buffer device addresses to GPU
 struct AddressBuffer {
     vk::DeviceAddress vertices;
-    vk::DeviceAddress joints;
+    vk::DeviceAddress lights;
     vk::DeviceAddress uniform;
     vk::DeviceAddress materials;
+    vk::DeviceAddress joints;
 }
 
-MemoryBlock index_buffer;
-MemoryBlock vertex_buffer;
-MemoryBlock material_buffer;
-MemoryBlock uniform_buffer;
-MemoryBlock joint_buffer;
-MemoryBlock address_buffer;
+MemoryBlock device_buffer;
+MemoryBlock local_buffer;
 
 Gltf gltf;
 List(<Vertex>) vertices;
@@ -109,8 +109,22 @@ fn void! main()
                         char[4] array = gltf.@castBuffer(accessor, i, char[4]);
                         return Vec4f{array[0], array[1], array[2], array[3]};
                     };
-
                     return Vec4f {0,0,0,0};
+                |};
+
+                Vec4f tangent = {|
+                    usz! attribute = primitive.attributes["TANGENT"];
+                    if (catch err = attribute) return Vec4f {0,0,0,0};
+                    Accessor accessor = gltf.accessors[attribute];
+                    return gltf.@castBuffer(accessor, i, Vec4f);
+                |};
+
+                Vec4f normal = {|
+                    usz! attribute = primitive.attributes["NORMAL"];
+                    if (catch err = attribute) return Vec4f {0,0,0,0};
+
+                    Accessor accessor = gltf.accessors[attribute];
+                    return gltf.@castBuffer(accessor, i, Vec4f);
                 |};
 
                 Vec4f skin_weight = {|
@@ -125,9 +139,11 @@ fn void! main()
 
                 vertices.push({
                     .pos = position,
+                    .normal = normal,
+                    .tangent = tangent,
                     .tex_cord = tex_cord,
                     .skin_pos = skin_pos,
-                    .skin_weight = skin_weight
+                    .skin_weight = skin_weight,
                 });
             }
         }
@@ -173,81 +189,62 @@ fn void! main()
     }
 
    // Creating buffers
-    vertex_buffer = vk::bufferCreateInfo()
-               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+    usz device_buffer_size = indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof + gltf.lights.byte_size();
+    device_buffer = vk::bufferCreateInfo()
+               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT)
                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-               .setSize(vertices.byte_size())
+               .setSize(device_buffer_size)
                .bind(&device_allocation)!;
 
-    index_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(indices.byte_size())
-                .bind(&device_allocation)!;
-
-    uniform_buffer = vk::bufferCreateInfo()
+    local_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(UniformData.sizeof)
+                .setSize(UniformData.sizeof + gltf.materials.byte_size() + joints.byte_size())
                 .bind(&local_allocation)!;
-
-    material_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(gltf.materials.byte_size())
-                .bind(&local_allocation)!;
-
-    joint_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(joints.byte_size())
-                .bind(&local_allocation)!;
-
-    address_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(AddressBuffer.sizeof)
-                .bind(&device_allocation)!;
 
     // Upload data to buffer
-    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
-    material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
+    local_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+    local_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), offset: UniformData.sizeof);
 
     AddressBuffer addresses = AddressBuffer {
-        vertex_buffer.address,
-        joint_buffer.address,
-        uniform_buffer.address,
-        material_buffer.address,
+        device_buffer.address + indices.byte_size(),
+        device_buffer.address + indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof,
+        local_buffer.address,
+        local_buffer.address + UniformData.sizeof,
+        local_buffer.address + UniformData.sizeof + gltf.materials.byte_size(),
     };
 
-    // Create stage buffers and then copy the data to GPU only buffers
-    MemoryBlock vertex_stage_buffer = context.device.staging_buffer(size: vertices.byte_size(), data: vertices.entries, pdevice: context.pdevice)!;
-    MemoryBlock index_stage_buffer = context.device.staging_buffer(size: indices.byte_size(), data: indices.entries, pdevice: context.pdevice)!;
-    MemoryBlock address_stage_buffer = context.device.staging_buffer(size: AddressBuffer.sizeof, data: &addresses, pdevice: context.pdevice)!;
+    vk::@upload_from_stage(size: device_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
+        stage_buffer.push(indices.entries, indices.byte_size());
+        stage_buffer.push(vertices.entries, vertices.byte_size());
+        stage_buffer.push(&addresses, AddressBuffer.sizeof);
+        stage_buffer.push(gltf.lights.entries, gltf.lights.byte_size());
 
-    context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
-        vk::cmdCopyBuffer(command_buffer, index_stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
-             .srcOffset = 0,
-             .dstOffset = 0,
-             .size = indices.byte_size()
-        });
+        BufferCopy[] buffer_copies = {
+            {
+                .srcOffset = 0,
+                .dstOffset = 0,
+                .size = indices.byte_size()
+            },
+            {
+                .srcOffset = indices.byte_size(),
+                .dstOffset = indices.byte_size(),
+                .size = vertices.byte_size()
+            },
+            {
+                .srcOffset = indices.byte_size() + vertices.byte_size(),
+                .dstOffset = indices.byte_size() + vertices.byte_size(),
+                .size = AddressBuffer.sizeof
+            },
+            {
+                .srcOffset = indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof,
+                .dstOffset = indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof,
+                .size = gltf.lights.byte_size()
+            }
+        };
 
-        vk::cmdCopyBuffer(command_buffer, vertex_stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
-            .dstOffset = 0,
-            .size = vertices.byte_size()
-        });
-
-        vk::cmdCopyBuffer(command_buffer, address_stage_buffer.buffer, address_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
-            .dstOffset = 0,
-            .size = AddressBuffer.sizeof
-        });
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, device_buffer.buffer, buffer_copies.len, &buffer_copies[0]);
     }!;
-
-    index_stage_buffer.free(context.device);
-    vertex_stage_buffer.free(context.device);
-    address_stage_buffer.free(context.device);
     
     // Create GLTF texture images
     foreach (image : gltf.images) {
@@ -284,8 +281,8 @@ fn void! main()
         .setDstBinding(0)
         .setBufferInfo({
             {
-                .buffer = address_buffer.buffer,
-                .offset = 0,
+                .buffer = device_buffer.buffer,
+                .offset = indices.byte_size() + vertices.byte_size(),
                 .range = AddressBuffer.sizeof,
             },
         }),
@@ -484,12 +481,12 @@ fn void! main()
         c3w::Event event = win.getEvent();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
 
-        material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
+        local_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), offset: UniformData.sizeof);
         
         if (event.mouse_click == LEFT_MOUSE) {
             MouseParams params = c3w::getMousePos(win);
             camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
-            uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+            local_buffer.upload(&&camera.matrix(), UniformData.sizeof);
             last_params = params;
         }
 
@@ -497,11 +494,11 @@ fn void! main()
             case c3w::MOUSE_PRESSED: {
                 if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
                     camera.zoom(5);
-                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+                    local_buffer.upload(&&camera.matrix(), UniformData.sizeof);
                 }
                 if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
                     camera.zoom(-5);
-                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+                    local_buffer.upload(&&camera.matrix(), UniformData.sizeof);
                 }
             }
             case c3w::MOUSE_RELEASED: {}
@@ -539,7 +536,7 @@ fn void! main()
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
 
-        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, device_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout);
 
@@ -560,10 +557,13 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
            Node joint_node = gltf.nodes[joint];
            joints[joint_index] = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
         }
-        joint_buffer.upload(joints.entries, joints.byte_size());
+        local_buffer.upload(joints.entries, joints.byte_size(), offset: UniformData.sizeof + gltf.materials.byte_size());
+    }
+
+    if (node.hasLight()) {
+
     }
     
-
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
         foreach (index, primitive: mesh.primitives) {
@@ -571,9 +571,12 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
 
             int material_index = (int)primitive.attributes["material"] ?? -1;
+
+            Matrix4f node_matrix = node.globalMatrix();
     
             PushConstantData constant_data = {
-                .matrix = node.globalMatrix().transpose(),
+                .matrix = node_matrix.transpose(),
+                .matrix_inverse = node_matrix.inverse()!!.transpose(),
                 .material_index = material_index,
                 .has_skin = node.hasSkin(),
             };

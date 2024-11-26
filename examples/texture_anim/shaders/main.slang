@@ -1,4 +1,18 @@
 // Shader written in Slang https://github.com/shader-slang/slang
+
+struct Light
+{
+    float4 position;
+    float4 color;
+    uint type;
+    float intensity;
+    float range;
+    float inner_angle;
+    float outer_angle;
+    uint node;
+    float2 pad;
+};
+
 struct TextureInfo
 {
     int source;
@@ -25,7 +39,7 @@ struct Material
     TextureInfo emissiveTexture;
     TextureInfo baseColorTexture;
     TextureInfo metallicRoughnessTexture;
-    
+
     float4 getBaseColor(float2 tex_pos)
     {
         if (baseColorTexture.sampler >= 0)
@@ -40,6 +54,7 @@ struct Material
 struct PushData
 {
     float4x4 model_matrix;
+    float4x4 model_inverse;
     int material_index;
     bool has_skin;
 };
@@ -58,9 +73,10 @@ const PushData push_constant;
 cbuffer Buffers
 {
     Vertex *vertices;
-    float4x4 *joints;
+    Light *lights;
     Uniform *uniform;
-    Material* materials;
+    Material *materials;
+    float4x4 *joints;
 }
 
 [vk_binding(1)]
@@ -68,7 +84,9 @@ uniform Sampler2D image_samplers[];
 
 struct Vertex
 {
-    float4 position;    
+    float4 position;
+    float4 normal;
+    float4 tangent;
     float2 tex_cord;
     float2 offset;
     float4 skin_pos;
@@ -77,11 +95,17 @@ struct Vertex
     float2 transformed_tex_pos(Material material)
     {
         TextureInfo texture_info = material.baseColorTexture;
-        
+
         float3x3 translation_matrix = {
-            texture_info.scale.x, 0, texture_info.offset.x,
-            0, texture_info.scale.y, texture_info.offset.y,
-            0, 0, 1,
+            texture_info.scale.x,
+            0,
+            texture_info.offset.x,
+            0,
+            texture_info.scale.y,
+            texture_info.offset.y,
+            0,
+            0,
+            1,
         };
 
         float3x3 rotation = float3x3(
@@ -100,6 +124,7 @@ struct FragmentData
 {
     float2 tex_cord;
     int material_index;
+    float3 normal;
 };
 
 struct VertexOutPut
@@ -128,12 +153,21 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
 
+    float4 frag_pos = mul(mul(push_constant.model_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
+    float4 projected_pos = mul(mul(uniform.projection, uniform.view), frag_pos);
+
+    float3 normal = mul(
+        float3x3(
+            1, push_constant.model_inverse._m01, 0,
+            push_constant.model_inverse._m10, 1, 0,
+            push_constant.model_inverse._m20, push_constant.model_inverse._m22, 1, ),
+        vertex.normal.xyz);
+
     VertexOutPut output = {
-        {
-            vertex.transformed_tex_pos(materials[push_constant.material_index]),
-            push_constant.material_index,
-        },
-        mul(mul(mul(mul(uniform.projection, uniform.view), push_constant.model_matrix), skin_matrix), float4(vertex.position.xyz, 1.0))
+        { vertex.transformed_tex_pos(materials[push_constant.material_index]),
+          push_constant.material_index,
+          normal },
+        projected_pos
     };
 
     return output;
@@ -153,6 +187,7 @@ float4 fragmentMain(FragmentData input)
         color = material.getBaseColor(input.tex_cord);
     }
 
-    if (color.a == 0.0) discard;
+    if (color.a == 0.0)
+        discard;
     return color;
 }

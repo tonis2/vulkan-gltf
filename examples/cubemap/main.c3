@@ -238,50 +238,45 @@ fn void! main()
         material_buffer.address,
     };
 
-    // Create stage buffers and then copy the data to GPU only buffers
-    MemoryBlock vertex_stage_buffer = context.device.staging_buffer(size: vertices.byte_size(), data: vertices.entries, pdevice: context.pdevice)!;
-    MemoryBlock index_stage_buffer = context.device.staging_buffer(size: indices.byte_size(), data: indices.entries, pdevice: context.pdevice)!;
-    MemoryBlock material_stage_buffer = context.device.staging_buffer(size: gltf_model.materials.byte_size(), data: gltf_model.materials.entries, pdevice: context.pdevice)!;
-    MemoryBlock address_stage_buffer = context.device.staging_buffer(size: AddressBuffer.sizeof, data: &addresses, pdevice: context.pdevice)!;
-    MemoryBlock cube_stage_buffer = context.device.staging_buffer(size: cube.buffers[0].size, data: cube.buffers[0].data, pdevice: context.pdevice)!;
+    usz stage_buffer_size = vertices.byte_size() + indices.byte_size() + gltf_model.materials.byte_size() + AddressBuffer.sizeof + cube.buffers[0].size;
 
-    context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
-        vk::cmdCopyBuffer(command_buffer, index_stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
+    vk::@upload_from_stage(size: stage_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
+        stage_buffer.push(indices.entries, indices.byte_size());
+        stage_buffer.push(vertices.entries, vertices.byte_size());
+        stage_buffer.push(gltf_model.materials.entries, gltf_model.materials.byte_size());
+        stage_buffer.push(&addresses, AddressBuffer.sizeof);
+        stage_buffer.push(cube.buffers[0].data, cube.buffers[0].size);
+
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
              .srcOffset = 0,
              .dstOffset = 0,
              .size = indices.byte_size()
         });
 
-        vk::cmdCopyBuffer(command_buffer, vertex_stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = indices.byte_size(),
             .dstOffset = 0,
             .size = vertices.byte_size()
         });
 
-        vk::cmdCopyBuffer(command_buffer, material_stage_buffer.buffer, material_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, material_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = indices.byte_size() + vertices.byte_size(),
             .dstOffset = 0,
             .size = gltf_model.materials.byte_size()
         });
 
-        vk::cmdCopyBuffer(command_buffer, address_stage_buffer.buffer, address_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, address_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = indices.byte_size() + vertices.byte_size() + gltf_model.materials.byte_size(),
             .dstOffset = 0,
             .size = AddressBuffer.sizeof
         });
 
-        vk::cmdCopyBuffer(command_buffer, cube_stage_buffer.buffer, cube_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = 0,
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, cube_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = indices.byte_size() + vertices.byte_size() + gltf_model.materials.byte_size() + AddressBuffer.sizeof,
             .dstOffset = 0,
             .size = cube.buffers[0].size
         });
     }!;
-
-    index_stage_buffer.free(context.device);
-    vertex_stage_buffer.free(context.device);
-    material_stage_buffer.free(context.device);
-    address_stage_buffer.free(context.device);
-    cube_stage_buffer.free(context.device);
     
     // Create GLTF texture images
     foreach (image : gltf_model.images) {
@@ -754,7 +749,8 @@ fn void! create_cube_map(String path, DeviceContext context, vk::Allocation* all
     .setImage(cube_image)
     .build(context.device)!;
 
-    MemoryBlock stage_image = context.device.staging_buffer(size: (usz)cube_map_image.width * cube_map_image.height * 4, data: cube_map_image.pixels, pdevice: context.pdevice)!;
+    MemoryBlock stage_image = vk::create_staging_buffer(size: (usz)cube_map_image.width * cube_map_image.height * 4, device: context.device, pdevice: context.pdevice)!;
+    stage_image.upload(cube_map_image.pixels, (usz)cube_map_image.width * cube_map_image.height * 4);
     defer stage_image.free(context.device);
 
     context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
