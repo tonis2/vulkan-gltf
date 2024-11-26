@@ -218,44 +218,37 @@ fn void! main()
     };
 
    // Create stage buffers and then copy the data to GPU only buffers
-   MemoryBlock device_stage_buffer = vk::create_staging_buffer(
-                                                            size: vertices.byte_size() + indices.byte_size() + gltf.materials.byte_size() + AddressBuffer.sizeof, 
-                                                            device: context.device, 
-                                                            pdevice: context.pdevice
-                                                        )!;
-                                                                
-    device_stage_buffer.push(indices.entries, indices.byte_size());
-    device_stage_buffer.push(vertices.entries, vertices.byte_size());
-    device_stage_buffer.push(gltf.materials.entries, gltf.materials.byte_size());
-    device_stage_buffer.push(&addresses, AddressBuffer.sizeof);
+    usz buffer_size = vertices.byte_size() + indices.byte_size() + gltf.materials.byte_size() + AddressBuffer.sizeof;
+    vk::@upload_from_stage(size: buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
+        stage_buffer.push(indices.entries, indices.byte_size());
+        stage_buffer.push(vertices.entries, vertices.byte_size());
+        stage_buffer.push(gltf.materials.entries, gltf.materials.byte_size());
+        stage_buffer.push(&addresses, AddressBuffer.sizeof);
 
-    context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
-          vk::cmdCopyBuffer(command_buffer, device_stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
              .srcOffset = 0,
              .dstOffset = 0,
              .size = indices.byte_size()
         });
 
-        vk::cmdCopyBuffer(command_buffer, device_stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
             .srcOffset = indices.byte_size(),
             .dstOffset = 0,
             .size = vertices.byte_size()
         });
 
-        vk::cmdCopyBuffer(command_buffer, device_stage_buffer.buffer, material_buffer.buffer, 1, &&BufferCopy {
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, material_buffer.buffer, 1, &&BufferCopy {
             .srcOffset = indices.byte_size() + vertices.byte_size(),
             .dstOffset = 0,
             .size = gltf.materials.byte_size()
         });
 
-        vk::cmdCopyBuffer(command_buffer, device_stage_buffer.buffer, address_buffer.buffer, 1, &&BufferCopy {
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, address_buffer.buffer, 1, &&BufferCopy {
             .srcOffset = indices.byte_size() + vertices.byte_size() + gltf.materials.byte_size(),
             .dstOffset = 0,
             .size = AddressBuffer.sizeof
         });
     }!;
-
-    device_stage_buffer.free(context.device);
     
     // Create GLTF texture images
     foreach (image : gltf.images) {

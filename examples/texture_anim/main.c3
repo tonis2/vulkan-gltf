@@ -214,19 +214,12 @@ fn void! main()
         local_buffer.address + UniformData.sizeof + gltf.materials.byte_size(),
     };
 
-    // Create stage buffers and then copy the data to GPU only buffers
-    MemoryBlock device_stage_buffer = vk::create_staging_buffer(
-                                                                size: device_buffer_size, 
-                                                                device: context.device, 
-                                                                pdevice: context.pdevice
-                                                                )!;
-                                                                
-    device_stage_buffer.push(indices.entries, indices.byte_size());
-    device_stage_buffer.push(vertices.entries, vertices.byte_size());
-    device_stage_buffer.push(&addresses, AddressBuffer.sizeof);
-    device_stage_buffer.push(gltf.lights.entries, gltf.lights.byte_size());
+    vk::@upload_from_stage(size: device_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
+        stage_buffer.push(indices.entries, indices.byte_size());
+        stage_buffer.push(vertices.entries, vertices.byte_size());
+        stage_buffer.push(&addresses, AddressBuffer.sizeof);
+        stage_buffer.push(gltf.lights.entries, gltf.lights.byte_size());
 
-    context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
         BufferCopy[] buffer_copies = {
             {
                 .srcOffset = 0,
@@ -250,10 +243,8 @@ fn void! main()
             }
         };
 
-        vk::cmdCopyBuffer(command_buffer, device_stage_buffer.buffer, device_buffer.buffer, buffer_copies.len, &buffer_copies[0]);
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, device_buffer.buffer, buffer_copies.len, &buffer_copies[0]);
     }!;
-
-    device_stage_buffer.free(context.device);
     
     // Create GLTF texture images
     foreach (image : gltf.images) {
