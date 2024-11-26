@@ -37,7 +37,6 @@ struct AddressBuffer {
     vk::DeviceAddress joints;
 }
 
-MemoryBlock index_buffer;
 MemoryBlock device_buffer;
 MemoryBlock local_buffer;
 
@@ -190,17 +189,12 @@ fn void! main()
     }
 
    // Creating buffers
+    usz device_buffer_size = indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof + gltf.lights.byte_size();
     device_buffer = vk::bufferCreateInfo()
-               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT)
                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-               .setSize(vertices.byte_size() + AddressBuffer.sizeof + gltf.lights.byte_size() )
+               .setSize(device_buffer_size)
                .bind(&device_allocation)!;
-
-    index_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(indices.byte_size())
-                .bind(&device_allocation)!;            
 
     local_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
@@ -213,8 +207,8 @@ fn void! main()
     local_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), offset: UniformData.sizeof);
 
     AddressBuffer addresses = AddressBuffer {
-        device_buffer.address,
-        device_buffer.address + vertices.byte_size() + AddressBuffer.sizeof,
+        device_buffer.address + indices.byte_size(),
+        device_buffer.address + indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof,
         local_buffer.address,
         local_buffer.address + UniformData.sizeof,
         local_buffer.address + UniformData.sizeof + gltf.materials.byte_size(),
@@ -222,38 +216,36 @@ fn void! main()
 
     // Create stage buffers and then copy the data to GPU only buffers
     MemoryBlock device_stage_buffer = vk::create_staging_buffer(
-                                                                size: vertices.byte_size() + AddressBuffer.sizeof + gltf.lights.byte_size() + indices.byte_size(), 
+                                                                size: device_buffer_size, 
                                                                 device: context.device, 
                                                                 pdevice: context.pdevice
                                                                 )!;
                                                                 
-    device_stage_buffer.upload(indices.entries, indices.byte_size());                                                                
+    device_stage_buffer.upload(indices.entries, indices.byte_size());
     device_stage_buffer.upload(vertices.entries, vertices.byte_size(), offset: indices.byte_size());
     device_stage_buffer.upload(&addresses, AddressBuffer.sizeof, offset: vertices.byte_size() + indices.byte_size());
-    device_stage_buffer.upload(gltf.lights.entries, gltf.lights.byte_size(), offset: vertices.byte_size() + AddressBuffer.sizeof + indices.byte_size());
+    device_stage_buffer.upload(gltf.lights.entries, gltf.lights.byte_size(), offset: indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof);
 
     context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
-
-        vk::cmdCopyBuffer(command_buffer, device_stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
-             .srcOffset = 0,
-             .dstOffset = 0,
-             .size = indices.byte_size()
-        });
-
         BufferCopy[] buffer_copies = {
             {
-                .srcOffset = indices.byte_size(),
+                .srcOffset = 0,
                 .dstOffset = 0,
+                .size = indices.byte_size()
+            },
+            {
+                .srcOffset = indices.byte_size(),
+                .dstOffset = indices.byte_size(),
                 .size = vertices.byte_size()
             },
             {
                 .srcOffset = indices.byte_size() + vertices.byte_size(),
-                .dstOffset = vertices.byte_size(),
+                .dstOffset = indices.byte_size() + vertices.byte_size(),
                 .size = AddressBuffer.sizeof
             },
             {
                 .srcOffset = indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof,
-                .dstOffset = vertices.byte_size() + AddressBuffer.sizeof,
+                .dstOffset = indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof,
                 .size = gltf.lights.byte_size()
             }
         };
@@ -299,7 +291,7 @@ fn void! main()
         .setBufferInfo({
             {
                 .buffer = device_buffer.buffer,
-                .offset = vertices.byte_size(),
+                .offset = indices.byte_size() + vertices.byte_size(),
                 .range = AddressBuffer.sizeof,
             },
         }),
@@ -553,7 +545,7 @@ fn void! main()
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
 
-        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, device_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout);
 
