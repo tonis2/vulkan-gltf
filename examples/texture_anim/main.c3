@@ -221,10 +221,10 @@ fn void! main()
                                                                 pdevice: context.pdevice
                                                                 )!;
                                                                 
-    device_stage_buffer.upload(indices.entries, indices.byte_size());
-    device_stage_buffer.upload(vertices.entries, vertices.byte_size(), offset: indices.byte_size());
-    device_stage_buffer.upload(&addresses, AddressBuffer.sizeof, offset: vertices.byte_size() + indices.byte_size());
-    device_stage_buffer.upload(gltf.lights.entries, gltf.lights.byte_size(), offset: indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof);
+    device_stage_buffer.push(indices.entries, indices.byte_size());
+    device_stage_buffer.push(vertices.entries, vertices.byte_size());
+    device_stage_buffer.push(&addresses, AddressBuffer.sizeof);
+    device_stage_buffer.push(gltf.lights.entries, gltf.lights.byte_size());
 
     context.device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
         BufferCopy[] buffer_copies = {
