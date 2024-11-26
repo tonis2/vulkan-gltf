@@ -13,7 +13,6 @@ struct Light
     float2 pad;
 };
 
-
 struct TextureInfo
 {
     int source;
@@ -40,7 +39,7 @@ struct Material
     TextureInfo emissiveTexture;
     TextureInfo baseColorTexture;
     TextureInfo metallicRoughnessTexture;
-    
+
     float4 getBaseColor(float2 tex_pos)
     {
         if (baseColorTexture.sampler >= 0)
@@ -74,10 +73,10 @@ const PushData push_constant;
 cbuffer Buffers
 {
     Vertex *vertices;
-    float4x4 *joints;
+    Light *lights;
     Uniform *uniform;
     Material *materials;
-    Light *lights;
+    float4x4 *joints;
 }
 
 [vk_binding(1)]
@@ -87,7 +86,7 @@ struct Vertex
 {
     float4 position;
     float4 normal;
-    float4 tangent;  
+    float4 tangent;
     float2 tex_cord;
     float2 offset;
     float4 skin_pos;
@@ -96,11 +95,17 @@ struct Vertex
     float2 transformed_tex_pos(Material material)
     {
         TextureInfo texture_info = material.baseColorTexture;
-        
+
         float3x3 translation_matrix = {
-            texture_info.scale.x, 0, texture_info.offset.x,
-            0, texture_info.scale.y, texture_info.offset.y,
-            0, 0, 1,
+            texture_info.scale.x,
+            0,
+            texture_info.offset.x,
+            0,
+            texture_info.scale.y,
+            texture_info.offset.y,
+            0,
+            0,
+            1,
         };
 
         float3x3 rotation = float3x3(
@@ -119,6 +124,7 @@ struct FragmentData
 {
     float2 tex_cord;
     int material_index;
+    float3 normal;
 };
 
 struct VertexOutPut
@@ -151,18 +157,16 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
     float4 projected_pos = mul(mul(uniform.projection, uniform.view), frag_pos);
 
     float3 normal = mul(
-                        float3x3(
-                            1, push_constant.model_inverse._m01, push_constant.model_inverse._m02,
-                            push_constant.model_inverse._m10, 1, push_constant.model_inverse._m12,
-                            push_constant.model_inverse._m20, push_constant.model_inverse._m22, 1,
-                        ), vertex.normal.xyz
-                    );
+        float3x3(
+            1, push_constant.model_inverse._m01, 0,
+            push_constant.model_inverse._m10, 1, 0,
+            push_constant.model_inverse._m20, push_constant.model_inverse._m22, 1, ),
+        vertex.normal.xyz);
 
     VertexOutPut output = {
-        {
-            vertex.transformed_tex_pos(materials[push_constant.material_index]),
-            push_constant.material_index,
-        },
+        { vertex.transformed_tex_pos(materials[push_constant.material_index]),
+          push_constant.material_index,
+          normal },
         projected_pos
     };
 
@@ -183,6 +187,7 @@ float4 fragmentMain(FragmentData input)
         color = material.getBaseColor(input.tex_cord);
     }
 
-    if (color.a == 0.0) discard;
+    if (color.a == 0.0)
+        discard;
     return color;
 }
