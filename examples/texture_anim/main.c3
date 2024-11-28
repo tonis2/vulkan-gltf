@@ -35,6 +35,7 @@ struct AddressBuffer {
     vk::DeviceAddress uniform;
     vk::DeviceAddress materials;
     vk::DeviceAddress joints;
+    uint light_count;
 }
 
 MemoryBlock device_buffer;
@@ -187,35 +188,36 @@ fn void! main()
     }
 
    // Creating buffers
-    usz device_buffer_size = indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof + gltf.lights.byte_size();
+    usz device_buffer_size = indices.byte_size() + vertices.byte_size() + gltf.lights.byte_size();
     device_buffer = vk::bufferCreateInfo()
-               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT)
+               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT)
                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                .setSize(device_buffer_size)
                .bind(&device_allocation)!;
 
     local_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(UniformData.sizeof + gltf.materials.byte_size() + joints.byte_size())
+                .setSize(UniformData.sizeof + gltf.materials.byte_size() + joints.byte_size() + AddressBuffer.sizeof)
                 .bind(&local_allocation)!;
+
+    AddressBuffer addresses = AddressBuffer {
+        device_buffer.address + indices.byte_size(),
+        device_buffer.address + indices.byte_size() + vertices.byte_size(),
+        local_buffer.address,
+        local_buffer.address + UniformData.sizeof,
+        local_buffer.address + UniformData.sizeof + gltf.materials.byte_size(),
+        (uint)gltf.lights.len()
+    };
 
     // Upload data to buffer
     local_buffer.upload(&&camera.matrix(), UniformData.sizeof);
     local_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), offset: UniformData.sizeof);
-
-    AddressBuffer addresses = AddressBuffer {
-        device_buffer.address + indices.byte_size(),
-        device_buffer.address + indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof,
-        local_buffer.address,
-        local_buffer.address + UniformData.sizeof,
-        local_buffer.address + UniformData.sizeof + gltf.materials.byte_size(),
-    };
+    local_buffer.upload(&addresses, AddressBuffer.sizeof, offset: UniformData.sizeof + gltf.materials.byte_size() + joints.byte_size());
 
     vk::@upload_from_stage(size: device_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
         stage_buffer.push(indices.entries, indices.byte_size());
         stage_buffer.push(vertices.entries, vertices.byte_size());
-        stage_buffer.push(&addresses, AddressBuffer.sizeof);
         stage_buffer.push(gltf.lights.entries, gltf.lights.byte_size());
 
         BufferCopy[] buffer_copies = {
@@ -232,11 +234,6 @@ fn void! main()
             {
                 .srcOffset = indices.byte_size() + vertices.byte_size(),
                 .dstOffset = indices.byte_size() + vertices.byte_size(),
-                .size = AddressBuffer.sizeof
-            },
-            {
-                .srcOffset = indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof,
-                .dstOffset = indices.byte_size() + vertices.byte_size() + AddressBuffer.sizeof,
                 .size = gltf.lights.byte_size()
             }
         };
@@ -279,8 +276,8 @@ fn void! main()
         .setDstBinding(0)
         .setBufferInfo({
             {
-                .buffer = device_buffer.buffer,
-                .offset = indices.byte_size() + vertices.byte_size(),
+                .buffer = local_buffer.buffer,
+                .offset = UniformData.sizeof + gltf.materials.byte_size() + joints.byte_size(),
                 .range = AddressBuffer.sizeof,
             },
         }),
@@ -558,10 +555,6 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
         local_buffer.upload(joints.entries, joints.byte_size(), offset: UniformData.sizeof + gltf.materials.byte_size());
     }
 
-    if (node.hasLight()) {
-
-    }
-    
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
         foreach (index, primitive: mesh.primitives) {

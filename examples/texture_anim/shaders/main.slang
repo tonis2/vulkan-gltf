@@ -76,6 +76,7 @@ cbuffer Buffers
     Uniform *uniform;
     Material *materials;
     float4x4 *joints;
+    uint light_count;
 }
 
 [vk_binding(1)]
@@ -124,16 +125,11 @@ struct FragmentData
     float2 tex_cord;
     int material_index;
     float3 normal;
-};
-
-struct VertexOutPut
-{
-    FragmentData vertex_output;
     float4 sv_position : SV_Position;
 };
 
 [shader("vertex")]
-VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
+FragmentData vertexMain(uint32_t vertID: SV_VertexID)
 {
     Vertex vertex = vertices[vertID];
     float4x4 skin_matrix = {
@@ -153,7 +149,7 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
     }
 
     float4 frag_pos = mul(mul(push_constant.model_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
-    float4 projected_pos = mul(mul(uniform.projection, uniform.view), frag_pos);
+    float4 vertex_pos = mul(mul(uniform.projection, uniform.view), frag_pos);
 
     float3 normal = mul(
         float3x3(
@@ -162,11 +158,11 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
             push_constant.model_inverse._m20, push_constant.model_inverse._m22, 1, ),
         vertex.normal.xyz);
 
-    VertexOutPut output = {
-        { vertex.transformed_tex_pos(materials[push_constant.material_index]),
-          push_constant.material_index,
-          normal },
-        projected_pos
+    FragmentData output = {
+        vertex.transformed_tex_pos(materials[push_constant.material_index]),
+        push_constant.material_index,
+        normal,
+        vertex_pos
     };
 
     return output;
@@ -178,15 +174,52 @@ float4 fragmentMain(FragmentData input)
     : SV_Target
 {
     Material material;
-    float4 color = float4(0.4, 0.3, 0.3, 1.0);
+    float4 diffuse_color = float4(0.4, 0.3, 0.3, 1.0);
+    float4 specular_color = float4(0.0, 0.0, 0.0, 0.0);
 
     if (input.material_index >= 0)
     {
         material = materials[input.material_index];
-        color = material.getBaseColor(input.tex_cord);
+        diffuse_color = material.getBaseColor(input.tex_cord);
     }
 
-    if (color.a == 0.0)
+    if (diffuse_color.a == 0.0)
         discard;
-    return color;
+
+    // Calculate lights
+    for (int i = 0; i < light_count; i++)
+    {
+        Light light = lights[i];
+        float3 lightDirection = light.position.xyz - input.sv_position.xyz * light.position.w;
+        float3 lightDirectionNormal = normalize(lightDirection);
+        float3 normal = normalize(input.normal);
+        float diffuseIntensity = dot(normal, lightDirectionNormal);
+
+        if (diffuseIntensity < 0.0)
+        {
+            continue;
+        }
+
+        float lightDistance = length(lightDirection);
+        float3 eyeDirection = normalize(-input.sv_position.xyz);
+        float3 reflectedDirection = normalize(-reflect(lightDirectionNormal, normal));
+        float specularIntensity = max(dot(reflectedDirection, eyeDirection), 0);
+
+        float4 diffuseTemp = float4(clamp(diffuse_color.rgb * light.color.rgb * diffuseIntensity, 0, 1), diffuse_color.a);
+        float4 specularTemp = clamp(diffuse_color * float4(light.color.rgb, 1.0) * pow(specularIntensity, material.emissiveStrength), 0, 1);
+
+        float constantAttenuation = 1;
+        float linearAttenuation = 0;
+        float quadraticAttenuation = 0;
+        float attenuation =
+            1 / (constantAttenuation + linearAttenuation * lightDistance + quadraticAttenuation * (lightDistance * lightDistance));
+
+        diffuseTemp.rgb *= attenuation;
+        specularTemp.rgb *= attenuation;
+
+        diffuse_color += diffuseTemp;
+        specular_color += specularTemp;
+    }
+
+    return (diffuse_color + specular_color) * material.emissiveFactor;
 }
