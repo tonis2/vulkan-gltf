@@ -155,9 +155,7 @@ fn void! main()
         joints.free();
     }
 
-    if (gltf.animations.len() > 0) {
-        animaton_data = gltf.load_animations({0});
-    }
+    if (gltf.animations.len() > 0) animaton_data = gltf.load_animations({0});
 
     defer animaton_data.release();
 

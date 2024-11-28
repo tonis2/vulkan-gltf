@@ -9,8 +9,7 @@ struct Light
     float range;
     float inner_angle;
     float outer_angle;
-    uint node;
-    float2 pad;
+    float3 pad;
 };
 
 struct TextureInfo

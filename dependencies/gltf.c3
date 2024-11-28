@@ -301,7 +301,6 @@ struct Light {
     float range;
     float inner_cone_angle;
     float outer_cone_angle;
-    uint node;
 }
 
 struct AnimationValue {
@@ -1106,8 +1105,7 @@ fn Gltf! parse(InStream stream) {
 
            if (data.hasLight()) {
                 Light* light = &content.lights[data.light];
-                // light.node = i;
-                light.position = data.translation;
+                light.position = data.translation.transform(data.rotation.to_matrixf());
            }
         }
     }

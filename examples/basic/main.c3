@@ -139,7 +139,7 @@ fn void! main()
     }
 
 
-    animaton_data = gltf.load_animations({0});
+    if (gltf.animations.len() > 0) animaton_data = gltf.load_animations({0});
     defer animaton_data.release();
 
     // foreach (animation: gltf.animations) animations.push(gltf.loadAnimation(animation));
