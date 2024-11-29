@@ -87,10 +87,10 @@ struct Vertex
     float4 position;
     float4 normal;
     float4 tangent;
-    float2 tex_cord;
-    float2 offset;
     float4 skin_pos;
     float4 skin_weight;
+    float2 tex_cord;
+    float2 pad;
 
     float2 transformed_tex_pos(Material material)
     {
@@ -151,17 +151,17 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
     float4 frag_pos = mul(mul(push_constant.model_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.projection, uniform.view), frag_pos);
 
-    float3 normal = mul(
-        float3x3(
-            1, push_constant.model_inverse._m01, 0,
-            push_constant.model_inverse._m10, 1, 0,
-            push_constant.model_inverse._m20, push_constant.model_inverse._m22, 1, ),
-        vertex.normal.xyz);
+    // float3 normal = mul(
+    //     float3x3(
+    //         1, push_constant.model_inverse._m01, 0,
+    //         push_constant.model_inverse._m10, 1, 0,
+    //         push_constant.model_inverse._m20, push_constant.model_inverse._m22, 1, ),
+    //     vertex.normal.xyz);
 
     FragmentData output = {
         vertex.transformed_tex_pos(materials[push_constant.material_index]),
         push_constant.material_index,
-        normal,
+        vertex.normal.xyz,
         vertex_pos
     };
 
@@ -217,9 +217,10 @@ float4 fragmentMain(FragmentData input)
         diffuseTemp.rgb *= attenuation;
         specularTemp.rgb *= attenuation;
 
-        diffuse_color += diffuseTemp;
-        specular_color += specularTemp;
+        diffuse_color += float4(0.1);
+
+        // specular_color += specularTemp;
     }
 
-    return (diffuse_color + specular_color) * material.emissiveFactor;
+    return diffuse_color;
 }

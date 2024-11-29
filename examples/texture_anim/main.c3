@@ -16,9 +16,9 @@ struct Vertex {
     Vec4f pos;
     Vec4f normal;
     Vec4f tangent;
-    Vec2f tex_cord;
     Vec4f skin_pos;
     Vec4f skin_weight;
+    Vec2f tex_cord;
 }
 
 struct PushConstantData {
@@ -38,8 +38,13 @@ struct AddressBuffer {
     uint light_count;
 }
 
-MemoryBlock device_buffer;
-MemoryBlock local_buffer;
+MemoryBlock index_buffer;
+MemoryBlock vertex_buffer;
+MemoryBlock light_buffer;
+MemoryBlock material_buffer;
+MemoryBlock uniform_buffer;
+MemoryBlock joint_buffer;
+MemoryBlock address_buffer;
 
 Gltf gltf;
 List(<Vertex>) vertices;
@@ -156,8 +161,7 @@ fn void! main()
         joints.free();
     }
 
-    if (gltf.animations.len() > 0) animaton_data = gltf.load_animations({0});
-
+    if (!gltf.animations.is_empty()) animaton_data = gltf.load_animations({0});
     defer animaton_data.release();
 
     foreach (skin: gltf.skins) {
@@ -188,57 +192,86 @@ fn void! main()
     }
 
    // Creating buffers
-    usz device_buffer_size = indices.byte_size() + vertices.byte_size() + gltf.lights.byte_size();
-    device_buffer = vk::bufferCreateInfo()
-               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT)
+   // Creating buffers
+    vertex_buffer = vk::bufferCreateInfo()
+               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-               .setSize(device_buffer_size)
+               .setSize(vertices.byte_size())
                .bind(&device_allocation)!;
 
-    local_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+    index_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(UniformData.sizeof + gltf.materials.byte_size() + joints.byte_size() + AddressBuffer.sizeof)
+                .setSize(indices.byte_size())
+                .bind(&device_allocation)!;
+
+    light_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(gltf.lights.byte_size())
+                .bind(&device_allocation)!;
+
+    material_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(gltf.materials.byte_size())
+                .bind(&local_allocation)!;
+
+    uniform_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(UniformData.sizeof)
+                .bind(&local_allocation)!;
+
+    joint_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(joints.byte_size())
+                .bind(&local_allocation)!;
+
+    address_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(AddressBuffer.sizeof)
                 .bind(&local_allocation)!;
 
     AddressBuffer addresses = AddressBuffer {
-        device_buffer.address + indices.byte_size(),
-        device_buffer.address + indices.byte_size() + vertices.byte_size(),
-        local_buffer.address,
-        local_buffer.address + UniformData.sizeof,
-        local_buffer.address + UniformData.sizeof + gltf.materials.byte_size(),
+        vertex_buffer.address,
+        light_buffer.address,
+        uniform_buffer.address,
+        material_buffer.address,
+        joint_buffer.address,
         (uint)gltf.lights.len()
     };
 
     // Upload data to buffer
-    local_buffer.upload(&&camera.matrix(), UniformData.sizeof);
-    local_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), offset: UniformData.sizeof);
-    local_buffer.upload(&addresses, AddressBuffer.sizeof, offset: UniformData.sizeof + gltf.materials.byte_size() + joints.byte_size());
+    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+    material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
+    address_buffer.upload(&addresses, AddressBuffer.sizeof);
 
+    usz device_buffer_size = indices.byte_size() + vertices.byte_size() + gltf.lights.byte_size();
     vk::@upload_from_stage(size: device_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
         stage_buffer.push(indices.entries, indices.byte_size());
         stage_buffer.push(vertices.entries, vertices.byte_size());
         stage_buffer.push(gltf.lights.entries, gltf.lights.byte_size());
 
-        BufferCopy[] buffer_copies = {
-            {
-                .srcOffset = 0,
-                .dstOffset = 0,
-                .size = indices.byte_size()
-            },
-            {
-                .srcOffset = indices.byte_size(),
-                .dstOffset = indices.byte_size(),
-                .size = vertices.byte_size()
-            },
-            {
-                .srcOffset = indices.byte_size() + vertices.byte_size(),
-                .dstOffset = indices.byte_size() + vertices.byte_size(),
-                .size = gltf.lights.byte_size()
-            }
-        };
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
+             .srcOffset = 0,
+             .dstOffset = 0,
+             .size = indices.byte_size()
+        });
 
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, device_buffer.buffer, buffer_copies.len, &buffer_copies[0]);
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = indices.byte_size(),
+            .dstOffset = 0,
+            .size = vertices.byte_size()
+        });
+
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, light_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = indices.byte_size() + vertices.byte_size(),
+            .dstOffset = 0,
+            .size = gltf.lights.byte_size()
+        });
     }!;
     
     // Create GLTF texture images
@@ -276,8 +309,8 @@ fn void! main()
         .setDstBinding(0)
         .setBufferInfo({
             {
-                .buffer = local_buffer.buffer,
-                .offset = UniformData.sizeof + gltf.materials.byte_size() + joints.byte_size(),
+                .buffer = address_buffer.buffer,
+                .offset = 0,
                 .range = AddressBuffer.sizeof,
             },
         }),
@@ -315,63 +348,9 @@ fn void! main()
 
     defer shader_module.free(context.device);
 
-    SubpassDescription subpass = {
-        .pipelineBindPoint = vk::PIPELINE_BIND_POINT_GRAPHICS,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &&AttachmentReference{
-            .attachment = 0,
-            .layout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-        },
-        .pDepthStencilAttachment = &&AttachmentReference {
-            .attachment = 1,
-            .layout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-        }
-    };
-
-    SubpassDependency depth_dependency = {
-        .srcSubpass = vk::SUBPASS_EXTERNAL,
-        .dstSubpass = 0,
-        .srcStageMask = vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        .srcAccessMask = 0,
-        .dstStageMask = vk::PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        .dstAccessMask = vk::ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
-    };
-
-    SubpassDependency dependency = {
-        .srcSubpass = vk::SUBPASS_EXTERNAL,
-        .dstSubpass = 0,
-        .srcStageMask = vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .srcAccessMask = 0,
-        .dstStageMask = vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dstAccessMask = vk::ACCESS_COLOR_ATTACHMENT_WRITE_BIT
-    };
-
-    RenderPass render_pass = vk::renderPassCreateInfo()
-    .setAttachments({
-        AttachmentDescription {
-            .format = context.surface_format.format,
-            .samples = vk::SAMPLE_COUNT_1_BIT,
-            .initialLayout = vk::IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout = vk::IMAGE_LAYOUT_PRESENT_SRC_KHR,
-            .loadOp = vk::ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp = vk::ATTACHMENT_STORE_OP_STORE,
-            .stencilLoadOp = vk::ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = vk::ATTACHMENT_STORE_OP_DONT_CARE
-        },
-        AttachmentDescription {
-            .format = context.depth_format,
-            .samples = vk::SAMPLE_COUNT_1_BIT,
-            .loadOp = vk::ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp = vk::ATTACHMENT_STORE_OP_DONT_CARE,
-            .stencilLoadOp = vk::ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = vk::ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout = vk::IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-        }
-    })
-    .setDependencies({dependency, depth_dependency})
-    .setSubpasses({subpass})
-    .build(context.device)!;
+    PipelineRenderingCreateInfo p_rendering_info = vk::pipelineRenderingCreateInfo()
+    .setColorAttachmentFormats({context.surface_format.format})
+    .setDepthAttachmentFormat(context.depth_format);
 
     Pipeline pipeline = vk::graphicsPipelineCreateInfo()
     .setStages({
@@ -440,30 +419,12 @@ fn void! main()
     .setViewportState(&&vk::pipelineViewportStateCreateInfo()
             .setViewports({{}})
             .setScissors({{}}))
-    .setRenderPass(render_pass)
+    .setNext(&p_rendering_info)       
     .build(context.device)!;
 
-    FrameBufferList frame_buffers;
-    
-    foreach (i, swapchain: context.swapchain_views) {
-       FramebufferCreateInfo frame_buffer_info = vk::framebufferCreateInfo()
-        .setRenderPass(render_pass)
-        .setWidth((uint)window_size.x)
-        .setHeight((uint)window_size.y)
-        .setLayers(1)
-        .setAttachments({
-            context.swapchain_views[i],
-            descriptor_images.last().imageView
-        })!;
-
-        frame_buffers.push(frame_buffer_info.build(context.device)!);
-    }
-
     defer {
-        render_pass.free(context.device);
         pipeline_layout.free(context.device);
         pipeline.free(context.device);
-        foreach (buffer : frame_buffers) buffer.free(context.device);
     }
 
     Scene scene = gltf.scenes[0];
@@ -476,24 +437,22 @@ fn void! main()
         c3w::Event event = win.getEvent();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
 
-        local_buffer.upload(gltf.materials.entries, gltf.materials.byte_size(), offset: UniformData.sizeof);
-        
         if (event.mouse_click == LEFT_MOUSE) {
             MouseParams params = c3w::getMousePos(win);
             camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
-            local_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+            uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
             last_params = params;
         }
 
-        switch (event.type) {
+        switch (event.type) {   
             case c3w::MOUSE_PRESSED: {
                 if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
                     camera.zoom(5);
-                    local_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
                 }
                 if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
                     camera.zoom(-5);
-                    local_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
                 }
             }
             case c3w::MOUSE_RELEASED: {}
@@ -502,40 +461,90 @@ fn void! main()
             }
         }
 
+        material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
+
         uint next_image = context.next_image()!!;
 
-        RenderPassBeginInfo render_pass_info = vk::renderPassBeginInfo()
-        .setFramebuffer(frame_buffers[next_image])
-        .setRenderPass(render_pass)
+        ImageMemoryBarrier2 begin_barrier = {
+            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .image = context.swapchain_images[next_image],
+            .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccessMask = 0,
+            .dstAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .oldLayout = vk::IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .subresourceRange = {
+                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+        }};
+
+        ImageMemoryBarrier2 end_barrier = {
+            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .image = context.swapchain_images[next_image],
+            .srcStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstStageMask = vk::PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+            .srcAccessMask = vk::ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = 0,
+            .oldLayout = vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .newLayout = vk::IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .subresourceRange = {
+                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+        }};
+
+        RenderingInfo rendering_info = vk::renderingInfo()
+        .setLayerCount(1)
         .setRenderArea({
-            .offset = {0, 0},
-            .extent = context.extent
+            .offset = Offset2D{ .x = 0, .y = 0 },
+            .extent = context.extent,
         })
-        .setClearValues({
-            ClearValue {
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }},
-            },
-            ClearValue {
-                .depthStencil = { 1.0, 0},
-            }
-        });
+        .setColorAttachments({
+            vk::renderingAttachmentInfo()
+            .setImageView(context.swapchain_views[next_image])
+            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+            .setClearValue({
+                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
+            })
+        })
+        .setDepthAttachment(&&vk::renderingAttachmentInfo()
+            .setImageView(descriptor_images.last()!.imageView)
+            .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+            .setClearValue({
+            .depthStencil = { 1.0, 0 }
+        }));
 
         CommandBuffer command_buffer = context.command_buffers[next_image];
         vk::resetCommandBuffer(command_buffer, 0)!;
         vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!;
 
-        vk::cmdBeginRenderPass(command_buffer, &render_pass_info, vk::SUBPASS_CONTENTS_INLINE);
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
+        
+        vk::cmdBeginRendering(command_buffer, &rendering_info);
+
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = context.extent, .offset = { .x = 0, .y = 0 }});
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
 
-        vk::cmdBindIndexBuffer(command_buffer, device_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout);
+        
+        vk::cmdEndRendering(command_buffer);
 
-        vk::cmdEndRenderPass(command_buffer);
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
         vk::endCommandBuffer(command_buffer)!!;
 
         context.present_image(next_image, command_buffer)!;
@@ -552,7 +561,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
            Node joint_node = gltf.nodes[joint];
            joints[joint_index] = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
         }
-        local_buffer.upload(joints.entries, joints.byte_size(), offset: UniformData.sizeof + gltf.materials.byte_size());
+        joint_buffer.upload(joints.entries, joints.byte_size());
     }
 
     if (node.hasMesh()) {

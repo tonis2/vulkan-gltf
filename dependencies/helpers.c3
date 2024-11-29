@@ -97,8 +97,8 @@ fn uint! DeviceContext.next_image(self) {
     Fence frame_fence = self.frame_fences[self.frame];
     Semaphore wait_semaphore = self.wait_semaphores[self.frame];
 
-    frame_fence.wait(self.device)!;
-    frame_fence.reset(self.device)!;
+    vk::waitForFences(self.device, 1, &frame_fence, vk::TRUE, uint.max)!;
+    vk::resetFences(self.device, 1, &frame_fence)!;
 
     return self.swapchain.getNextImage(self.device, wait_semaphore);
 }
@@ -112,7 +112,7 @@ fn void! DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
     .setWaitSemaphores({ wait_semaphore })
     .setCommandBuffers({ command_buffer })
     .setSignalSemaphores({ signal_semaphore })
-    .setWaitDstStageMask({vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT});
+    .setWaitDstStageMask({ vk::PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT});
 
     vk::queueSubmit(self.graphics_queue.handle, 1, &submit_info, frame_fence)!;
 
@@ -135,7 +135,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     ZStringList extensions;
     ZStringList device_extensions;
 
-    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state3"});
+    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering"});
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     extensions.add_array({"VK_KHR_surface", "VK_EXT_debug_utils"});
 
@@ -248,15 +248,15 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
 
     devices.free();
 
-    // PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
-    //     .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
-    //     .pNext = null,
-    //     .extendedDynamicState3ColorBlendEnable = vk::TRUE,
-    // };
+    PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
+        .pNext = null,
+        .extendedDynamicState3ColorBlendEnable = vk::TRUE,
+    };
 
     PhysicalDeviceVulkan13Features vulkan13Features = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .pNext = null,
+        .pNext = &dynamicState,
     };
 
     PhysicalDeviceVulkan12Features vulkan12Features = {
