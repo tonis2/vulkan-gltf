@@ -17,3 +17,9 @@ GLTF parser repo is [here](https://github.com/tonis2/gltf.c3)
 
 It's possible to rebuild shaders running
 `c3c build shaders --trust=full`
+
+GLTF assets taken from 
+[Wasp](https://sketchfab.com/3d-models/vespa-mandarinia-73854164f5e7476a88f11c0a296eae83), 
+[GLTF sample assets](https://github.com/KhronosGroup/glTF-Sample-Assets)
+
+
