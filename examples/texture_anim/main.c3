@@ -77,7 +77,7 @@ fn void! main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    gltf = gltf::loadFile("assets/animated_1.glb")!!;
     defer gltf.free();
 
     // Preload vertex data from GLTF
