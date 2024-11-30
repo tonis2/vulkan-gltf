@@ -48,6 +48,12 @@ struct Material
 
         return baseColorFactor;
     }
+
+    float3 getNormal(float2 tex_pos, float3x3 tbn)
+    {
+        float4 normal_texture = image_samplers[normalTexture.sampler].Sample(tex_pos);
+        return mul(tbn, normalize(normal_texture.xyz * 2.0 - 1.0));
+    }
 };
 
 struct PushData
@@ -124,7 +130,9 @@ struct FragmentData
 {
     float2 tex_cord;
     int material_index;
+    float3x3 tbn;
     float3 normal;
+    float3 frag_pos;
     float4 sv_position : SV_Position;
 };
 
@@ -151,17 +159,17 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
     float4 frag_pos = mul(mul(push_constant.model_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.projection, uniform.view), frag_pos);
 
-    // float3 normal = mul(
-    //     float3x3(
-    //         1, push_constant.model_inverse._m01, 0,
-    //         push_constant.model_inverse._m10, 1, 0,
-    //         push_constant.model_inverse._m20, push_constant.model_inverse._m22, 1, ),
-    //     vertex.normal.xyz);
+    float4 normal = normalize(mul(push_constant.model_inverse, vertex.normal));
+    float4 tangent = normalize(mul(push_constant.model_inverse, vertex.tangent));
+    float4 bitangent = normalize(mul(push_constant.model_inverse, float4(cross(normal.xyz, tangent.xyz) * tangent.w, 0.0)));
+    float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
 
     FragmentData output = {
         vertex.transformed_tex_pos(materials[push_constant.material_index]),
         push_constant.material_index,
-        vertex.normal.xyz,
+        tbn,
+        normal.xyz,
+        frag_pos.xyz,
         vertex_pos
     };
 
@@ -190,22 +198,17 @@ float4 fragmentMain(FragmentData input)
     for (int i = 0; i < light_count; i++)
     {
         Light light = lights[i];
-        float3 lightDirection = light.position.xyz - input.sv_position.xyz * light.position.w;
+        float3 lightDirection = light.position.xyz - input.frag_pos.xyz * light.position.w;
         float3 lightDirectionNormal = normalize(lightDirection);
-        float3 normal = normalize(input.normal);
-        float diffuseIntensity = dot(normal, lightDirectionNormal);
-
-        if (diffuseIntensity < 0.0)
-        {
-            continue;
-        }
-
+        float3 normal = material.normalTexture.sampler >= 0 ? material.getNormal(input.tex_cord, input.tbn) : input.normal;
+        float lambert = max(0.0, dot(normal, lightDirectionNormal));
+    
         float lightDistance = length(lightDirection);
         float3 eyeDirection = normalize(-input.sv_position.xyz);
+        float4 diffuseTemp = float4(clamp(diffuse_color.rgb * light.color.rgb * lambert, 0, 1), diffuse_color.a);
+
         float3 reflectedDirection = normalize(-reflect(lightDirectionNormal, normal));
         float specularIntensity = max(dot(reflectedDirection, eyeDirection), 0);
-
-        float4 diffuseTemp = float4(clamp(diffuse_color.rgb * light.color.rgb * diffuseIntensity, 0, 1), diffuse_color.a);
         float4 specularTemp = clamp(diffuse_color * float4(light.color.rgb, 1.0) * pow(specularIntensity, material.emissiveStrength), 0, 1);
 
         float constantAttenuation = 1;
@@ -222,5 +225,5 @@ float4 fragmentMain(FragmentData input)
         specular_color += specularTemp;
     }
 
-    return diffuse_color + specular_color;
+    return diffuse_color + specular_color * material.emissiveFactor;
 }

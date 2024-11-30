@@ -192,7 +192,6 @@ fn void! main()
     }
 
    // Creating buffers
-   // Creating buffers
     vertex_buffer = vk::bufferCreateInfo()
                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -572,11 +571,11 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
 
             int material_index = (int)primitive.attributes["material"] ?? -1;
 
-            Matrix4f node_matrix = node.globalMatrix();
+            Matrix4f node_matrix = node.globalMatrix().transpose();
     
             PushConstantData constant_data = {
-                .matrix = node_matrix.transpose(),
-                .matrix_inverse = node_matrix.inverse()!!.transpose(),
+                .matrix = node_matrix,
+                .matrix_inverse = node_matrix.inverse()!!,
                 .material_index = material_index,
                 .has_skin = node.hasSkin(),
             };
