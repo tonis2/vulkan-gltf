@@ -20,6 +20,11 @@ struct TextureInfo
     float pad;
     float2 offset;
     float2 scale;
+
+    bool can_sample()
+    {
+        return sampler >= 0;
+    }
 };
 
 struct Material
@@ -41,7 +46,7 @@ struct Material
 
     float4 getBaseColor(float2 tex_pos)
     {
-        if (baseColorTexture.sampler >= 0)
+        if (baseColorTexture.can_sample())
         {
             return image_samplers[baseColorTexture.sampler].Sample(tex_pos) * baseColorFactor;
         }
@@ -203,7 +208,7 @@ float4 fragmentMain(FragmentData input)
         float3 eye = normalize(-input.frag_pos.xyz);
         float3 halfway = normalize(light_dir + eye);
 
-        float3 normal = material.normalTexture.sampler >= 0 ? material.getNormal(input.tex_cord, input.tbn) : input.normal;
+        float3 normal = material.normalTexture.can_sample() ? material.getNormal(input.tex_cord, input.tbn) : input.normal;
         float specularIntensity = max(0.0, dot(normal, halfway));
 
         float3 eyeDirection = normalize(-input.sv_position.xyz);
@@ -212,15 +217,6 @@ float4 fragmentMain(FragmentData input)
         float3 reflectedDirection = normalize(-reflect(light_dir, normal));
 
         float4 specularTemp = clamp(diffuse_color * float4(light.color.rgb, 1.0) * pow(specularIntensity, material.emissiveStrength), 0, 1);
-
-        float constantAttenuation = 1;
-        float linearAttenuation = 0;
-        float quadraticAttenuation = 0;
-        float attenuation =
-            1 / (constantAttenuation + linearAttenuation * specularIntensity + quadraticAttenuation * (specularIntensity * specularIntensity));
-
-        diffuseTemp.rgb *= attenuation;
-        specularTemp.rgb *= attenuation;
 
         diffuse_color += diffuseTemp;
 
