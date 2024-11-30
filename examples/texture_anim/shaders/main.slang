@@ -198,24 +198,26 @@ float4 fragmentMain(FragmentData input)
     for (int i = 0; i < light_count; i++)
     {
         Light light = lights[i];
-        float3 lightDirection = light.position.xyz - input.frag_pos.xyz * light.position.w;
-        float3 lightDirectionNormal = normalize(lightDirection);
-        float3 normal = material.normalTexture.sampler >= 0 ? material.getNormal(input.tex_cord, input.tbn) : input.normal;
-        float lambert = max(0.0, dot(normal, lightDirectionNormal));
-    
-        float lightDistance = length(lightDirection);
-        float3 eyeDirection = normalize(-input.sv_position.xyz);
-        float4 diffuseTemp = float4(clamp(diffuse_color.rgb * light.color.rgb * lambert, 0, 1), diffuse_color.a);
 
-        float3 reflectedDirection = normalize(-reflect(lightDirectionNormal, normal));
-        float specularIntensity = max(dot(reflectedDirection, eyeDirection), 0);
+        float3 light_dir = normalize(light.position.xyz - input.frag_pos.xyz);
+        float3 eye = normalize(-input.frag_pos.xyz);
+        float3 halfway = normalize(light_dir + eye);
+
+        float3 normal = material.normalTexture.sampler >= 0 ? material.getNormal(input.tex_cord, input.tbn) : input.normal;
+        float specularIntensity = max(0.0, dot(normal, halfway));
+
+        float3 eyeDirection = normalize(-input.sv_position.xyz);
+        float4 diffuseTemp = float4(clamp(diffuse_color.rgb * light.color.rgb * specularIntensity, 0, 1), diffuse_color.a);
+
+        float3 reflectedDirection = normalize(-reflect(light_dir, normal));
+
         float4 specularTemp = clamp(diffuse_color * float4(light.color.rgb, 1.0) * pow(specularIntensity, material.emissiveStrength), 0, 1);
 
         float constantAttenuation = 1;
         float linearAttenuation = 0;
         float quadraticAttenuation = 0;
         float attenuation =
-            1 / (constantAttenuation + linearAttenuation * lightDistance + quadraticAttenuation * (lightDistance * lightDistance));
+            1 / (constantAttenuation + linearAttenuation * specularIntensity + quadraticAttenuation * (specularIntensity * specularIntensity));
 
         diffuseTemp.rgb *= attenuation;
         specularTemp.rgb *= attenuation;
