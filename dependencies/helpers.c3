@@ -96,8 +96,10 @@ fn void DeviceContext.free(self) {
 fn uint! DeviceContext.next_image(self) {
     Fence frame_fence = self.frame_fences[self.frame];
     Semaphore wait_semaphore = self.wait_semaphores[self.frame];
-
+    
     vk::waitForFences(self.device, 1, &frame_fence, vk::TRUE, uint.max)!;
+
+
     vk::resetFences(self.device, 1, &frame_fence)!;
 
     return self.swapchain.getNextImage(self.device, wait_semaphore);
@@ -310,7 +312,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
       .setImageUsage(vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
       .setImageSharingMode(vk::SHARING_MODE_EXCLUSIVE)
       .setCompositeAlpha(vk::COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
-      .setPresentMode(vk::PRESENT_MODE_FIFO_KHR)
+      .setPresentMode(vk::PRESENT_MODE_MAILBOX_KHR)
       .setPreTransform(capabilities.currentTransform)
       .setImageColorSpace(format.colorSpace)
       .setImageFormat(format.format)

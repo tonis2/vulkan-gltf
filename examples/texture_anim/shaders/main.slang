@@ -217,10 +217,10 @@ float4 fragmentMain(FragmentData input)
         diffuseTemp.rgb *= attenuation;
         specularTemp.rgb *= attenuation;
 
-        diffuse_color += float4(0.1);
+        diffuse_color += diffuseTemp;
 
-        // specular_color += specularTemp;
+        specular_color += specularTemp;
     }
 
-    return diffuse_color;
+    return diffuse_color + specular_color;
 }
