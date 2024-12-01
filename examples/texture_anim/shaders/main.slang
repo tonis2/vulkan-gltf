@@ -211,10 +211,9 @@ float4 fragmentMain(FragmentData input)
         float3 normal = material.normalTexture.can_sample() ? material.getNormal(input.tex_cord, input.tbn) : input.normal;
         float specularIntensity = max(0.0, dot(normal, halfway));
 
-        float3 eyeDirection = normalize(-input.sv_position.xyz);
         float4 diffuseTemp = float4(clamp(diffuse_color.rgb * light.color.rgb * specularIntensity, 0, 1), diffuse_color.a);
 
-        float3 reflectedDirection = normalize(-reflect(light_dir, normal));
+        // float3 reflectedDirection = normalize(-reflect(light_dir, normal));
 
         float4 specularTemp = clamp(diffuse_color * float4(light.color.rgb, 1.0) * pow(specularIntensity, material.emissiveStrength), 0, 1);
 
