@@ -525,6 +525,7 @@ fn void! main()
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = context.extent, .offset = { .x = 0, .y = 0 }});
 
+        // Begin dynamic rendering
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
@@ -533,10 +534,11 @@ fn void! main()
 
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
+        // Draw mesg
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout);
         
-        vk::cmdEndRendering(command_buffer);
-
+        // End dynamic rendering
+        vk::cmdEndRendering(command_buffer)
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
         vk::endCommandBuffer(command_buffer)!!;
 
