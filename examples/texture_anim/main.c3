@@ -301,44 +301,38 @@ fn void! main()
         descriptor_images.free();
     }
 
-    // Descriptor sets for push descriptors
-    WriteDescriptorSet[] descriptorSets = {
-        vk::writeDescriptorSet()
-        .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-        .setDstBinding(0)
-        .setBufferInfo({
-            {
-                .buffer = address_buffer.buffer,
-                .offset = 0,
-                .range = AddressBuffer.sizeof,
-            },
-        }),
-        vk::writeDescriptorSet()
-        .setDstBinding(1)
-        .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-        .setImageInfo(descriptor_images.array_view())
-    };
-
-    DescriptorSetLayout descriptor_set_layout = helpers::createDescriptorLayout(
-        descriptorSets,
+    PipelineLayer pipeline_layout = helpers::createPipelineLayout(
         {
+            vk::writeDescriptorSet()
+            .setDescriptorType(vk::DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+            .setDstBinding(0)
+            .setBufferInfo({
+                {
+                    .buffer = address_buffer.buffer,
+                    .offset = 0,
+                    .range = AddressBuffer.sizeof,
+                },
+            }),
+            vk::writeDescriptorSet()
+            .setDstBinding(1)
+            .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+            .setImageInfo(descriptor_images.array_view())
+        }, 
+        ShaderStageFlags[]{
             vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
             vk::SHADER_STAGE_FRAGMENT_BIT
-        }, context.device)!;
-
-    defer descriptor_set_layout.free(context.device);
-
-
-    // Pipeline stuff
-    PipelineLayout pipeline_layout = vk::pipelineLayoutCreateInfo()
-    .setPushConstantRanges({
-        {
-            .offset = 0,
-            .size = PushConstantData.sizeof,
-            .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
         },
-    })
-    .setSetLayouts({ descriptor_set_layout }).build(context.device)!;
+        PushConstantRange[]{
+                {
+                    .offset = 0,
+                    .size = PushConstantData.sizeof,
+                    .stageFlags = vk::SHADER_STAGE_VERTEX_BIT,
+                },
+        },
+        context.device
+    )!;
+
+    defer pipeline_layout.free(context.device);
 
     ShaderModule shader_module = vk::shaderModuleCreateInfo()
     .setCodeSize(shader.len)
@@ -351,6 +345,47 @@ fn void! main()
     .setColorAttachmentFormats({context.surface_format.format})
     .setDepthAttachmentFormat(context.depth_format);
 
+    PipelineMultisampleStateCreateInfo multi_sample_state = vk::pipelineMultisampleStateCreateInfo()
+                    .setSampleShadingEnable(vk::FALSE)
+                    .setRasterizationSamples(vk::SAMPLE_COUNT_1_BIT)
+                    .setMinSampleShading(1.0)
+                    .setAlphaToCoverageEnable(vk::FALSE)
+                    .setAlphaToOneEnable(vk::FALSE);
+
+    PipelineColorBlendStateCreateInfo color_blend_state = vk::pipelineColorBlendStateCreateInfo()
+    .setBlendConstants({ 1.0, 1.0, 1.0, 1.0 })
+    .setLogicOp(vk::LOGIC_OP_COPY)
+    .setLogicOpEnable(vk::FALSE)
+    .setAttachments({
+    {
+        .colorWriteMask =
+            vk::COLOR_COMPONENT_R_BIT |
+            vk::COLOR_COMPONENT_G_BIT |
+            vk::COLOR_COMPONENT_B_BIT |
+            vk::COLOR_COMPONENT_A_BIT,  
+        .blendEnable = vk::TRUE,
+        .srcAlphaBlendFactor = vk::BLEND_FACTOR_ONE,
+        .dstAlphaBlendFactor = vk::BLEND_FACTOR_ZERO,
+        .srcColorBlendFactor = vk::BLEND_FACTOR_SRC_ALPHA,
+        .dstColorBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        .colorBlendOp = vk::BLEND_OP_ADD,
+        .alphaBlendOp = vk::BLEND_OP_ADD,
+    }});
+
+   PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo()
+    .setDynamicStates(
+    {
+        vk::DYNAMIC_STATE_VIEWPORT,
+        vk::DYNAMIC_STATE_LINE_WIDTH,
+        vk::DYNAMIC_STATE_SCISSOR,
+        vk::DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT,
+        vk::DYNAMIC_STATE_POLYGON_MODE_EXT,
+        vk::DYNAMIC_STATE_CULL_MODE,
+        vk::DYNAMIC_STATE_DEPTH_COMPARE_OP,
+        vk::DYNAMIC_STATE_DEPTH_TEST_ENABLE,
+        vk::DYNAMIC_STATE_DEPTH_WRITE_ENABLE
+    });
+
     Pipeline pipeline = vk::graphicsPipelineCreateInfo()
     .setStages({
         vk::pipelineShaderStageCreateInfo()
@@ -362,67 +397,19 @@ fn void! main()
         .setMod(shader_module)
         .setName("main")
     })
-    .setLayout(pipeline_layout)
-    .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0))
-    .setDynamicState(
-       &&vk::pipelineDynamicStateCreateInfo()
-        .setDynamicStates(
-        {
-            vk::DYNAMIC_STATE_VIEWPORT,
-            vk::DYNAMIC_STATE_LINE_WIDTH,
-            vk::DYNAMIC_STATE_SCISSOR
-        })
-    )
+    .setLayout(pipeline_layout.layout)
+    .setDynamicState(&dynamic_state)
     .setRasterizationState(
         &&vk::pipelineRasterizationStateCreateInfo()
-        .setDepthClampEnable(vk::FALSE)
-        .setRasterizerDiscardEnable(vk::FALSE)
-        .setPolygonMode(vk::POLYGON_MODE_FILL)
-        .setLineWidth(1.0)
-        .setCullMode(vk::CULL_MODE_NONE)
         .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
         .setDepthBiasEnable(vk::FALSE)
     )
-    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
-    .setMultisampleState(&&vk::pipelineMultisampleStateCreateInfo()
-                      .setSampleShadingEnable(vk::FALSE)
-                      .setRasterizationSamples(vk::SAMPLE_COUNT_1_BIT)
-                      .setMinSampleShading(1.0)
-                      .setAlphaToCoverageEnable(vk::FALSE)
-                      .setAlphaToOneEnable(vk::FALSE))
-    .setDepthStencilState(&&vk::pipelineDepthStencilStateCreateInfo()
-        .setDepthTestEnable(vk::TRUE)
-        .setDepthWriteEnable(vk::TRUE)
-        .setDepthCompareOp(vk::COMPARE_OP_LESS)
-        .setBack({.compareOp = vk::COMPARE_OP_ALWAYS}))
-    .setColorBlendState(&&vk::pipelineColorBlendStateCreateInfo()
-                    .setBlendConstants({ 1.0, 1.0, 1.0, 1.0 })
-                    .setLogicOp(vk::LOGIC_OP_COPY)
-                    .setLogicOpEnable(vk::FALSE)
-                    .setAttachments({
-                       {
-                           .colorWriteMask =
-                               vk::COLOR_COMPONENT_R_BIT |
-                               vk::COLOR_COMPONENT_G_BIT |
-                               vk::COLOR_COMPONENT_B_BIT |
-                               vk::COLOR_COMPONENT_A_BIT,  
-                           .blendEnable = vk::TRUE,
-                           .srcAlphaBlendFactor = vk::BLEND_FACTOR_ONE,
-                           .dstAlphaBlendFactor = vk::BLEND_FACTOR_ZERO,
-                           .srcColorBlendFactor = vk::BLEND_FACTOR_SRC_ALPHA,
-                           .dstColorBlendFactor = vk::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                           .colorBlendOp = vk::BLEND_OP_ADD,
-                           .alphaBlendOp = vk::BLEND_OP_ADD,
-
-                       }}))
-    .setViewportState(&&vk::pipelineViewportStateCreateInfo()
-            .setViewports({{}})
-            .setScissors({{}}))
-    .setNext(&p_rendering_info)       
+    .setMultisampleState(&multi_sample_state)
+    .setColorBlendState(&color_blend_state)
+    .setNext(&p_rendering_info)
     .build(context.device)!;
 
     defer {
-        pipeline_layout.free(context.device);
         pipeline.free(context.device);
     }
 
@@ -528,18 +515,25 @@ fn void! main()
         vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!;
 
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
-        
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
+        // Dynamic state
+        vk::cmdSetCullMode(command_buffer, vk::CULL_MODE_NONE);
+        vk::cmdSetPolygonModeEXT(command_buffer, vk::POLYGON_MODE_FILL);
+        vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        vk::cmdSetDepthCompareOp(command_buffer, vk::COMPARE_OP_LESS);
+        vk::cmdSetDepthTestEnable(command_buffer, vk::TRUE);
+        vk::cmdSetDepthWriteEnable(command_buffer, vk::TRUE);
+        vk::cmdSetLineWidth(command_buffer, 1.0);
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = context.extent, .offset = { .x = 0, .y = 0 }});
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
+        vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
 
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
-        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout);
+        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout);
         
         vk::cmdEndRendering(command_buffer);
 

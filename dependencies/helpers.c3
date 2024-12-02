@@ -24,31 +24,6 @@ fault TextureError
 
 def DescriptorImages = List(<DescriptorImageInfo>);
 
-fn DescriptorSetLayout! createDescriptorLayout(WriteDescriptorSet[] layouts, ShaderStageFlags[] flags, Device device) {
-    DescriptorSetLayoutBinding* bindings = mem::new_array(DescriptorSetLayoutBinding, flags.len);
-    defer mem::free(bindings);
-
-    foreach (uint i, set: layouts) {
-        DescriptorSetLayoutBinding binding = {
-            .binding = i,
-            .descriptorType = set.descriptorType,
-            .descriptorCount = set.descriptorCount,
-            .stageFlags = flags[i]
-        };
-
-        bindings[i] = binding;
-    }
-
-    DescriptorSetLayoutCreateInfo layoutCreateInfo = {
-        .sType = vk::STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .flags = vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
-        .bindingCount = flags.len,
-        .pBindings = bindings
-    };
-
-    return layoutCreateInfo.build(device)!;
-}
-
 struct DeviceContext {
     Instance instance;
     Device device;
@@ -70,6 +45,12 @@ struct DeviceContext {
     SemaphoreList signal_semaphores;
     FenceList frame_fences;
     uint frame;
+}
+
+struct PipelineLayer {
+    DescriptorSetLayout descriptor_layout;
+    PipelineLayout layout;
+    List(<WriteDescriptorSet>) sets;
 }
 
 fn void DeviceContext.free(self) {
@@ -557,4 +538,68 @@ fn void! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, Devi
     }!;
 
     self.push(texture);
+}
+
+fn DescriptorSetLayout! createDescriptorLayout(WriteDescriptorSet[] layouts, ShaderStageFlags[] flags, Device device) {
+    DescriptorSetLayoutBinding* bindings = mem::new_array(DescriptorSetLayoutBinding, flags.len);
+    defer mem::free(bindings);
+
+    foreach (uint i, set: layouts) {
+        DescriptorSetLayoutBinding binding = {
+            .binding = i,
+            .descriptorType = set.descriptorType,
+            .descriptorCount = set.descriptorCount,
+            .stageFlags = flags[i]
+        };
+        bindings[i] = binding;
+    }
+
+    DescriptorSetLayoutCreateInfo layoutCreateInfo = {
+        .sType = vk::STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .flags = vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+        .bindingCount = flags.len,
+        .pBindings = bindings
+    };
+
+    return layoutCreateInfo.build(device)!;
+}
+
+
+fn PipelineLayer! createPipelineLayout(WriteDescriptorSet[] descriptor_layouts, ShaderStageFlags[] flags, PushConstantRange[] push_ranges, Device device) {
+    DescriptorSetLayoutBinding* bindings = mem::new_array(DescriptorSetLayoutBinding, flags.len);
+    defer mem::free(bindings);
+
+    PipelineLayer layer;
+
+    foreach (set: descriptor_layouts) layer.sets.push(set);
+    foreach (uint i, set: descriptor_layouts) {
+        DescriptorSetLayoutBinding binding = {
+            .binding = i,
+            .descriptorType = set.descriptorType,
+            .descriptorCount = set.descriptorCount,
+            .stageFlags = flags[i]
+        };
+        bindings[i] = binding;
+    }
+
+    DescriptorSetLayout descriptor_layout = DescriptorSetLayoutCreateInfo {
+        .sType = vk::STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .flags = vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+        .bindingCount = flags.len,
+        .pBindings = bindings
+    }.build(device)!;
+
+    layer.layout = vk::pipelineLayoutCreateInfo()
+    .setPushConstantRanges(push_ranges)
+    .setSetLayouts({ descriptor_layout }).build(device)!;
+
+    layer.descriptor_layout = descriptor_layout;
+    return layer;
+}
+
+
+fn void PipelineLayer.free(&self, Device device) {
+    self.layout.free(device);
+    self.descriptor_layout.free(device);
+    self.sets.free();
 }
