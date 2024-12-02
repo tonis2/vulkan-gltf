@@ -387,11 +387,11 @@ fn void! main()
         vk::pipelineShaderStageCreateInfo()
         .setStage(vk::SHADER_STAGE_VERTEX_BIT)
         .setMod(shader_module)
-        .setName("main"),
+        .setName("vertexMain"),
         vk::pipelineShaderStageCreateInfo()
         .setStage(vk::SHADER_STAGE_FRAGMENT_BIT)
         .setMod(shader_module)
-        .setName("main")
+        .setName("fragmentMain")
     })
     .setLayout(pipeline_layout)
     .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0))

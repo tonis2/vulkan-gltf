@@ -391,11 +391,11 @@ fn void! main()
         vk::pipelineShaderStageCreateInfo()
         .setStage(vk::SHADER_STAGE_VERTEX_BIT)
         .setMod(shader_module)
-        .setName("main"),
+        .setName("vertexMain"),
         vk::pipelineShaderStageCreateInfo()
         .setStage(vk::SHADER_STAGE_FRAGMENT_BIT)
         .setMod(shader_module)
-        .setName("main")
+        .setName("fragmentMain")
     })
     .setLayout(pipeline_layout.layout)
     .setDynamicState(&dynamic_state)
@@ -514,9 +514,6 @@ fn void! main()
         vk::resetCommandBuffer(command_buffer, 0)!;
         vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!;
 
-        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
-        vk::cmdBeginRendering(command_buffer, &rendering_info);
-
         // Dynamic state
         vk::cmdSetCullMode(command_buffer, vk::CULL_MODE_NONE);
         vk::cmdSetPolygonModeEXT(command_buffer, vk::POLYGON_MODE_FILL);
@@ -527,6 +524,9 @@ fn void! main()
         vk::cmdSetLineWidth(command_buffer, 1.0);
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = context.extent, .offset = { .x = 0, .y = 0 }});
+
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
+        vk::cmdBeginRendering(command_buffer, &rendering_info);
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
