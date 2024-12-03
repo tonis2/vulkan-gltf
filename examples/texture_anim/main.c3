@@ -296,6 +296,9 @@ fn void! main()
     // Create depth texture
     descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
 
+    // Shadowmap depth
+    //descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
+
     defer {
         foreach (texture: descriptor_images) texture.free(context.device);
         descriptor_images.free();
@@ -538,7 +541,7 @@ fn void! main()
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout);
         
         // End dynamic rendering
-        vk::cmdEndRendering(command_buffer)
+        vk::cmdEndRendering(command_buffer);
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
         vk::endCommandBuffer(command_buffer)!!;
 
