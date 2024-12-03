@@ -552,8 +552,8 @@ fn void! main()
 }
 
 fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout) {
-
-    if (node.hasSkin()) {
+    bool skinned_node = node.hasSkin();
+    if (skinned_node) {
         Skin skin = gltf.skins[node.skin];
         foreach (joint_index, joint: skin.joints) {
            Node joint_node = gltf.nodes[joint];
@@ -564,19 +564,19 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
 
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
-        foreach (index, primitive: mesh.primitives) {
+        Matrix4f node_matrix = node.globalMatrix().transpose();
+        Matrix4f inverse_node_matrix = node_matrix.inverse()!!;
+
+        foreach (primitive: mesh.primitives) {
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
-
             int material_index = (int)primitive.attributes["material"] ?? -1;
-
-            Matrix4f node_matrix = node.globalMatrix().transpose();
     
             PushConstantData constant_data = {
                 .matrix = node_matrix,
-                .matrix_inverse = node_matrix.inverse()!!,
+                .matrix_inverse = inverse_node_matrix,
                 .material_index = material_index,
-                .has_skin = node.hasSkin(),
+                .has_skin = skinned_node,
             };
 
             vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
