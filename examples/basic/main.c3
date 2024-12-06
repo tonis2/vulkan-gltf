@@ -25,6 +25,12 @@ struct PushConstantData {
     bool has_skin;
 }
 
+struct Uniform {
+    Matrix4f perspective;
+    Matrix4f view;
+    Vec4f eye;
+}
+
 // Used to send buffer device addresses to GPU
 struct AddressBuffer {
     vk::DeviceAddress vertices;
@@ -191,7 +197,7 @@ fn void! main()
     uniform_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(UniformData.sizeof)
+                .setSize(Uniform.sizeof)
                 .bind(&local_allocation)!;
 
     joint_buffer = vk::bufferCreateInfo()
@@ -207,7 +213,11 @@ fn void! main()
                 .bind(&device_allocation)!;
 
     // Upload data to buffer
-    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+    uniform_buffer.upload(&&Uniform {
+        .perspective = camera.perspective.transpose(),
+        .view = camera.view.transpose(),
+        .eye = Vec4f {camera.eye, 0.0 },
+    }, Uniform.sizeof);
 
     AddressBuffer addresses = AddressBuffer {
         vertex_buffer.address,
@@ -487,7 +497,7 @@ fn void! main()
         if (event.mouse_click == LEFT_MOUSE) {
             MouseParams params = c3w::getMousePos(win);
             camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
-            uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
             last_params = params;
         }
 
@@ -495,11 +505,11 @@ fn void! main()
             case c3w::MOUSE_PRESSED: {
                 if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
                     camera.zoom(5);
-                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
                 }
                 if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
                     camera.zoom(-5);
-                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
                 }
             }
             case c3w::MOUSE_RELEASED: {}

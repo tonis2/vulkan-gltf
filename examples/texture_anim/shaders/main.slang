@@ -10,6 +10,7 @@ struct Light
     float inner_angle;
     float outer_angle;
     float3 pad;
+    float4x4 light_view_matrix;
 };
 
 struct TextureInfo
@@ -63,17 +64,17 @@ struct Material
 
 struct PushData
 {
-    float4x4 model_matrix;
-    float4x4 model_inverse;
     int material_index;
     bool has_skin;
+    float4x4 node_matrix;
+    float4x4 node_inverse_matrix;
 };
 
 struct Uniform
 {
-    float4x4 projection;
+    float4x4 perspective;
     float4x4 view;
-    float3 eye;
+    float4 eye;
 }
 
 [vk_push_constant]
@@ -161,12 +162,12 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
 
-    float4 frag_pos = mul(mul(push_constant.model_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
-    float4 vertex_pos = mul(mul(uniform.projection, uniform.view), frag_pos);
+    float4 frag_pos = mul(mul(push_constant.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
+    float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
 
-    float4 normal = normalize(mul(push_constant.model_inverse, vertex.normal));
-    float4 tangent = normalize(mul(push_constant.model_inverse, vertex.tangent));
-    float4 bitangent = normalize(mul(push_constant.model_inverse, float4(cross(normal.xyz, tangent.xyz) * tangent.w, 0.0)));
+    float4 normal = normalize(mul(push_constant.node_inverse_matrix, vertex.normal));
+    float4 tangent = normalize(mul(push_constant.node_inverse_matrix, vertex.tangent));
+    float4 bitangent = normalize(mul(push_constant.node_inverse_matrix, float4(cross(normal.xyz, tangent.xyz) * tangent.w, 0.0)));
     float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
 
     FragmentData output = {

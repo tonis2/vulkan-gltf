@@ -7,12 +7,6 @@ fn float radians(float value) {
     return value * (float)math::PI / 180;
 }
 
-struct UniformData {
-    Matrix4f projection;
-    Matrix4f view;
-    Vec3f eye;
-}
-
 struct Camera {
     Vec3f target;
     Vec3f eye;
@@ -54,12 +48,4 @@ fn void Camera.zoom(Camera* self, float value) {
     if (self.zoom_value + value > 0) return;
     self.zoom_value += value;
     self.view.m23 += value;
-}
-
-fn UniformData Camera.matrix(Camera self) {
-    return UniformData {
-        self.perspective.transpose(),
-        self.view.transpose(),
-        self.eye,
-    };
 }

@@ -301,6 +301,7 @@ struct Light {
     float range;
     float inner_cone_angle;
     float outer_cone_angle;
+    Matrix4f light_perspective;
 }
 
 struct AnimationValue {

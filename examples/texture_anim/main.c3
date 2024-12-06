@@ -22,10 +22,16 @@ struct Vertex {
 }
 
 struct PushConstantData {
-    Matrix4f matrix;
-    Matrix4f matrix_inverse;
     int material_index;
-    bool has_skin;
+    int has_skin;
+    Matrix4f node_matrix;
+    Matrix4f inverse_node_matrix;
+}
+
+struct Uniform {
+    Matrix4f perspective;
+    Matrix4f view;
+    Vec4f eye;
 }
 
 // Used to send buffer device addresses to GPU
@@ -57,6 +63,8 @@ DescriptorImages descriptor_images;
 Vec2f window_size = {800, 600};
 char[*] shader = $embed("./shaders/main.spv");
 
+camera::Camera camera;
+
 fn void! main()
 {
     c3w::Window win = c3w::new(
@@ -75,7 +83,7 @@ fn void! main()
     defer context.free();
 
     // Create camera
-    camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
+    camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
     gltf = gltf::loadFile("assets/animated_1.glb")!!;
     defer gltf.free();
@@ -219,7 +227,7 @@ fn void! main()
     uniform_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(UniformData.sizeof)
+                .setSize(Uniform.sizeof)
                 .bind(&local_allocation)!;
 
     joint_buffer = vk::bufferCreateInfo()
@@ -244,7 +252,12 @@ fn void! main()
     };
 
     // Upload data to buffer
-    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+    uniform_buffer.upload(&&Uniform {
+        .perspective = camera.perspective.transpose(),
+        .view = camera.view.transpose(),
+        .eye = Vec4f {camera.eye, 0.0 },
+    }, Uniform.sizeof);
+
     material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
     address_buffer.upload(&addresses, AddressBuffer.sizeof);
 
@@ -297,7 +310,7 @@ fn void! main()
     descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
 
     // Shadowmap depth
-    //descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
+    descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
 
     defer {
         foreach (texture: descriptor_images) texture.free(context.device);
@@ -422,6 +435,13 @@ fn void! main()
     bool running = true;
     MouseParams last_params;
 
+    RenderingInfo rendering_info = vk::renderingInfo()
+    .setLayerCount(1)
+    .setRenderArea({
+        .offset = Offset2D{ .x = 0, .y = 0 },
+        .extent = context.extent,
+    });
+
     while (running) {
         c3w::Event event = win.getEvent();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
@@ -429,19 +449,19 @@ fn void! main()
         if (event.mouse_click == LEFT_MOUSE) {
             MouseParams params = c3w::getMousePos(win);
             camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
-            uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
             last_params = params;
         }
 
-        switch (event.type) {   
+        switch (event.type) {
             case c3w::MOUSE_PRESSED: {
                 if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
                     camera.zoom(5);
-                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
                 }
                 if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
                     camera.zoom(-5);
-                    uniform_buffer.upload(&&camera.matrix(), UniformData.sizeof);
+                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
                 }
             }
             case c3w::MOUSE_RELEASED: {}
@@ -488,30 +508,31 @@ fn void! main()
                 .layerCount = 1,
         }};
 
-        RenderingInfo rendering_info = vk::renderingInfo()
-        .setLayerCount(1)
-        .setRenderArea({
-            .offset = Offset2D{ .x = 0, .y = 0 },
-            .extent = context.extent,
-        })
-        .setColorAttachments({
-            vk::renderingAttachmentInfo()
-            .setImageView(context.swapchain_views[next_image])
-            .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-                .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
-            })
-        })
-        .setDepthAttachment(&&vk::renderingAttachmentInfo()
-            .setImageView(descriptor_images.last()!.imageView)
-            .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-            .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-            .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-            .setClearValue({
-            .depthStencil = { 1.0, 0 }
-        }));
+       RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo()
+        .setImageView(context.swapchain_views[next_image])
+        .setImageLayout(vk::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+        .setClearValue({
+            .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
+        });
+
+       RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
+        .setImageView(descriptor_images[descriptor_images.len() - 1].imageView)
+        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+        .setClearValue({ .depthStencil = { 1.0, 0 } });
+
+        RenderingAttachmentInfo shadow_depth_target = vk::renderingAttachmentInfo()
+        .setImageView(descriptor_images[descriptor_images.len() - 2].imageView)
+        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+        .setClearValue({ .depthStencil = { 1.0, 0 } });
+
+        rendering_info.setColorAttachments({ main_render_target });
+        rendering_info.setDepthAttachment(&main_depth_target);
 
         CommandBuffer command_buffer = context.command_buffers[next_image];
         vk::resetCommandBuffer(command_buffer, 0)!;
@@ -537,7 +558,7 @@ fn void! main()
 
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
-        // Draw mesg
+        // Draw mesh
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout);
         
         // End dynamic rendering
@@ -573,10 +594,10 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             int material_index = (int)primitive.attributes["material"] ?? -1;
     
             PushConstantData constant_data = {
-                .matrix = node_matrix,
-                .matrix_inverse = inverse_node_matrix,
                 .material_index = material_index,
-                .has_skin = skinned_node,
+                .has_skin = (int)skinned_node,
+                .node_matrix = node_matrix,
+                .inverse_node_matrix = inverse_node_matrix,
             };
 
             vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
