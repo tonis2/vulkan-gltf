@@ -301,7 +301,6 @@ struct Light {
     float range;
     float inner_cone_angle;
     float outer_cone_angle;
-    Matrix4f light_perspective;
 }
 
 struct AnimationValue {
@@ -337,7 +336,7 @@ fn void Node.fromJson(&self, Object* json) {
     self.camera = -1;
     self.skin = -1;
     self.light = -1;
-    self.rotation = {0,0,0,1};
+    self.rotation = {0,0,0,0};
     self.scale = {1,1,1};
     self.translation = {0,0,0};
     self.matrix = MATRIX4F_IDENTITY;
@@ -1106,7 +1105,8 @@ fn Gltf! parse(InStream stream) {
 
            if (data.hasLight()) {
                 Light* light = &content.lights[data.light];
-                light.position = data.translation.transform(data.rotation.to_matrixf());
+                light.position = data.translation;
+                // light.position = data.translation.transform(data.rotation.to_matrixf());
            }
         }
     }

@@ -10,7 +10,6 @@ struct Light
     float inner_angle;
     float outer_angle;
     float3 pad;
-    float4x4 light_view_matrix;
 };
 
 struct TextureInfo
@@ -66,8 +65,7 @@ struct PushData
 {
     int material_index;
     bool has_skin;
-    float4x4 node_matrix;
-    float4x4 node_inverse_matrix;
+    Uniform *uniform;
 };
 
 struct Uniform
@@ -75,6 +73,8 @@ struct Uniform
     float4x4 perspective;
     float4x4 view;
     float4 eye;
+    float4x4 node_matrix;
+    float4x4 node_inverse_matrix;
 }
 
 [vk_push_constant]
@@ -85,7 +85,6 @@ cbuffer Buffers
 {
     Vertex *vertices;
     Light *lights;
-    Uniform *uniform;
     Material *materials;
     float4x4 *joints;
     uint light_count;
@@ -161,13 +160,14 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
             vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
+    Uniform* uniform = push_constant.uniform;
 
-    float4 frag_pos = mul(mul(push_constant.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
-    float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
+    float4 frag_pos = mul(mul(uniform.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
+    float4 vertex_pos = mul(mul(uniform.perspective, push_constant.uniform.view), frag_pos);
 
-    float4 normal = normalize(mul(push_constant.node_inverse_matrix, vertex.normal));
-    float4 tangent = normalize(mul(push_constant.node_inverse_matrix, vertex.tangent));
-    float4 bitangent = normalize(mul(push_constant.node_inverse_matrix, float4(cross(normal.xyz, tangent.xyz) * tangent.w, 0.0)));
+    float4 normal = normalize(mul(uniform.node_inverse_matrix, vertex.normal));
+    float4 tangent = normalize(mul(uniform.node_inverse_matrix, vertex.tangent));
+    float4 bitangent = normalize(mul(uniform.node_inverse_matrix, float4(cross(normal.xyz, tangent.xyz) * tangent.w, 0.0)));
     float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
 
     FragmentData output = {
@@ -224,4 +224,35 @@ float4 fragmentMain(FragmentData input)
     }
 
     return diffuse_color + specular_color * material.emissiveFactor;
+}
+
+
+
+
+[shader("vertex")]
+float4 vertexShadow(uint32_t vertID: SV_VertexID)
+{
+    Vertex vertex = vertices[vertID];
+    float4x4 skin_matrix = {
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    };
+
+    Uniform* uniform = push_constant.uniform;
+
+    if (push_constant.has_skin)
+    {
+        skin_matrix =
+            vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
+            vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
+            vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
+            vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
+    }
+
+    float4 frag_pos = mul(mul(uniform.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
+    float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
+
+    return vertex_pos;
 }

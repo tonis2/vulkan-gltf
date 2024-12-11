@@ -24,21 +24,21 @@ struct Vertex {
 struct PushConstantData {
     int material_index;
     int has_skin;
-    Matrix4f node_matrix;
-    Matrix4f inverse_node_matrix;
+    DeviceAddress uniform_buffer;
 }
 
 struct Uniform {
     Matrix4f perspective;
     Matrix4f view;
     Vec4f eye;
+    Matrix4f node_matrix;
+    Matrix4f inverse_node_matrix;
 }
 
 // Used to send buffer device addresses to GPU
 struct AddressBuffer {
     vk::DeviceAddress vertices;
     vk::DeviceAddress lights;
-    vk::DeviceAddress uniform;
     vk::DeviceAddress materials;
     vk::DeviceAddress joints;
     uint light_count;
@@ -56,9 +56,12 @@ Gltf gltf;
 List(<Vertex>) vertices;
 List(<ushort>) indices;
 List(<Matrix4f>) joints;
+List(<Matrix4f>) lights_matrix;
 AnimationChannels animaton_data;
 
 DescriptorImages descriptor_images;
+DescriptorImages shadow_maps;
+ImageList shadow_images;
 
 Vec2f window_size = {800, 600};
 char[*] shader = $embed("./shaders/main.spv");
@@ -85,7 +88,7 @@ fn void! main()
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/animated_1.glb")!!;
+    gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
 
     // Preload vertex data from GLTF
@@ -224,17 +227,11 @@ fn void! main()
                 .setSize(gltf.materials.byte_size())
                 .bind(&local_allocation)!;
 
-    uniform_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(Uniform.sizeof)
-                .bind(&local_allocation)!;
-
     joint_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(joints.byte_size())
-                .bind(&local_allocation)!;
+                .bind(&local_allocation)!;         
 
     address_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
@@ -242,21 +239,33 @@ fn void! main()
                 .setSize(AddressBuffer.sizeof)
                 .bind(&local_allocation)!;
 
+    uniform_buffer = vk::bufferCreateInfo()
+            .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+            .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+            .setSize(2 * Uniform.sizeof)
+            .bind(&local_allocation)!;                
+
     AddressBuffer addresses = AddressBuffer {
         vertex_buffer.address,
         light_buffer.address,
-        uniform_buffer.address,
         material_buffer.address,
         joint_buffer.address,
         (uint)gltf.lights.len()
     };
 
-    // Upload data to buffer
+    // Upload data to buffers
+    // Use 2 uniform buffers, so data uploading will be in sync between frames
     uniform_buffer.upload(&&Uniform {
         .perspective = camera.perspective.transpose(),
         .view = camera.view.transpose(),
         .eye = Vec4f {camera.eye, 0.0 },
     }, Uniform.sizeof);
+
+    uniform_buffer.upload(&&Uniform {
+        .perspective = camera.perspective.transpose(),
+        .view = camera.view.transpose(),
+        .eye = Vec4f {camera.eye, 0.0 },
+    }, Uniform.sizeof, offset: Uniform.sizeof);
 
     material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
     address_buffer.upload(&addresses, AddressBuffer.sizeof);
@@ -310,11 +319,17 @@ fn void! main()
     descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
 
     // Shadowmap depth
-    descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
-
+    foreach (i, light: gltf.lights) {
+       vk::Image shadow_image = shadow_maps.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
+       shadow_images.push(shadow_image);
+    }
+    
     defer {
         foreach (texture: descriptor_images) texture.free(context.device);
         descriptor_images.free();
+         foreach (texture: shadow_maps) texture.free(context.device);
+        shadow_maps.free();
+        defer shadow_images.free();
     }
 
     PipelineLayer pipeline_layout = helpers::createPipelineLayout(
@@ -399,7 +414,8 @@ fn void! main()
         vk::DYNAMIC_STATE_CULL_MODE,
         vk::DYNAMIC_STATE_DEPTH_COMPARE_OP,
         vk::DYNAMIC_STATE_DEPTH_TEST_ENABLE,
-        vk::DYNAMIC_STATE_DEPTH_WRITE_ENABLE
+        vk::DYNAMIC_STATE_DEPTH_WRITE_ENABLE,
+        vk::DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE
     });
 
     Pipeline pipeline = vk::graphicsPipelineCreateInfo()
@@ -425,8 +441,28 @@ fn void! main()
     .setNext(&p_rendering_info)
     .build(context.device)!;
 
+    Pipeline shadow_pipeline = vk::graphicsPipelineCreateInfo()
+    .setStages({
+        vk::pipelineShaderStageCreateInfo()
+        .setStage(vk::SHADER_STAGE_VERTEX_BIT)
+        .setMod(shader_module)
+        .setName("vertexShadow"),
+    })
+    .setLayout(pipeline_layout.layout)
+    .setDynamicState(&dynamic_state)
+    .setRasterizationState(
+        &&vk::pipelineRasterizationStateCreateInfo()
+        .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
+        .setDepthBiasEnable(vk::FALSE)
+    )
+    .setMultisampleState(&multi_sample_state)
+    .setColorBlendState(&color_blend_state)
+    .setNext(&p_rendering_info)
+    .build(context.device)!;
+
     defer {
         pipeline.free(context.device);
+        shadow_pipeline.free(context.device);
     }
 
     Scene scene = gltf.scenes[0];
@@ -442,14 +478,38 @@ fn void! main()
         .extent = context.extent,
     });
 
+    ImageMemoryBarrier2[3] shadow_map_barriers;
+
+    foreach (i, light: gltf.lights) {
+        shadow_map_barriers[i] = {
+            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .image = shadow_images[i],
+            .srcStageMask = vk::PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+            .dstStageMask = vk::PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccessMask = vk::ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = vk::ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .oldLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .newLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .subresourceRange = {
+                .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            }
+        };
+    }
+
     while (running) {
+        uint next_image = context.next_image()!!;
+
         c3w::Event event = win.getEvent();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
 
         if (event.mouse_click == LEFT_MOUSE) {
             MouseParams params = c3w::getMousePos(win);
             camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
-            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
             last_params = params;
         }
 
@@ -457,11 +517,11 @@ fn void! main()
             case c3w::MOUSE_PRESSED: {
                 if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
                     camera.zoom(5);
-                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
                 }
                 if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
                     camera.zoom(-5);
-                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
                 }
             }
             case c3w::MOUSE_RELEASED: {}
@@ -470,9 +530,8 @@ fn void! main()
             }
         }
 
+   
         material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
-
-        uint next_image = context.next_image()!!;
 
         ImageMemoryBarrier2 begin_barrier = {
             .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -489,7 +548,8 @@ fn void! main()
                 .levelCount = 1,
                 .baseArrayLayer = 0,
                 .layerCount = 1,
-        }};
+            }
+        };
 
         ImageMemoryBarrier2 end_barrier = {
             .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -506,7 +566,8 @@ fn void! main()
                 .levelCount = 1,
                 .baseArrayLayer = 0,
                 .layerCount = 1,
-        }};
+            }
+        };
 
        RenderingAttachmentInfo main_render_target = vk::renderingAttachmentInfo()
         .setImageView(context.swapchain_views[next_image])
@@ -518,27 +579,18 @@ fn void! main()
         });
 
        RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
-        .setImageView(descriptor_images[descriptor_images.len() - 1].imageView)
+        .setImageView(descriptor_images.last()!!.imageView)
         .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
         .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
         .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
         .setClearValue({ .depthStencil = { 1.0, 0 } });
-
-        RenderingAttachmentInfo shadow_depth_target = vk::renderingAttachmentInfo()
-        .setImageView(descriptor_images[descriptor_images.len() - 2].imageView)
-        .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-        .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
-        .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
-        .setClearValue({ .depthStencil = { 1.0, 0 } });
-
-        rendering_info.setColorAttachments({ main_render_target });
-        rendering_info.setDepthAttachment(&main_depth_target);
 
         CommandBuffer command_buffer = context.command_buffers[next_image];
         vk::resetCommandBuffer(command_buffer, 0)!;
         vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!;
 
         // Dynamic state
+        vk::cmdSetRasterizerDiscardEnable(command_buffer, vk::FALSE);
         vk::cmdSetCullMode(command_buffer, vk::CULL_MODE_NONE);
         vk::cmdSetPolygonModeEXT(command_buffer, vk::POLYGON_MODE_FILL);
         vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -551,28 +603,57 @@ fn void! main()
 
         // Begin dynamic rendering
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
-        vk::cmdBeginRendering(command_buffer, &rendering_info);
-
-        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
-
         vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
-        // Draw mesh
-        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout);
+        // Draw shadowmap
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);
         
-        // End dynamic rendering
-        vk::cmdEndRendering(command_buffer);
-        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
-        vk::endCommandBuffer(command_buffer)!!;
+        foreach (uint i, light: gltf.lights) {
+            RenderingAttachmentInfo shadow_depth_target = vk::renderingAttachmentInfo()
+                .setImageView(shadow_maps[i].imageView)
+                .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
+                .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
+                .setClearValue({ .depthStencil = { 1.0, 0 } });
 
+            // Set uniform view, into light view   
+            Matrix4f light_view = matrix::look_at(<float>)(light.position, camera.target, {0.0, 1.0, 0.0});
+            uniform_buffer.upload(&&light_view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
+            
+            rendering_info.colorAttachmentCount = 0;
+            rendering_info.pColorAttachments = null;
+            rendering_info.setDepthAttachment(&shadow_depth_target);
+        
+            vk::cmdBeginRendering(command_buffer, &rendering_info);
+
+            foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout, context.frame);
+            vk::cmdEndRendering(command_buffer);
+        }
+
+        // Set uniform view, back to camera     
+        uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ shadow_map_barriers[0], shadow_map_barriers[1]})); 
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+     
+        // Draw color view
+        rendering_info.setColorAttachments({ main_render_target });
+        rendering_info.setDepthAttachment(&main_depth_target);
+        vk::cmdBeginRendering(command_buffer, &rendering_info);
+        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout, context.frame);
+        vk::cmdEndRendering(command_buffer);
+      
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
+        
+        vk::endCommandBuffer(command_buffer)!!;
+         
         context.present_image(next_image, command_buffer)!;
     }
     
     context.device.waitIdle();
 }
 
-fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout) {
+fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout, uint frame_index) {
     bool skinned_node = node.hasSkin();
     if (skinned_node) {
         Skin skin = gltf.skins[node.skin];
@@ -588,6 +669,9 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
         Matrix4f node_matrix = node.globalMatrix().transpose();
         Matrix4f inverse_node_matrix = node_matrix.inverse()!!;
 
+        uniform_buffer.upload(&node_matrix, size: Matrix4f.sizeof, offset: frame_index * Uniform.sizeof + Uniform.node_matrix.offsetof);
+        uniform_buffer.upload(&inverse_node_matrix, size: Matrix4f.sizeof, offset: frame_index * Uniform.sizeof + Uniform.inverse_node_matrix.offsetof);
+
         foreach (primitive: mesh.primitives) {
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
@@ -596,8 +680,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             PushConstantData constant_data = {
                 .material_index = material_index,
                 .has_skin = (int)skinned_node,
-                .node_matrix = node_matrix,
-                .inverse_node_matrix = inverse_node_matrix,
+                .uniform_buffer = uniform_buffer.address + (frame_index * Uniform.sizeof),
             };
 
             vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
@@ -606,5 +689,5 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
     }
 
     // Draw child nodes
-    foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout);
+    foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout, frame_index);
 }

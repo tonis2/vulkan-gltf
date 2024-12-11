@@ -99,7 +99,7 @@ fn void! DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
 
     vk::queueSubmit(self.graphics_queue.handle, 1, &submit_info, frame_fence)!;
 
-    PresentInfoKHR present_info = vk::presentInfo()
+    PresentInfoKHR present_info = vk::presentInfoKHR()
     .setWaitSemaphores({ signal_semaphore })
     .setSwapchains({ self.swapchain })
     .setImageIndices({ next_image });
@@ -231,9 +231,15 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
 
     devices.free();
 
+    PhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT unused_attchments = {
+        .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT,
+        .pNext = null,
+        .dynamicRenderingUnusedAttachments = vk::TRUE
+    };
+
     PhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState = {
         .sType = vk::STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
-        .pNext = null,
+        .pNext = &unused_attchments,
         .extendedDynamicState3ColorBlendEnable = vk::TRUE,
     };
 
@@ -288,7 +294,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     context.extent = capabilities.maxImageExtent;
     uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
 
-    SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfo()
+    SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfoKHR()
       .setMinImageCount(min_images)
       .setImageUsage(vk::IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
       .setImageSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -377,7 +383,8 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
             .levelCount = 1,
             .baseArrayLayer = 0,
             .layerCount = 1,
-    }};
+        }
+    };
 
     vk::ImageMemoryBarrier2 finalize_barrier = {
         .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -444,22 +451,28 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
                         .build(device)!;
 
     texture.imageView = vk::imageViewCreateInfo()
-                    .setViewType(vk::IMAGE_VIEW_TYPE_2D)
-                    .setFormat(image_format)
-                    .setSubresourceRange({
-                        .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-                        .baseMipLevel = 0,
-                        .baseArrayLayer = 0,
-                        .layerCount = 1,
-                        .levelCount = 1,
-                    })
-                    .setImage(texture_image)
-                    .build(device)!;
+            .setViewType(vk::IMAGE_VIEW_TYPE_2D)
+            .setFormat(image_format)
+            .setComponents({
+                .r = vk::COMPONENT_SWIZZLE_R,
+                .g = vk::COMPONENT_SWIZZLE_G,
+                .b = vk::COMPONENT_SWIZZLE_B,
+                .a = vk::COMPONENT_SWIZZLE_A,
+            })
+            .setSubresourceRange({
+                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+                .levelCount = 1,
+            })
+            .setImage(texture_image)
+            .build(device)!;
 
     self.push(texture);
 }
 
-fn void! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
+fn vk::Image! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
     DescriptorImageInfo texture;
 
     vk::Device device = allocator.device;
@@ -484,7 +497,7 @@ fn void! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, Devi
     texture.sampler = vk::samplerCreateInfo()
     .setMagFilter(vk::FILTER_LINEAR)
     .setMinFilter(vk::FILTER_LINEAR)
-    .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+    .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
     .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_REPEAT)
     .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_REPEAT)
     .setMipLodBias(0.0)
@@ -499,6 +512,12 @@ fn void! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, Devi
     texture.imageView = vk::imageViewCreateInfo()
     .setViewType(vk::IMAGE_VIEW_TYPE_2D)
     .setFormat(format)
+    .setComponents({
+        .r = vk::COMPONENT_SWIZZLE_R,
+        .g = vk::COMPONENT_SWIZZLE_G,
+        .b = vk::COMPONENT_SWIZZLE_B,
+        .a = vk::COMPONENT_SWIZZLE_A,
+    })
     .setSubresourceRange({
         .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
         .baseMipLevel = 0,
@@ -539,6 +558,7 @@ fn void! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, Devi
     }!;
 
     self.push(texture);
+    return depth_image;
 }
 
 fn DescriptorSetLayout! createDescriptorLayout(WriteDescriptorSet[] layouts, ShaderStageFlags[] flags, Device device) {
