@@ -56,8 +56,11 @@ struct Material
 
     float3 getNormal(float2 tex_pos, float3x3 tbn)
     {
-        float4 normal_texture = image_samplers[normalTexture.sampler].Sample(tex_pos);
-        return mul(tbn, normalize(normal_texture.xyz * 2.0 - 1.0));
+        if (normalTexture.can_sample()) {
+            float4 normal_texture = image_samplers[normalTexture.sampler].Sample(tex_pos);
+            return mul(tbn, normalize(normal_texture.xyz * 2.0 - 1.0));
+        }
+        return float3(1.0);
     }
 };
 
@@ -65,6 +68,7 @@ struct PushData
 {
     int material_index;
     bool has_skin;
+    uint light_index;
     Uniform *uniform;
 };
 
@@ -87,11 +91,15 @@ cbuffer Buffers
     Light *lights;
     Material *materials;
     float4x4 *joints;
+    float4x4 *light_matrices;
     uint light_count;
 }
 
 [vk_binding(1)]
 uniform Sampler2D image_samplers[];
+
+[vk_binding(2)]
+uniform Sampler2D shadow_samplers[];
 
 struct Vertex
 {
@@ -160,10 +168,10 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
             vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
-    Uniform* uniform = push_constant.uniform;
 
+    Uniform* uniform = push_constant.uniform;
     float4 frag_pos = mul(mul(uniform.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
-    float4 vertex_pos = mul(mul(uniform.perspective, push_constant.uniform.view), frag_pos);
+    float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
 
     float4 normal = normalize(mul(uniform.node_inverse_matrix, vertex.normal));
     float4 tangent = normalize(mul(uniform.node_inverse_matrix, vertex.tangent));
@@ -187,50 +195,59 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
-    Material material;
-    float4 diffuse_color = float4(0.4, 0.3, 0.3, 1.0);
-    float4 specular_color = float4(0.0, 0.0, 0.0, 0.0);
+
+    Uniform *uniform = push_constant.uniform;
 
     if (input.material_index >= 0)
     {
-        material = materials[input.material_index];
-        diffuse_color = material.getBaseColor(input.tex_cord);
+        Material material = materials[input.material_index];
+        float4 diffuse_texture = material.getBaseColor(input.tex_cord);
+        float3 normal_texture = material.getNormal(input.tex_cord, input.tbn);
+
+        if (diffuse_texture.a == 0.0)
+            discard;
+
+        // Calculate lights
+        for (int i = 0; i < light_count; i++)
+        {
+            Light light = lights[i];
+            float3 light_dir = normalize(light.position.xyz - input.frag_pos.xyz);
+            float3 eye = normalize(-input.frag_pos.xyz);
+
+            float3 halfway = normalize(light_dir + eye);
+            float specularIntensity = max(0.0, dot(normal_texture, halfway));
+
+            float4 diffuseTemp = float4(clamp(diffuse_texture.rgb * light.color.rgb * specularIntensity, 0, 1), diffuse_texture.a);
+            float4 specularTemp = clamp(diffuse_texture * float4(light.color.rgb, 1.0) * pow(specularIntensity, material.emissiveStrength), 0, 1);
+
+            // Shadow color
+            float4x4 light_view = light_matrices[i];
+            float4 shadow_pos = mul(light_view, float4(input.frag_pos, 1.0));
+
+            float3 posLightSpace = shadow_pos.xyz / shadow_pos.w;
+            float2 shadowCords = posLightSpace.xy * 0.5 + 0.5;
+
+            float4 occluderDepth = shadow_samplers[i].Sample(shadowCords.xy);
+            float shadowFactor = occluderDepth.x + 0.001 > posLightSpace.z ? 1.0 : 0.0;
+
+            // ambient += ambient_light;
+            diffuse_texture += diffuseTemp * shadowFactor;
+            // light_color *= shadowFactor;
+        }
+
+        return diffuse_texture;
     }
 
-    if (diffuse_color.a == 0.0)
-        discard;
-
-    // Calculate lights
-    for (int i = 0; i < light_count; i++)
-    {
-        Light light = lights[i];
-
-        float3 light_dir = normalize(light.position.xyz - input.frag_pos.xyz);
-        float3 eye = normalize(-input.frag_pos.xyz);
-        float3 halfway = normalize(light_dir + eye);
-
-        float3 normal = material.normalTexture.can_sample() ? material.getNormal(input.tex_cord, input.tbn) : input.normal;
-        float specularIntensity = max(0.0, dot(normal, halfway));
-
-        float4 diffuseTemp = float4(clamp(diffuse_color.rgb * light.color.rgb * specularIntensity, 0, 1), diffuse_color.a);
-
-        // float3 reflectedDirection = normalize(-reflect(light_dir, normal));
-
-        float4 specularTemp = clamp(diffuse_color * float4(light.color.rgb, 1.0) * pow(specularIntensity, material.emissiveStrength), 0, 1);
-
-        diffuse_color += diffuseTemp;
-
-        specular_color += specularTemp;
-    }
-
-    return diffuse_color + specular_color * material.emissiveFactor;
+    return float4(1.0);
 }
 
-
-
+struct ShadowData
+{
+    float4 sv_position : SV_Position;
+};
 
 [shader("vertex")]
-float4 vertexShadow(uint32_t vertID: SV_VertexID)
+ShadowData vertexShadow(uint32_t vertID: SV_VertexID)
 {
     Vertex vertex = vertices[vertID];
     float4x4 skin_matrix = {
@@ -251,8 +268,11 @@ float4 vertexShadow(uint32_t vertID: SV_VertexID)
             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
 
-    float4 frag_pos = mul(mul(uniform.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
-    float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
+    float4x4 light_view = light_matrices[push_constant.light_index];
 
-    return vertex_pos;
+    float4 frag_pos = mul(mul(uniform.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
+
+    return {
+        mul(light_view, frag_pos)
+    };
 }

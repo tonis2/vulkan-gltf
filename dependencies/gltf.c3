@@ -1476,13 +1476,10 @@ fn Matrix4f Node.globalMatrix(&self) {
 }
 
 fn char[]! parse_base64(char[] data, usz size) {
-    char[] buffer_data = mem::new_array(char, (usz)(size + 2));
-    Base64Decoder decoder;
-    decoder.init(base64::STD_ALPHABET, -1)!;
-    // Decode buffer from base64
-    // Offset base64 header
     usz offset = ((String)data).index_of_char(';')! + 8;
-    if (catch err = decoder.decode(data[offset..], buffer_data)) {
+    char[]! buffer_data = base64::decode(data[offset..], allocator: allocator::heap());
+
+    if (catch err = buffer_data) {
         io::printfn("Buffer parsing error: '%s'.", err);
         return ParseError.BROKEN_BUFFER?;
     };

@@ -79,8 +79,6 @@ fn uint! DeviceContext.next_image(self) {
     Semaphore wait_semaphore = self.wait_semaphores[self.frame];
     
     vk::waitForFences(self.device, 1, &frame_fence, vk::TRUE, uint.max)!;
-
-
     vk::resetFences(self.device, 1, &frame_fence)!;
 
     return self.swapchain.getNextImage(self.device, wait_semaphore);
