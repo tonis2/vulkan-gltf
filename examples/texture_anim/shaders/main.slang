@@ -56,7 +56,8 @@ struct Material
 
     float3 getNormal(float2 tex_pos, float3x3 tbn)
     {
-        if (normalTexture.can_sample()) {
+        if (normalTexture.can_sample())
+        {
             float4 normal_texture = image_samplers[normalTexture.sampler].Sample(tex_pos);
             return mul(tbn, normalize(normal_texture.xyz * 2.0 - 1.0));
         }
@@ -169,7 +170,7 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
 
-    Uniform* uniform = push_constant.uniform;
+    Uniform *uniform = push_constant.uniform;
     float4 frag_pos = mul(mul(uniform.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
 
@@ -212,9 +213,9 @@ float4 fragmentMain(FragmentData input)
         {
             Light light = lights[i];
             float3 light_dir = normalize(light.position.xyz - input.frag_pos.xyz);
-            float3 eye = normalize(-input.frag_pos.xyz);
+            float3 eye = normalize(input.frag_pos.xyz);
 
-            float3 halfway = normalize(light_dir + eye);
+            float3 halfway = normalize(light.position.xyz - input.frag_pos.xyz + eye);
             float specularIntensity = max(0.0, dot(normal_texture, halfway));
 
             float4 diffuseTemp = float4(clamp(diffuse_texture.rgb * light.color.rgb * specularIntensity, 0, 1), diffuse_texture.a);
@@ -223,15 +224,18 @@ float4 fragmentMain(FragmentData input)
             // Shadow color
             float4x4 light_view = light_matrices[i];
             float4 shadow_pos = mul(light_view, float4(input.frag_pos, 1.0));
+            shadow_pos = shadow_pos / shadow_pos.w;
+            float3 shadow_cords = float3(
+                shadow_pos.xy * float2(0.5, -0.5) + 0.5,
+                shadow_pos.z);
 
-            float3 posLightSpace = shadow_pos.xyz / shadow_pos.w;
-            float2 shadowCords = posLightSpace.xy * 0.5 + 0.5;
 
-            float4 occluderDepth = shadow_samplers[i].Sample(shadowCords.xy);
-            float shadowFactor = occluderDepth.x + 0.001 > posLightSpace.z ? 1.0 : 0.0;
+            float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
+            const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
+            float shadowFactor = shadow_cords.z < occluderDepth.x + 0.0001 || outOfView ? 1.0 : 0.0;
 
             // ambient += ambient_light;
-            diffuse_texture += diffuseTemp * shadowFactor;
+            diffuse_texture += diffuseTemp + specularTemp * shadowFactor;
             // light_color *= shadowFactor;
         }
 
@@ -257,7 +261,7 @@ ShadowData vertexShadow(uint32_t vertID: SV_VertexID)
         0, 0, 0, 1
     };
 
-    Uniform* uniform = push_constant.uniform;
+    Uniform *uniform = push_constant.uniform;
 
     if (push_constant.has_skin)
     {
