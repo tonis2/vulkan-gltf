@@ -492,29 +492,6 @@ fn void! main()
         .extent = context.extent,
     });
 
-    ImageMemoryBarrier2* shadow_map_barriers = mem::new_array(ImageMemoryBarrier2, gltf.lights.len());
-    defer mem::free(shadow_map_barriers);
-
-    foreach (i, light: gltf.lights) {
-        shadow_map_barriers[i] = {
-            .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .image = shadow_images[i],
-            .srcStageMask = 0,
-            .dstStageMask = vk::PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-            .srcAccessMask = 0,
-            .dstAccessMask = vk::ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | vk::ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            .oldLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            .newLayout = vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            .subresourceRange = {
-                .aspectMask = vk::IMAGE_ASPECT_DEPTH_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            }
-        };
-    }
-
     while (running) {
         uint next_image = context.next_image()!!;
 
@@ -641,12 +618,6 @@ fn void! main()
         }
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-        DependencyInfo barrier_info = vk::dependencyInfo();
-        barrier_info.pImageMemoryBarriers = shadow_map_barriers;
-        barrier_info.imageMemoryBarrierCount = (uint)gltf.lights.len();
-        vk::cmdPipelineBarrier2(command_buffer, &barrier_info); 
-    
         // Draw color view
         rendering_info.setColorAttachments({ main_render_target });
         rendering_info.setDepthAttachment(&main_depth_target);
