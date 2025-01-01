@@ -16,6 +16,7 @@ struct Vertex {
     Vec4f pos;
     Vec4f normal;
     Vec4f tangent;
+    Vec4f bitangent;
     Vec4f skin_pos;
     Vec4f skin_weight;
     Vec2f tex_cord;
@@ -154,12 +155,14 @@ fn void! main()
                     return gltf.@castBuffer(accessor, i, Vec4f);
                 |};
 
+                Vec4f bitangent = Vec4f {normal.xyz.cross(tangent.xyz) * tangent.w, 1.0};
                 Vec4f position = gltf.@castBuffer(pos_accessor, i, Vec4f);
 
                 vertices.push({
                     .pos = position,
                     .normal = normal,
                     .tangent = tangent,
+                    .bitangent = bitangent,
                     .tex_cord = tex_cord,
                     .skin_pos = skin_pos,
                     .skin_weight = skin_weight,
@@ -585,7 +588,7 @@ fn void! main()
         vk::cmdSetCullMode(command_buffer, vk::CULL_MODE_NONE);
         vk::cmdSetPolygonModeEXT(command_buffer, vk::POLYGON_MODE_FILL);
         vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-        vk::cmdSetDepthCompareOp(command_buffer, vk::COMPARE_OP_LESS);
+        vk::cmdSetDepthCompareOp(command_buffer, vk::COMPARE_OP_LESS_OR_EQUAL);
         vk::cmdSetDepthTestEnable(command_buffer, vk::TRUE);
         vk::cmdSetDepthWriteEnable(command_buffer, vk::TRUE);
         vk::cmdSetLineWidth(command_buffer, 1.0);
@@ -653,7 +656,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
         Matrix4f node_matrix = node.globalMatrix().transpose();
-        Matrix4f inverse_node_matrix = node_matrix.inverse()!!;
+        Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
 
         uniform_buffer.upload(&node_matrix, size: Matrix4f.sizeof, offset: frame_index * Uniform.sizeof + Uniform.node_matrix.offsetof);
         uniform_buffer.upload(&inverse_node_matrix, size: Matrix4f.sizeof, offset: frame_index * Uniform.sizeof + Uniform.inverse_node_matrix.offsetof);
