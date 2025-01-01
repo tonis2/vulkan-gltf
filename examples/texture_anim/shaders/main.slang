@@ -69,7 +69,6 @@ struct PushData
 {
     int material_index;
     bool has_skin;
-    uint light_index;
     Uniform *uniform;
 };
 
@@ -80,6 +79,7 @@ struct Uniform
     float4 eye;
     float4x4 node_matrix;
     float4x4 node_inverse_matrix;
+    uint light_index;
 }
 
 [vk_push_constant]
@@ -229,13 +229,12 @@ float4 fragmentMain(FragmentData input)
                 shadow_pos.xy * float2(0.5, -0.5) + 0.5,
                 shadow_pos.z);
 
-
             float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
             const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
-            float shadowFactor = shadow_cords.z < occluderDepth.x + 0.0001 || outOfView ? 1.0 : 0.0;
+            float shadowFactor = shadow_cords.z < occluderDepth.x + 0.00012 || outOfView ? 1.0 : 0.0;
 
             // ambient += ambient_light;
-            diffuse_texture += diffuseTemp + specularTemp * shadowFactor;
+            diffuse_texture += diffuseTemp * shadowFactor;
             // light_color *= shadowFactor;
         }
 
@@ -272,7 +271,7 @@ ShadowData vertexShadow(uint32_t vertID: SV_VertexID)
             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
 
-    float4x4 light_view = light_matrices[push_constant.light_index];
+    float4x4 light_view = light_matrices[uniform.light_index];
 
     float4 frag_pos = mul(mul(uniform.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
 

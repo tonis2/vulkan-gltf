@@ -24,7 +24,6 @@ struct Vertex {
 struct PushConstantData {
     int material_index;
     bool has_skin;
-    uint light_index;
     DeviceAddress uniform_buffer;
 }
 
@@ -34,6 +33,7 @@ struct Uniform {
     Vec4f eye;
     Matrix4f node_matrix;
     Matrix4f inverse_node_matrix;
+    uint light_index;
 }
 
 // Used to send buffer device addresses to GPU
@@ -612,8 +612,10 @@ fn void! main()
             rendering_info.pColorAttachments = null;
             rendering_info.setDepthAttachment(&shadow_depth_target);
 
+            uniform_buffer.upload(&light_index, size: uint.sizeof, offset: context.frame * Uniform.sizeof + Uniform.light_index.offsetof);
+
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout, context.frame, light_index);
+            foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout, context.frame);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -637,7 +639,7 @@ fn void! main()
     context.device.waitIdle();
 }
 
-fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout, uint frame_index, uint light_index = 0) {
+fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout, uint frame_index) {
     bool skinned_node = node.hasSkin();
     if (skinned_node) {
         Skin skin = gltf.skins[node.skin];
@@ -664,7 +666,6 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             PushConstantData constant_data = {
                 .material_index = material_index,
                 .has_skin = skinned_node,
-                .light_index = light_index,
                 .uniform_buffer = uniform_buffer.address + (frame_index * Uniform.sizeof),
             };
 
@@ -674,5 +675,5 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
     }
 
     // Draw child nodes
-    foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout, frame_index, light_index);
+    foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout, frame_index);
 }
