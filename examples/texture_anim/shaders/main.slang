@@ -14,8 +14,9 @@ struct Light
     float4 illuminate(Material material, FragmentData input, float3 eye) {
         float3 normal = material.getNormal(input.tex_cord, input.tbn);
         float3 L = position.xyz - input.frag_pos;
-        let distance = length(L);
-        let lambert = max(dot(normalize(L), normal), 0.0);
+        let lightSqrDist = dot(L, L);
+        let lightDirVS = L * rsqrt(lightSqrDist);
+        let lambert = intensity * 0.1 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
 
         return lambert * color;
     }
@@ -243,7 +244,7 @@ float4 fragmentMain(FragmentData input)
             const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
             float shadowFactor = shadow_cords.z < occluderDepth.x + 0.00060 || outOfView ? 1.0 : 0.0;
 
-            light_factor += (color.rgb + float3(0.5)) * shadowFactor;
+            light_factor += (color.rgb ) * shadowFactor;
         }
 
         return diffuse_texture * float4(light_factor, 1.0);

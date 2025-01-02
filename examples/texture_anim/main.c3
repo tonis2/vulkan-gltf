@@ -24,7 +24,7 @@ struct Vertex {
 
 struct PushConstantData {
     int material_index;
-    bool has_skin;
+    int has_skin;
     DeviceAddress uniform_buffer;
 }
 
@@ -668,7 +668,7 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
     
             PushConstantData constant_data = {
                 .material_index = material_index,
-                .has_skin = skinned_node,
+                .has_skin = (int)skinned_node,
                 .uniform_buffer = uniform_buffer.address + (frame_index * Uniform.sizeof),
             };
 
