@@ -13,12 +13,11 @@ struct Light
 
     float4 illuminate(Material material, FragmentData input, float3 eye) {
         float3 normal = material.getNormal(input.tex_cord, input.tbn);
-        float3 V = normalize(eye.xyz - input.frag_pos);
-        float3 delta = position.xyz - input.frag_pos;
-        float d = length(delta);
-        float3 direction = normalize(delta);
-        float3 illuminance = intensity / (d * d);
-        return float4(color.rgb, 1.0) * material.evaluate(normal, direction, V);
+        float3 L = position.xyz - input.frag_pos;
+        let distance = length(L);
+        let lambert = max(dot(normalize(L), normal), 0.0);
+
+        return lambert * color;
     }
 };
 
@@ -53,13 +52,6 @@ struct Material
     TextureInfo emissiveTexture;
     TextureInfo baseColorTexture;
     TextureInfo metallicRoughnessTexture;
-
-    float4 evaluate(float3 normal, float3 direction, float3 eye) {
-        float nDotL = saturate(dot(normal, direction));
-        float3 H = normalize(direction + eye);
-        float nDotH = saturate(dot(normal, H));
-        return emissiveStrength * nDotL + 1.0 * pow(nDotH, 1.0);
-    }
 
     float4 getBaseColor(float2 tex_pos)
     {
@@ -226,7 +218,7 @@ float4 fragmentMain(FragmentData input)
     {
         Material material = materials[input.material_index];
         float4 diffuse_texture = material.getBaseColor(input.tex_cord);
-       
+        float3 light_factor = float3(0.0);
 
         if (diffuse_texture.a == 0.0)
             discard;
@@ -251,10 +243,10 @@ float4 fragmentMain(FragmentData input)
             const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
             float shadowFactor = shadow_cords.z < occluderDepth.x + 0.00060 || outOfView ? 1.0 : 0.0;
 
-            diffuse_texture *= saturate(color) * shadowFactor;
+            light_factor += (color.rgb + float3(0.5)) * shadowFactor;
         }
 
-        return diffuse_texture;
+        return diffuse_texture * float4(light_factor, 1.0);
     }
 
     return float4(1.0);
