@@ -22,19 +22,21 @@ struct Vertex {
     Vec2f tex_cord;
 }
 
-struct PushConstantData {
+struct InstanceData {
     int material_index;
     int has_skin;
-    DeviceAddress uniform_buffer;
+    Matrix4f node_matrix;
+    Matrix4f inverse_node_matrix;
+}
+
+struct PushConstantData {
+    uint light_index;
 }
 
 struct Uniform {
     Matrix4f perspective;
     Matrix4f view;
     Vec4f eye;
-    Matrix4f node_matrix;
-    Matrix4f inverse_node_matrix;
-    uint light_index;
 }
 
 // Used to send buffer device addresses to GPU
@@ -44,6 +46,8 @@ struct AddressBuffer {
     vk::DeviceAddress materials;
     vk::DeviceAddress joints;
     vk::DeviceAddress light_matrixes;
+    vk::DeviceAddress instance_buffer;
+    vk::DeviceAddress uniform_buffer;
     uint light_count;
 }
 
@@ -54,6 +58,8 @@ MemoryBlock material_buffer;
 MemoryBlock uniform_buffer;
 MemoryBlock joint_buffer;
 MemoryBlock light_matrix_buffer;
+MemoryBlock instance_buffer;
+MemoryBlock indirect_commands_buffer;
 MemoryBlock address_buffer;
 
 Gltf gltf;
@@ -64,7 +70,8 @@ AnimationChannels animaton_data;
 
 DescriptorImages descriptor_images;
 DescriptorImages shadow_maps;
-ImageList shadow_images;
+
+List(<DrawIndexedIndirectCommand>) indirect_commands;
 
 Vec2f window_size = {800, 600};
 char[*] shader = $embed("./shaders/main.spv");
@@ -99,8 +106,6 @@ fn void! main()
         foreach (prim_index, &primitive: mesh.primitives) {
             Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-            primitive.attributes["first_index"] = indices.len();
-            primitive.attributes["first_vertex"] = vertices.len();
 
             for (usz i; i < index_accessor.count; i++) {
                 indices.push(gltf.@castBuffer(index_accessor, i, ushort));
@@ -157,7 +162,7 @@ fn void! main()
 
                 Vec4f bitangent = Vec4f {normal.xyz.cross(tangent.xyz) * tangent.w, 1.0};
                 Vec4f position = gltf.@castBuffer(pos_accessor, i, Vec4f);
-
+               
                 vertices.push({
                     .pos = position,
                     .normal = normal,
@@ -167,6 +172,14 @@ fn void! main()
                     .skin_pos = skin_pos,
                     .skin_weight = skin_weight,
                 });
+
+                indirect_commands.push(DrawIndexedIndirectCommand {
+                    .indexCount = index_accessor.count,
+                    .firstInstance = 0,
+                    .instanceCount = 1,
+                    .firstIndex = (uint)indices.len(),
+                    .vertexOffset = (uint)vertices.len(),
+                });
             }
         }
     }
@@ -175,6 +188,7 @@ fn void! main()
         vertices.free();
         indices.free();
         joints.free();
+        indirect_commands.free();
     }
 
     if (!gltf.animations.is_empty()) animaton_data = gltf.load_animations({0});
@@ -226,6 +240,12 @@ fn void! main()
                 .setSize(gltf.lights.byte_size())
                 .bind(&device_allocation)!;
 
+    indirect_commands_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(indirect_commands.byte_size())
+                .bind(&device_allocation)!;
+
     light_matrix_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
@@ -250,10 +270,16 @@ fn void! main()
                 .setSize(AddressBuffer.sizeof)
                 .bind(&local_allocation)!;
 
+    instance_buffer = vk::bufferCreateInfo()
+                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
+                .setSize(InstanceData.sizeof * gltf.meshes.len())
+                .bind(&local_allocation)!;
+
     uniform_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(2 * Uniform.sizeof)
+                .setSize(Uniform.sizeof)
                 .bind(&local_allocation)!;                
 
     // Upload data to buffers
@@ -263,6 +289,8 @@ fn void! main()
         material_buffer.address,
         joint_buffer.address,
         light_matrix_buffer.address,
+        instance_buffer.address,
+        uniform_buffer.address,
         (uint)gltf.lights.len()
     };
     
@@ -274,16 +302,15 @@ fn void! main()
     };
 
     uniform_buffer.upload(&uniform_data, Uniform.sizeof);
-    uniform_buffer.upload(&uniform_data, Uniform.sizeof, offset: Uniform.sizeof);
-
     material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
     address_buffer.upload(&addresses, AddressBuffer.sizeof);
 
-    usz device_buffer_size = indices.byte_size() + vertices.byte_size() + gltf.lights.byte_size();
+    usz device_buffer_size = indices.byte_size() + vertices.byte_size() + gltf.lights.byte_size() + indirect_commands.byte_size();
     vk::@upload_from_stage(size: device_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
         stage_buffer.push(indices.entries, indices.byte_size());
         stage_buffer.push(vertices.entries, vertices.byte_size());
         stage_buffer.push(gltf.lights.entries, gltf.lights.byte_size());
+        stage_buffer.push(indirect_commands.entries, indirect_commands.byte_size());
 
         vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
              .srcOffset = 0,
@@ -301,6 +328,12 @@ fn void! main()
             .srcOffset = indices.byte_size() + vertices.byte_size(),
             .dstOffset = 0,
             .size = gltf.lights.byte_size()
+        });
+
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, indirect_commands_buffer.buffer, 1, &&BufferCopy {
+            .srcOffset = indices.byte_size() + vertices.byte_size() + gltf.lights.byte_size(),
+            .dstOffset = 0,
+            .size = indirect_commands.byte_size()
         });
     }!;
     
@@ -329,8 +362,7 @@ fn void! main()
 
     // Shadowmap depth
     foreach (i, light: gltf.lights) {
-        vk::Image shadow_image = shadow_maps.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
-        shadow_images.push(shadow_image);
+        shadow_maps.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
 
         // Upload light view matrixes
         Matrix4f light_view = camera.perspective.mul(matrix::look_at(<float>)(light.position, camera.target, {0.0, 1.0, 0.0})).transpose();
@@ -364,18 +396,18 @@ fn void! main()
             .setDstBinding(2)
             .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
             .setImageInfo(shadow_maps.array_view())
-        }, 
+        },
         ShaderStageFlags[]{
             vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
             vk::SHADER_STAGE_FRAGMENT_BIT,
             vk::SHADER_STAGE_FRAGMENT_BIT
         },
         PushConstantRange[]{
-                {
-                    .offset = 0,
-                    .size = PushConstantData.sizeof,
-                    .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
-                },
+            {
+                .offset = 0,
+                .size = PushConstantData.sizeof,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
+            },
         },
         context.device
     )!;
@@ -495,6 +527,8 @@ fn void! main()
         .extent = context.extent,
     });
 
+    foreach (node_index: scene.nodes) build_instances(gltf.nodes[node_index], &instance_buffer);
+
     while (running) {
         uint next_image = context.next_image()!!;
 
@@ -602,6 +636,8 @@ fn void! main()
 
         // Draw shadowmap
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);
+
+        // instance_buffer.reset();
         
         foreach (uint light_index, light: gltf.lights) {
             RenderingAttachmentInfo shadow_depth_target = vk::renderingAttachmentInfo()
@@ -615,10 +651,13 @@ fn void! main()
             rendering_info.pColorAttachments = null;
             rendering_info.setDepthAttachment(&shadow_depth_target);
 
-            uniform_buffer.upload(&light_index, size: uint.sizeof, offset: context.frame * Uniform.sizeof + Uniform.light_index.offsetof);
+            PushConstantData constant_data = {
+                .light_index = light_index,
+            };
 
+            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout, context.frame);
+            // vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -630,7 +669,8 @@ fn void! main()
         // Set uniform view, back to camera
         uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout.layout, context.frame);
+
+        // vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
@@ -642,8 +682,9 @@ fn void! main()
     context.device.waitIdle();
 }
 
-fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout, uint frame_index) {
+fn void build_instances(gltf::Node node, MemoryBlock* instance_buffer) {
     bool skinned_node = node.hasSkin();
+
     if (skinned_node) {
         Skin skin = gltf.skins[node.skin];
         foreach (joint_index, joint: skin.joints) {
@@ -656,27 +697,23 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
         Matrix4f node_matrix = node.globalMatrix().transpose();
-        Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
-
-        uniform_buffer.upload(&node_matrix, size: Matrix4f.sizeof, offset: frame_index * Uniform.sizeof + Uniform.node_matrix.offsetof);
-        uniform_buffer.upload(&inverse_node_matrix, size: Matrix4f.sizeof, offset: frame_index * Uniform.sizeof + Uniform.inverse_node_matrix.offsetof);
-
+       
         foreach (primitive: mesh.primitives) {
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
             int material_index = (int)primitive.attributes["material"] ?? -1;
-    
-            PushConstantData constant_data = {
-                .material_index = material_index,
+
+            InstanceData data = {
                 .has_skin = (int)skinned_node,
-                .uniform_buffer = uniform_buffer.address + (frame_index * Uniform.sizeof),
+                .material_index = material_index,
+                .node_matrix = node_matrix,
+                .inverse_node_matrix = node_matrix.inverse()!!.transpose()
             };
 
-            vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexed(buffer, index_accessor.count, 1, (uint)primitive.attributes["first_index"] ?? 0, (uint)primitive.attributes["first_vertex"] ?? 0, 0);
+            instance_buffer.push(&data, size: InstanceData.sizeof);
         }
     }
 
     // Draw child nodes
-    foreach (child_index: node.children) drawNode(gltf.nodes[child_index], buffer, pipeline_layout, frame_index);
+    foreach (child_index: node.children) build_instances(gltf.nodes[child_index], instance_buffer);
 }

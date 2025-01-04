@@ -75,11 +75,12 @@ struct Material
     }
 };
 
-struct PushData
+struct Instance
 {
     int material_index;
     int has_skin;
-    Uniform *uniform;
+    float4x4 node_matrix;
+    float4x4 inverse_node_matrix;
 };
 
 struct Uniform
@@ -87,10 +88,12 @@ struct Uniform
     float4x4 perspective;
     float4x4 view;
     float4 eye;
-    float4x4 node_matrix;
-    float4x4 node_inverse_matrix;
-    uint light_index;
 }
+
+struct PushData
+{
+    uint light_index;
+};
 
 [vk_push_constant]
 const PushData push_constant;
@@ -103,6 +106,8 @@ cbuffer Buffers
     Material *materials;
     float4x4 *joints;
     float4x4 *light_matrices;
+    Instance *instances;
+    Uniform *uniform;
     uint light_count;
 }
 
@@ -161,11 +166,10 @@ struct FragmentData
     float4 sv_position : SV_Position;
 };
 
-
-
 [shader("vertex")]
 FragmentData vertexMain(uint32_t vertID: SV_VertexID)
 {
+    Instance instance = instances[vertID];
     Vertex vertex = vertices[vertID];
     float4x4 skin_matrix = {
         1, 0, 0, 0,
@@ -174,7 +178,7 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
         0, 0, 0, 1
     };
 
-    if (push_constant.has_skin > 0)
+    if (instance.has_skin > 0)
     {
         skin_matrix =
             vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
@@ -183,21 +187,20 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
 
-    Uniform *uniform = push_constant.uniform;
-    float4x4 node_world = mul(uniform.node_matrix, skin_matrix);
+    float4x4 node_world = mul(instance.node_matrix, skin_matrix);
     float4x4 world_view = mul(uniform.view, node_world);
 
     float4 frag_pos = mul(node_world, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
 
-    float4 normal = normalize(mul(uniform.node_inverse_matrix, vertex.normal));
-    float4 tangent = normalize(mul(uniform.node_inverse_matrix, vertex.tangent));
-    float4 bitangent = normalize(mul(uniform.node_inverse_matrix, vertex.bitangent));
+    float4 normal = normalize(mul(instance.inverse_node_matrix, vertex.normal));
+    float4 tangent = normalize(mul(instance.inverse_node_matrix, vertex.tangent));
+    float4 bitangent = normalize(mul(instance.inverse_node_matrix, vertex.bitangent));
     float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
 
     FragmentData output = {
-        vertex.transformed_tex_pos(materials[push_constant.material_index]),
-        push_constant.material_index,
+        vertex.transformed_tex_pos(materials[instance.material_index]),
+        instance.material_index,
         tbn,
         normal.xyz,
         frag_pos.xyz,
@@ -212,9 +215,6 @@ FragmentData vertexMain(uint32_t vertID: SV_VertexID)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
-
-    Uniform *uniform = push_constant.uniform;
-
     if (input.material_index >= 0)
     {
         Material material = materials[input.material_index];
@@ -261,6 +261,7 @@ struct ShadowData
 [shader("vertex")]
 ShadowData vertexShadow(uint32_t vertID: SV_VertexID)
 {
+    Instance instance = instances[vertID];
     Vertex vertex = vertices[vertID];
     float4x4 skin_matrix = {
         1, 0, 0, 0,
@@ -269,9 +270,7 @@ ShadowData vertexShadow(uint32_t vertID: SV_VertexID)
         0, 0, 0, 1
     };
 
-    Uniform *uniform = push_constant.uniform;
-
-    if (push_constant.has_skin > 0)
+    if (instance.has_skin > 0)
     {
         skin_matrix =
             vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
@@ -280,9 +279,9 @@ ShadowData vertexShadow(uint32_t vertID: SV_VertexID)
             vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
     }
 
-    float4x4 light_view = light_matrices[uniform.light_index];
+    float4x4 light_view = light_matrices[push_constant.light_index];
 
-    float4 frag_pos = mul(mul(uniform.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
+    float4 frag_pos = mul(mul(instance.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
 
     return {
         mul(light_view, frag_pos)
