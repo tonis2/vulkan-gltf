@@ -172,15 +172,15 @@ fn void! main()
                     .skin_pos = skin_pos,
                     .skin_weight = skin_weight,
                 });
-
-                indirect_commands.push(DrawIndexedIndirectCommand {
-                    .indexCount = index_accessor.count,
-                    .firstInstance = 0,
-                    .instanceCount = 1,
-                    .firstIndex = (uint)indices.len(),
-                    .vertexOffset = (uint)vertices.len(),
-                });
             }
+
+            indirect_commands.push(DrawIndexedIndirectCommand {
+                .indexCount = index_accessor.count,
+                .firstInstance = 0,
+                .instanceCount = 1,
+                .firstIndex = (uint)indices.len(),
+                .vertexOffset = (uint)vertices.len(),
+            });
         }
     }
 
@@ -528,7 +528,7 @@ fn void! main()
     });
 
     foreach (node_index: scene.nodes) build_instances(gltf.nodes[node_index], &instance_buffer);
-
+    io::printfn("commands %d", indirect_commands.len());
     while (running) {
         uint next_image = context.next_image()!!;
 
@@ -636,8 +636,6 @@ fn void! main()
 
         // Draw shadowmap
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);
-
-        // instance_buffer.reset();
         
         foreach (uint light_index, light: gltf.lights) {
             RenderingAttachmentInfo shadow_depth_target = vk::renderingAttachmentInfo()
@@ -657,7 +655,7 @@ fn void! main()
 
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            // vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+            vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -670,7 +668,7 @@ fn void! main()
         uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        // vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+        vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

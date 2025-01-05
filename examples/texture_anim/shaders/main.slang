@@ -166,11 +166,16 @@ struct FragmentData
     float4 sv_position : SV_Position;
 };
 
+struct VertexInput {
+    uint32_t vertID : SV_VertexID;
+    uint32_t drawID : SV_DrawIndex;
+}
+
 [shader("vertex")]
-FragmentData vertexMain(uint32_t vertID: SV_VertexID)
+FragmentData vertexMain(VertexInput input)
 {
-    Instance instance = instances[vertID];
-    Vertex vertex = vertices[vertID];
+    Instance instance = instances[input.drawID];
+    Vertex vertex = vertices[input.vertID];
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -259,10 +264,10 @@ struct ShadowData
 };
 
 [shader("vertex")]
-ShadowData vertexShadow(uint32_t vertID: SV_VertexID)
+ShadowData vertexShadow(VertexInput input)
 {
-    Instance instance = instances[vertID];
-    Vertex vertex = vertices[vertID];
+    Instance instance = instances[input.drawID];
+    Vertex vertex = vertices[input.vertID];
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
