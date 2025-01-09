@@ -183,14 +183,14 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    // if (instance.has_skin > 0)
-    // {
-    //     skin_matrix =
-    //         vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
-    //         vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
-    //         vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
-    //         vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
-    // }
+    if (instance.has_skin > 0)
+    {
+        skin_matrix =
+            vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
+            vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
+            vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
+            vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
+    }
 
     float4x4 node_world = mul(instance.node_matrix, skin_matrix);
     float4x4 world_view = mul(uniform.view, node_world);

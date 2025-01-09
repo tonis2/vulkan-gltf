@@ -70,7 +70,7 @@ fn void! main()
     defer win.free();
 
     // Vulkan context
-    DeviceContext context = helpers::createContext(win, debug: false)!!;
+    DeviceContext context = helpers::createContext(win, debug: true)!!;
     defer context.free();
 
     // Create camera

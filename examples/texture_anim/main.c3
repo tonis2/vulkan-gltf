@@ -295,7 +295,6 @@ fn void! main()
         (uint)gltf.lights.len()
     };
     
-   // Use 2 uniform buffers, so data uploading will be in sync between frames
    Uniform uniform_data = Uniform {
         .perspective = camera.perspective.transpose(),
         .view = camera.view.transpose(),
@@ -462,6 +461,10 @@ fn void! main()
     .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
     .setDepthBiasEnable(vk::FALSE);
 
+    PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfo()
+            .setViewports({{}})
+            .setScissors({{}});
+
    PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo()
     .setDynamicStates(
     {
@@ -489,10 +492,13 @@ fn void! main()
         .setName("fragmentMain")
     })
     .setLayout(pipeline_layout.layout)
+    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+    .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0))
     .setDynamicState(&dynamic_state)
     .setRasterizationState(&rasterisation_state)
     .setMultisampleState(&multi_sample_state)
     .setColorBlendState(&color_blend_state)
+    .setViewportState(&view_port_state)
     .setNext(&p_rendering_info)
     .build(context.device)!;
 
@@ -504,10 +510,13 @@ fn void! main()
         .setName("vertexShadow"),
     })
     .setLayout(pipeline_layout.layout)
+    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+    .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0))
     .setDynamicState(&dynamic_state)
     .setRasterizationState(&rasterisation_state)
     .setMultisampleState(&multi_sample_state)
     .setColorBlendState(&color_blend_state)
+    .setViewportState(&view_port_state)
     .setNext(&p_rendering_info)
     .build(context.device)!;
 
