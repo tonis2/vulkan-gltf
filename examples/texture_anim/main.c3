@@ -31,6 +31,7 @@ struct InstanceData {
 
 struct PushConstantData {
     uint light_index;
+    uint draw_index;
 }
 
 struct Uniform {
@@ -88,11 +89,11 @@ fn void! main()
             .y = 0
         },
         name: "GLTF animation"
-    );
+    )!!;
     defer win.free();
 
     // Vulkan context
-    DeviceContext context = helpers::createContext(win, debug: true)!!;
+    DeviceContext context = helpers::createContext(win, debug: false)!!;
     defer context.free();
 
     // Create camera
@@ -106,6 +107,14 @@ fn void! main()
         foreach (prim_index, &primitive: mesh.primitives) {
             Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+
+            indirect_commands.push(DrawIndexedIndirectCommand {
+                .indexCount = index_accessor.count,
+                .firstInstance = 0,
+                .instanceCount = 1,
+                .firstIndex = (uint)indices.len(),
+                .vertexOffset = (uint)vertices.len(),
+            });
 
             for (usz i; i < index_accessor.count; i++) {
                 indices.push(gltf.@castBuffer(index_accessor, i, ushort));
@@ -173,14 +182,6 @@ fn void! main()
                     .skin_weight = skin_weight,
                 });
             }
-
-            indirect_commands.push(DrawIndexedIndirectCommand {
-                .indexCount = index_accessor.count,
-                .firstInstance = 0,
-                .instanceCount = 1,
-                .firstIndex = (uint)indices.len(),
-                .vertexOffset = (uint)vertices.len(),
-            });
         }
     }
 
@@ -452,6 +453,15 @@ fn void! main()
         .alphaBlendOp = vk::BLEND_OP_ADD,
     }});
 
+    PipelineRasterizationStateCreateInfo rasterisation_state = vk::pipelineRasterizationStateCreateInfo()
+    .setDepthClampEnable(vk::FALSE)
+    .setRasterizerDiscardEnable(vk::FALSE)
+    .setPolygonMode(vk::POLYGON_MODE_FILL)
+    .setLineWidth(1.0)
+    .setCullMode(vk::CULL_MODE_NONE)
+    .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
+    .setDepthBiasEnable(vk::FALSE);
+
    PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo()
     .setDynamicStates(
     {
@@ -480,11 +490,7 @@ fn void! main()
     })
     .setLayout(pipeline_layout.layout)
     .setDynamicState(&dynamic_state)
-    .setRasterizationState(
-        &&vk::pipelineRasterizationStateCreateInfo()
-        .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
-        .setDepthBiasEnable(vk::TRUE)
-    )
+    .setRasterizationState(&rasterisation_state)
     .setMultisampleState(&multi_sample_state)
     .setColorBlendState(&color_blend_state)
     .setNext(&p_rendering_info)
@@ -499,11 +505,7 @@ fn void! main()
     })
     .setLayout(pipeline_layout.layout)
     .setDynamicState(&dynamic_state)
-    .setRasterizationState(
-        &&vk::pipelineRasterizationStateCreateInfo()
-        .setFrontFace(vk::FRONT_FACE_COUNTER_CLOCKWISE)
-        .setDepthBiasEnable(vk::TRUE)
-    )
+    .setRasterizationState(&rasterisation_state)
     .setMultisampleState(&multi_sample_state)
     .setColorBlendState(&color_blend_state)
     .setNext(&p_rendering_info)
@@ -528,37 +530,29 @@ fn void! main()
     });
 
     foreach (node_index: scene.nodes) build_instances(gltf.nodes[node_index], &instance_buffer);
-    io::printfn("commands %d", indirect_commands.len());
+
+    Vec2f prev_mouse;
     while (running) {
-        uint next_image = context.next_image()!!;
-
-        c3w::Event event = win.getEvent();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
+        c3w::Event event = win.getEvent();
 
-        if (event.mouse_click == LEFT_MOUSE) {
-            MouseParams params = c3w::getMousePos(win);
-            camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
-            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
-            last_params = params;
+        if (win.is_pressed(LEFT_MOUSE)) {
+            Vec2f mouse_pos = win.getMousePos();
+            camera.rotate(mouse_pos.x - prev_mouse.x, -(mouse_pos.y - prev_mouse.y));
+            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+            prev_mouse = mouse_pos;
         }
-
+        
         switch (event.type) {
-            case c3w::MOUSE_PRESSED: {
-                if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
-                    camera.zoom(5);
-                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
-                }
-                if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
-                    camera.zoom(-5);
-                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
-                }
+            case MOUSE_PRESSED: {}
+            case MOUSE_RELEASED: {}
+            case KEY_PRESSED: {
+                if (event.value == ESCAPE) running = false;
             }
-            case c3w::MOUSE_RELEASED: {}
-            case c3w::KEY_PRESSED: {
-                if (event.value == c3w::ESCAPE) running = false;
-            }
+            default: {}
         }
 
+        uint next_image = context.next_image()!!;
         material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
 
         ImageMemoryBarrier2 begin_barrier = {
@@ -618,13 +612,14 @@ fn void! main()
         vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!;
 
         // Dynamic state
+        vk::cmdSetDepthTestEnable(command_buffer, vk::TRUE);
+        vk::cmdSetDepthWriteEnable(command_buffer, vk::TRUE);
         vk::cmdSetRasterizerDiscardEnable(command_buffer, vk::FALSE);
         vk::cmdSetCullMode(command_buffer, vk::CULL_MODE_NONE);
         vk::cmdSetPolygonModeEXT(command_buffer, vk::POLYGON_MODE_FILL);
         vk::cmdSetPrimitiveTopology(command_buffer, vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
         vk::cmdSetDepthCompareOp(command_buffer, vk::COMPARE_OP_LESS_OR_EQUAL);
-        vk::cmdSetDepthTestEnable(command_buffer, vk::TRUE);
-        vk::cmdSetDepthWriteEnable(command_buffer, vk::TRUE);
+ 
         vk::cmdSetLineWidth(command_buffer, 1.0);
         vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = context.extent, .offset = { .x = 0, .y = 0 }});

@@ -183,14 +183,14 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    if (instance.has_skin > 0)
-    {
-        skin_matrix =
-            vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
-            vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
-            vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
-            vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
-    }
+    // if (instance.has_skin > 0)
+    // {
+    //     skin_matrix =
+    //         vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
+    //         vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
+    //         vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
+    //         vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
+    // }
 
     float4x4 node_world = mul(instance.node_matrix, skin_matrix);
     float4x4 world_view = mul(uniform.view, node_world);
@@ -220,6 +220,7 @@ FragmentData vertexMain(VertexInput input)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
+   
     if (input.material_index >= 0)
     {
         Material material = materials[input.material_index];
@@ -255,7 +256,7 @@ float4 fragmentMain(FragmentData input)
         return diffuse_texture * float4(light_factor, 1.0);
     }
 
-    return float4(1.0);
+    return float4(0.5, 0.5, 0.5, 1.0);
 }
 
 struct ShadowData
@@ -285,7 +286,6 @@ ShadowData vertexShadow(VertexInput input)
     }
 
     float4x4 light_view = light_matrices[push_constant.light_index];
-
     float4 frag_pos = mul(mul(instance.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
 
     return {

@@ -66,11 +66,11 @@ fn void! main()
             .y = 0
         },
         name: "GLTF animation"
-    );
+    )!!;
     defer win.free();
 
     // Vulkan context
-    DeviceContext context = helpers::createContext(win, debug: true)!!;
+    DeviceContext context = helpers::createContext(win, debug: false)!!;
     defer context.free();
 
     // Create camera
@@ -487,37 +487,28 @@ fn void! main()
     Clock time = clock::now();
 
     bool running = true;
-    MouseParams last_params;
+    Vec2f prev_mouse;
 
     while (running) {
         c3w::Event event = win.getEvent();
 
-        if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
-
-        if (event.mouse_click == LEFT_MOUSE) {
-            MouseParams params = c3w::getMousePos(win);
-            camera.rotate((float)params.x - last_params.x, -((float)params.y - last_params.y));
+        if (win.is_pressed(LEFT_MOUSE)) {
+            Vec2f mouse_pos = win.getMousePos();
+            camera.rotate(mouse_pos.x - prev_mouse.x, -(mouse_pos.y - prev_mouse.y));
             uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
-            last_params = params;
+            prev_mouse = mouse_pos;
         }
-
+        
         switch (event.type) {
-            case c3w::MOUSE_PRESSED: {
-                if ((MouseButton)event.value == MOUSE_SCROLL_UP) {
-                    camera.zoom(5);
-                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
-                }
-                if ((MouseButton)event.value == MOUSE_SCROLL_DOWN) {
-                    camera.zoom(-5);
-                    uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
-                }
+            case MOUSE_PRESSED: {}
+            case MOUSE_RELEASED: {}
+            case KEY_PRESSED: {
+                if (event.value == ESCAPE) running = false;
             }
-            case c3w::MOUSE_RELEASED: {}
-            case c3w::KEY_PRESSED: {
-                if (event.value == c3w::ESCAPE) running = false;
-            }
+            default: {}
         }
 
+        if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
         uint next_image = context.next_image()!!;
 
         RenderPassBeginInfo render_pass_info = vk::renderPassBeginInfo()

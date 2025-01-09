@@ -79,7 +79,7 @@ fn void! main()
             .y = 0
         },
         name: "GLTF animation"
-    );
+    )!!;
     defer win.free();
 
     // Vulkan context

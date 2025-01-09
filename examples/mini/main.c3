@@ -28,7 +28,6 @@ struct AddressBuffer {
     vk::DeviceAddress gltf;
 }
 
-
 MemoryBlock gltf_buffer;
 MemoryBlock texture_buffer;
 MemoryBlock material_buffer;
@@ -46,6 +45,7 @@ Vec2f window_size = {800, 600};
 
 fn void! main()
 {
+
     c3w::Window win = c3w::new(
         params: {
             .width = (int)window_size.x,
@@ -474,8 +474,6 @@ fn void! main()
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
-
-        
 
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout);
 
