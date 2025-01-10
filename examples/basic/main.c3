@@ -76,7 +76,7 @@ fn void! main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    gltf = gltf::loadFile("assets/duck.gltf")!!;
     defer gltf.free();
 
     // Preload vertex data from GLTF
@@ -498,10 +498,18 @@ fn void! main()
             uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
             prev_mouse = mouse_pos;
         }
+
+        if (win.is_pressed(MOUSE_SCROLL_UP)) {
+            camera.zoom(5);
+            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+        }
+
+        if (win.is_pressed(MOUSE_SCROLL_DOWN)) {
+            camera.zoom(-5);
+            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+        }
         
         switch (event.type) {
-            case MOUSE_PRESSED: {}
-            case MOUSE_RELEASED: {}
             case KEY_PRESSED: {
                 if (event.value == ESCAPE) running = false;
             }

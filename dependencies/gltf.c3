@@ -1503,6 +1503,11 @@ macro Gltf.@castBuffer(&self, Accessor accessor, usz index, #type) {
     return bitcast(*(char[#type.sizeof]*)buffer.data[(start_offset + (index * index_offset))..], #type);
 }
 
+fn usz Gltf.get_offset(&self, Accessor accessor) {
+    BufferView bufferView = self.bufferViews[accessor.view];
+    return accessor.offset + bufferView.offset;
+}
+
 fn void Gltf.debugBuffer(Gltf* self, Accessor accessor) {
     BufferView bufferView = self.bufferViews[accessor.view];
     Buffer buffer = self.buffers[bufferView.buffer];

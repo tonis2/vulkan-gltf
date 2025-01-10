@@ -538,11 +538,13 @@ fn void! main()
         .extent = context.extent,
     });
 
-    foreach (node_index: scene.nodes) build_instances(gltf.nodes[node_index], &instance_buffer);
-
     Vec2f prev_mouse;
     while (running) {
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
+
+        instance_buffer.used_size = 0;
+        foreach (node_index: scene.nodes) build_instances(gltf.nodes[node_index], &instance_buffer);
+        
         c3w::Event event = win.getEvent();
 
         if (win.is_pressed(LEFT_MOUSE)) {
@@ -551,10 +553,18 @@ fn void! main()
             uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
             prev_mouse = mouse_pos;
         }
+
+        if (win.is_pressed(MOUSE_SCROLL_UP)) {
+            camera.zoom(5);
+            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+        }
+
+        if (win.is_pressed(MOUSE_SCROLL_DOWN)) {
+            camera.zoom(-5);
+            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+        }
         
         switch (event.type) {
-            case MOUSE_PRESSED: {}
-            case MOUSE_RELEASED: {}
             case KEY_PRESSED: {
                 if (event.value == ESCAPE) running = false;
             }
@@ -699,17 +709,16 @@ fn void build_instances(gltf::Node node, MemoryBlock* instance_buffer) {
     if (node.hasMesh()) {
         gltf::Mesh mesh = gltf.meshes[node.mesh];
         Matrix4f node_matrix = node.globalMatrix().transpose();
+        Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
        
         foreach (primitive: mesh.primitives) {
-            Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-            gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
             int material_index = (int)primitive.attributes["material"] ?? -1;
 
             InstanceData data = {
                 .has_skin = (int)skinned_node,
                 .material_index = material_index,
                 .node_matrix = node_matrix,
-                .inverse_node_matrix = node_matrix.inverse()!!.transpose()
+                .inverse_node_matrix = inverse_node_matrix
             };
 
             instance_buffer.push(&data, size: InstanceData.sizeof);

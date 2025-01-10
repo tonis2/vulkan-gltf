@@ -9,6 +9,11 @@ struct TextureInfo
     float pad;
     float2 offset;
     float2 scale;
+
+    bool can_sample()
+    {
+        return sampler >= 0;
+    }
 };
 
 struct Material
@@ -30,7 +35,7 @@ struct Material
 
     float4 getBaseColor(float2 tex_pos)
     {
-        if (baseColorTexture.sampler >= 0)
+        if (baseColorTexture.can_sample())
         {
             return image_samplers[baseColorTexture.sampler].Sample(tex_pos) * baseColorFactor;
         }
@@ -44,8 +49,11 @@ struct PushData
     float4x4 model_matrix;
     int material_index;
     bool has_skin;
-    uint mesh_count;
+    uint pos_offset;
+    uint normal_offset;
+    uint tex_offset;
 };
+
 
 struct Uniform
 {
@@ -57,13 +65,14 @@ struct Uniform
 [vk_push_constant]
 const PushData push_constant;
 
+
 [vk_binding(0)]
 cbuffer Buffers
 {
     float4x4 *joints;
     Uniform *uniform;
     Material *materials;
-    Vertices *gltf;
+    uint64_t *gltf_data;
 }
 
 [vk_binding(1)]
@@ -71,9 +80,9 @@ uniform Sampler2D image_samplers[];
 
 struct Vertices
 {
-    float3[24] position;
-    float3[24] normal;
-    float2[24] tex_cord;
+    float3[2399] position;
+    float3[2399] normal;
+    float2[2399] tex_cord;
 };
 
 // Output of the fragment shader
@@ -90,7 +99,7 @@ struct VertexOutPut
 };
 
 [shader("vertex")]
-VertexOutPut vertexMain(uint32_t vertID: SV_VertexID, uint32_t primID: SV_PrimitiveID)
+VertexOutPut vertexMain(uint32_t vertID: SV_VertexID, uint32_t drawId: SV_DrawIndex)
 {
 
     float4x4 skin_matrix = {
@@ -100,6 +109,10 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID, uint32_t primID: SV_Primit
         0, 0, 0, 1
     };
 
+    Vertices* vertices = (Vertices*)gltf_data;
+    float3* pos = (float3*)gltf_data;
+    // float3* normals = (float3*)gltf_data + 4347 * sizeof(float3);
+    float2* tex_cords = (float2*)gltf_data + (4347 * sizeof(float3));
     // if (push_constant.has_skin)
     // {
     //     skin_matrix =
@@ -111,10 +124,10 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID, uint32_t primID: SV_Primit
 
     VertexOutPut output = {
         {
-            gltf.tex_cord[vertID],
+            tex_cords[vertID],
             push_constant.material_index,
         },
-        mul(mul(mul(mul(uniform.projection, uniform.view), push_constant.model_matrix), skin_matrix), float4(gltf.position[vertID], 1.0))
+        mul(mul(mul(mul(uniform.projection, uniform.view), push_constant.model_matrix), skin_matrix), float4(pos[vertID], 1.0))
     };
 
     return output;
