@@ -16,7 +16,7 @@ struct Light
         float3 L = position.xyz - input.frag_pos;
         let lightSqrDist = dot(L, L);
         let lightDirVS = L * rsqrt(lightSqrDist);
-        let lambert = intensity * 0.1 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
+        let lambert = intensity * 0.05 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
 
         return lambert * color;
     }
