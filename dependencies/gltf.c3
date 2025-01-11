@@ -148,6 +148,7 @@ struct Gltf {
 
 struct Scene {
     String name;
+    BufferView buffer_info;
     List(<uint>) nodes;
 }
 
@@ -175,7 +176,6 @@ struct Mesh {
     String name;
     usz scene;
     List(<Primitive>) primitives;
-    List(<uint>) children;
     List(<float>) weights;
 }
 
@@ -433,21 +433,23 @@ fn void Mesh.fromJson(&self, Object* json) {
             if (try material) data.attributes["material"] = material;
             if (try mode) data.attributes["mode"] = mode;
 
-            if (try attributes) {
-                foreach (key : attributes.map.tcopy_keys()) {
-                    data.attributes[key] = (usz)attributes.map[key]!!.f;
-                }
-            }
-
-            if (try targets) {
-                foreach (target : targets.array) {
-                    AttributeMap target_attibutes;
-                    foreach (key : target.map.tcopy_keys()) {
-                        target_attibutes[key] = (usz)target.map[key]!!.f;
+            @pool() {
+                if (try attributes) {
+                    foreach (key : attributes.map.tcopy_keys()) {
+                        data.attributes[key] = (usz)attributes.map[key]!!.f;
                     }
-                    data.targets.push(target_attibutes);
                 }
-            }
+
+                if (try targets) {
+                    foreach (target : targets.array) {
+                        AttributeMap target_attibutes;
+                        foreach (key : target.map.tcopy_keys()) {
+                            target_attibutes[key] = (usz)target.map[key]!!.f;
+                        }
+                        data.targets.push(target_attibutes);
+                    }
+                }
+            };
 
             self.primitives.push(data);
         }
@@ -461,7 +463,6 @@ fn void Primitive.free(&self) {
 }
 
 fn void Mesh.free(&self) {
-    self.children.free();
     foreach (primitive : self.primitives) primitive.free();
     self.primitives.free();
     self.name.free();
@@ -1217,6 +1218,23 @@ fn Gltf! parse(InStream stream) {
          foreach (node : scene.nodes) {
              content.nodes[node].mapValues(scene_index, &content);
          }
+    }
+
+    // Create buffer-view for scene, for easy mesh buffer swaping
+    foreach (mesh : content.meshes) {
+        Scene* scene = &content.scenes[mesh.scene];
+
+        foreach (index, primitive: mesh.primitives) {
+            Accessor pos_accessor = content.accessors[primitive.attributes["POSITION"]!!];
+            Accessor indices_accessor = content.accessors[primitive.attributes["indices"]!!];
+            BufferView indices_view = content.bufferViews[indices_accessor.view];
+            usz offset = content.get_offset(indices_accessor);
+            
+            if (scene.buffer_info.offset < offset) {
+                scene.buffer_info.offset = offset;
+                scene.buffer_info.byteLength = offset + indices_view.byteLength;
+            }
+        }
     }
 
     // Build inverseBindMatrixes for skins

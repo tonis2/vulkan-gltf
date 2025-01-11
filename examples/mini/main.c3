@@ -16,9 +16,9 @@ struct PushConstantData {
     Matrix4f matrix;
     int material_index;
     bool has_skin;
-    uint pos_offset;
-    uint normal_offset;
-    uint tex_offset;
+    vk::DeviceAddress positions;
+    vk::DeviceAddress normals;
+    vk::DeviceAddress tex_cords;
 }
 
 struct Uniform {
@@ -32,7 +32,6 @@ struct AddressBuffer {
     vk::DeviceAddress joints;
     vk::DeviceAddress uniform;
     vk::DeviceAddress materials;
-    vk::DeviceAddress gltf;
 }
 
 MemoryBlock gltf_buffer;
@@ -69,7 +68,8 @@ fn void! main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/duck.gltf")!!;
+    gltf = gltf::loadFile("assets/boxes.glb")!!;
+    Scene scene = gltf.scenes[0];
 
     defer {
         joints.free();
@@ -141,7 +141,6 @@ fn void! main()
         joint_buffer.address,
         uniform_buffer.address,
         material_buffer.address,
-        gltf_buffer.address
     };
 
     Uniform uniform_data = Uniform {
@@ -153,20 +152,20 @@ fn void! main()
     address_buffer.upload(&addresses, AddressBuffer.sizeof);
     uniform_buffer.upload(&uniform_data, Uniform.sizeof);
 
-    usz device_buffer_size = gltf.buffers[0].size + gltf.materials.byte_size();
+    usz device_buffer_size = scene.buffer_info.byteLength + gltf.materials.byte_size();
 
     vk::@upload_from_stage(size: device_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
-        stage_buffer.push(gltf.buffers[0].data, gltf.buffers[0].size);
+        stage_buffer.push(gltf.buffers[0].data, scene.buffer_info.byteLength);
         stage_buffer.push(gltf.materials.entries, gltf.materials.byte_size());
 
         vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, gltf_buffer.buffer, 1, &&BufferCopy {
              .srcOffset = 0,
              .dstOffset = 0,
-             .size = gltf.buffers[0].size
+             .size = scene.buffer_info.byteLength
         });
 
         vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, material_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = gltf.buffers[0].size,
+            .srcOffset = scene.buffer_info.byteLength,
             .dstOffset = 0,
             .size = gltf.materials.byte_size()
         });
@@ -396,7 +395,7 @@ fn void! main()
         foreach (buffer : frame_buffers) buffer.free(context.device);
     }
 
-    Scene scene = gltf.scenes[0];
+
     Clock time = clock::now();
 
     bool running = true;
@@ -424,13 +423,10 @@ fn void! main()
             uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
         }
 
-        switch (event.type) {
-            case KEY_PRESSED: {
-                if (event.value == ESCAPE) running = false;
-            }
-            default: {}
+        if (win.is_pressed(ESCAPE)) {
+            running = false;
         }
-
+        
         uint next_image = context.next_image()!!;
 
         RenderPassBeginInfo render_pass_info = vk::renderPassBeginInfo()
@@ -491,14 +487,14 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             usz pos_offset = gltf.get_offset(gltf.accessors[primitive.attributes["POSITION"]!!]);
             usz normal_offset = gltf.get_offset(gltf.accessors[primitive.attributes["NORMAL"]!!]);
             usz tex_offset = gltf.get_offset(gltf.accessors[primitive.attributes["TEXCOORD_0"]!!]);
-
+            
             PushConstantData constant_data = {
                 .matrix = node.globalMatrix().transpose(),
                 .material_index = (int)primitive.attributes["material"] ?? -1,
                 .has_skin = node.hasSkin(),
-                .pos_offset = (uint)pos_offset,
-                .normal_offset = (uint)normal_offset,
-                .tex_offset = (uint)tex_offset
+                .positions = gltf_buffer.address + (uint)pos_offset,
+                .normals = gltf_buffer.address + (uint)normal_offset,
+                .tex_cords = gltf_buffer.address + (uint)tex_offset
             };
 
             vk::cmdBindIndexBuffer(buffer, gltf_buffer.buffer, index_view.offset, vk::INDEX_TYPE_UINT16);

@@ -49,9 +49,9 @@ struct PushData
     float4x4 model_matrix;
     int material_index;
     bool has_skin;
-    uint pos_offset;
-    uint normal_offset;
-    uint tex_offset;
+    float3* positions;
+    float3* normals;
+    float2* text_cords;
 };
 
 
@@ -72,18 +72,10 @@ cbuffer Buffers
     float4x4 *joints;
     Uniform *uniform;
     Material *materials;
-    uint64_t *gltf_data;
 }
 
 [vk_binding(1)]
 uniform Sampler2D image_samplers[];
-
-struct Vertices
-{
-    float3[2399] position;
-    float3[2399] normal;
-    float2[2399] tex_cord;
-};
 
 // Output of the fragment shader
 struct FragmentData
@@ -109,10 +101,6 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID, uint32_t drawId: SV_DrawIn
         0, 0, 0, 1
     };
 
-    Vertices* vertices = (Vertices*)gltf_data;
-    float3* pos = (float3*)gltf_data;
-    // float3* normals = (float3*)gltf_data + 4347 * sizeof(float3);
-    float2* tex_cords = (float2*)gltf_data + (4347 * sizeof(float3));
     // if (push_constant.has_skin)
     // {
     //     skin_matrix =
@@ -124,10 +112,10 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID, uint32_t drawId: SV_DrawIn
 
     VertexOutPut output = {
         {
-            tex_cords[vertID],
+            push_constant.text_cords[vertID],
             push_constant.material_index,
         },
-        mul(mul(mul(mul(uniform.projection, uniform.view), push_constant.model_matrix), skin_matrix), float4(pos[vertID], 1.0))
+        mul(mul(mul(mul(uniform.projection, uniform.view), push_constant.model_matrix), skin_matrix), float4(push_constant.positions[vertID], 1.0))
     };
 
     return output;
