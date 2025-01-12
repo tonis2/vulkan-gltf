@@ -1230,7 +1230,7 @@ fn Gltf! parse(InStream stream) {
             Accessor indices_accessor = content.accessors[primitive.attributes["indices"]!!];
             BufferView indices_view = content.bufferViews[indices_accessor.view];
             usz offset = content.get_offset((uint)primitive.attributes["indices"]!!);
-            io::printfn("%d", offset);
+      
             if (scene.buffer_info.offset < offset) {
                 scene.buffer_info.offset = offset;
                 scene.buffer_info.byteLength = offset + indices_view.byteLength;

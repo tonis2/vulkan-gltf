@@ -92,7 +92,7 @@ fn void! main()
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/duck.gltf")!!;
+    gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
     Scene scene = gltf.scenes[0];
 
@@ -150,7 +150,7 @@ fn void! main()
     indirect_commands_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(indirect_commands.byte_size())
+                .setSize(gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof)
                 .bind(&device_allocation)!;
 
     light_matrix_buffer = vk::bufferCreateInfo()
@@ -199,16 +199,15 @@ fn void! main()
 
             foreach (prim_index, primitive: mesh.primitives) {
                 Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-                Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
-
                 int material_index = (int)primitive.attributes["material"] ?? -1;
-
+    
                 usz pos_offset = gltf.get_offset(primitive.attributes["POSITION"]!!);
                 usz normal_offset = gltf.get_offset(primitive.attributes["NORMAL"]!!);
                 usz tex_offset = gltf.get_offset(primitive.attributes["TEXCOORD_0"]!!);
                 usz tagnent_offset = gltf.get_offset(primitive.attributes["TANGENT"] ?? 0);
                 usz skinpos_offset = gltf.get_offset(primitive.attributes["JOINTS_0"] ?? 0);
                 usz weights_offset = gltf.get_offset(primitive.attributes["WEIGHTS_0"] ?? 0);
+                usz index_offset = gltf.get_offset(primitive.attributes["indices"]!!);
 
                 InstanceData data = {
                     .has_skin = (int)skinned_node,
@@ -229,7 +228,7 @@ fn void! main()
                     .indexCount = index_accessor.count,
                     .firstInstance = 0,
                     .instanceCount = 1,
-                    .firstIndex = (uint)(index_accessor.offset / index_accessor.stride()),
+                    .firstIndex = (uint)index_offset / index_accessor.stride(),
                     .vertexOffset = 0,
                 });
             }
@@ -482,9 +481,6 @@ fn void! main()
         .extent = context.extent,
     });
 
-    // instance_buffer.used_size = 0;
-    // foreach (node_index: scene.nodes) build_instances(gltf.nodes[node_index], &instance_buffer);
-
     Vec2f prev_mouse;
     while (running) {
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
@@ -587,7 +583,7 @@ fn void! main()
         // Begin dynamic rendering
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
-        vk::cmdBindIndexBuffer(command_buffer, mesh_buffer.buffer, 139104, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, mesh_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         // Draw shadowmap
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);
@@ -610,7 +606,7 @@ fn void! main()
 
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            //vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+            vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -623,7 +619,7 @@ fn void! main()
         uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        //vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+        vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

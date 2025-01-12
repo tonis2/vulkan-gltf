@@ -204,14 +204,14 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    if (instance.has_skin > 0)
-    {
-        skin_matrix =
-            vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
-            vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
-            vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
-            vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
-    }
+    // if (instance.has_skin > 0)
+    // {
+    //     skin_matrix =
+    //         vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
+    //         vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
+    //         vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
+    //         vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
+    // }
 
     float4x4 node_world = mul(instance.node_matrix, skin_matrix);
     float4x4 world_view = mul(uniform.view, node_world);
@@ -223,9 +223,9 @@ FragmentData vertexMain(VertexInput input)
     float4 tangent = normalize(mul(instance.inverse_node_matrix, vertex.tangent));
     float4 bitangent = normalize(mul(instance.inverse_node_matrix, vertex.bitangent));
     float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
-    //vertex.transformed_tex_pos(materials[instance.material_index])
+    //
     FragmentData output = {
-        vertex.tex_cord,
+        vertex.transformed_tex_pos(materials[instance.material_index]),
         instance.material_index,
         tbn,
         normal.xyz,
@@ -247,36 +247,36 @@ float4 fragmentMain(FragmentData input)
     {
         Material material = materials[input.material_index];
         float4 diffuse_texture = material.getBaseColor(input.tex_cord);
-        return diffuse_texture;
-        // float3 light_factor = float3(0.0);
+ 
+        float3 light_factor = float3(0.0);
 
-        // if (diffuse_texture.a == 0.0)
-        //     discard;
+        if (diffuse_texture.a == 0.0)
+            discard;
 
-        // // Calculate lights
-        // for (int i = 0; i < light_count; i++)
-        // {
-        //     Light light = lights[i];
+        // Calculate lights
+        for (int i = 0; i < light_count; i++)
+        {
+            Light light = lights[i];
 
-        //     // Diffuse light
-        //     float4 color = light.illuminate(material, input, uniform.eye.xyz);
+            // Diffuse light
+            float4 color = light.illuminate(material, input, uniform.eye.xyz);
 
-        //     // Calculate shadow
-        //     float4x4 light_view = light_matrices[i];
-        //     float4 shadow_pos = mul(light_view, float4(input.frag_pos, 1.0));
-        //     shadow_pos = shadow_pos / shadow_pos.w;
-        //     float3 shadow_cords = float3(
-        //         shadow_pos.xy * float2(0.5, -0.5) + 0.5,
-        //         shadow_pos.z);
+            // Calculate shadow
+            float4x4 light_view = light_matrices[i];
+            float4 shadow_pos = mul(light_view, float4(input.frag_pos, 1.0));
+            shadow_pos = shadow_pos / shadow_pos.w;
+            float3 shadow_cords = float3(
+                shadow_pos.xy * float2(0.5, -0.5) + 0.5,
+                shadow_pos.z);
 
-        //     float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
-        //     const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
-        //     float shadowFactor = shadow_cords.z < occluderDepth.x + 0.00060 || outOfView ? 1.0 : 0.0;
+            float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
+            const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
+            float shadowFactor = shadow_cords.z < occluderDepth.x + 0.00060 || outOfView ? 1.0 : 0.0;
 
-        //     light_factor += (color.rgb ) * shadowFactor;
-        // }
+            light_factor += (color.rgb ) * shadowFactor;
+        }
 
-        // return diffuse_texture * float4(light_factor, 1.0);
+        return diffuse_texture * float4(light_factor, 1.0);
     }
 
     return float4(0.5, 0.5, 0.5, 1.0);
