@@ -12,26 +12,23 @@ import helpers;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-struct Vertex {
-    Vec4f pos;
-    Vec4f normal;
-    Vec4f tangent;
-    Vec4f bitangent;
-    Vec4f skin_pos;
-    Vec4f skin_weight;
-    Vec2f tex_cord;
-}
-
 struct InstanceData {
     int material_index;
     int has_skin;
     Matrix4f node_matrix;
     Matrix4f inverse_node_matrix;
+
+    vk::DeviceAddress positions;
+    vk::DeviceAddress normals;
+    vk::DeviceAddress tex_cords;
+    vk::DeviceAddress tangents;
+    vk::DeviceAddress skin_pos;
+    vk::DeviceAddress weights;
+
 }
 
 struct PushConstantData {
     uint light_index;
-    uint draw_index;
 }
 
 struct Uniform {
@@ -42,7 +39,6 @@ struct Uniform {
 
 // Used to send buffer device addresses to GPU
 struct AddressBuffer {
-    vk::DeviceAddress vertices;
     vk::DeviceAddress lights;
     vk::DeviceAddress materials;
     vk::DeviceAddress joints;
@@ -52,8 +48,7 @@ struct AddressBuffer {
     uint light_count;
 }
 
-MemoryBlock index_buffer;
-MemoryBlock vertex_buffer;
+MemoryBlock mesh_buffer;
 MemoryBlock light_buffer;
 MemoryBlock material_buffer;
 MemoryBlock uniform_buffer;
@@ -64,8 +59,6 @@ MemoryBlock indirect_commands_buffer;
 MemoryBlock address_buffer;
 
 Gltf gltf;
-List(<Vertex>) vertices;
-List(<ushort>) indices;
 List(<Matrix4f>) joints;
 AnimationChannels animaton_data;
 
@@ -99,95 +92,14 @@ fn void! main()
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    gltf = gltf::loadFile("assets/duck.gltf")!!;
     defer gltf.free();
+    Scene scene = gltf.scenes[0];
 
-    // Preload vertex data from GLTF
-    foreach (mesh: gltf.meshes) {
-        foreach (prim_index, &primitive: mesh.primitives) {
-            Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
-            Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-
-            indirect_commands.push(DrawIndexedIndirectCommand {
-                .indexCount = index_accessor.count,
-                .firstInstance = 0,
-                .instanceCount = 1,
-                .firstIndex = (uint)indices.len(),
-                .vertexOffset = (uint)vertices.len(),
-            });
-
-            for (usz i; i < index_accessor.count; i++) {
-                indices.push(gltf.@castBuffer(index_accessor, i, ushort));
-            }
-
-            for (usz i; i < pos_accessor.count; i++) {
-                Vec2f tex_cord = {|
-                    usz! attribute = primitive.attributes["TEXCOORD_0"];
-                    if (catch err = attribute) return Vec2f {0,0};
-
-                    Accessor accessor = gltf.accessors[attribute];
-                    return gltf.@castBuffer(accessor, i, Vec2f);
-                |};
-
-                Vec4f skin_pos = {|
-                    usz! attribute = primitive.attributes["JOINTS_0"];
-                    if (catch err = attribute) return Vec4f {0,0,0,0};
-                    Accessor accessor = gltf.accessors[attribute];
-
-                    if (accessor.data_type == DataType.USHORT) {
-                        short[4] array = gltf.@castBuffer(accessor, i, short[4]);
-                        return Vec4f{array[0], array[1], array[2], array[3]};
-                    };
-
-                    if (accessor.data_type == DataType.CHAR) {
-                        char[4] array = gltf.@castBuffer(accessor, i, char[4]);
-                        return Vec4f{array[0], array[1], array[2], array[3]};
-                    };
-                    return Vec4f {0,0,0,0};
-                |};
-
-                Vec4f tangent = {|
-                    usz! attribute = primitive.attributes["TANGENT"];
-                    if (catch err = attribute) return Vec4f {0,0,0,0};
-                    Accessor accessor = gltf.accessors[attribute];
-                    return gltf.@castBuffer(accessor, i, Vec4f);
-                |};
-
-                Vec4f normal = {|
-                    usz! attribute = primitive.attributes["NORMAL"];
-                    if (catch err = attribute) return Vec4f {0,0,0,0};
-
-                    Accessor accessor = gltf.accessors[attribute];
-                    return gltf.@castBuffer(accessor, i, Vec4f);
-                |};
-
-                Vec4f skin_weight = {|
-                    usz! attribute = primitive.attributes["WEIGHTS_0"];
-                    if (catch err = attribute) return Vec4f {0,0,0,0};
-
-                    Accessor accessor = gltf.accessors[attribute];
-                    return gltf.@castBuffer(accessor, i, Vec4f);
-                |};
-
-                Vec4f bitangent = Vec4f {normal.xyz.cross(tangent.xyz) * tangent.w, 1.0};
-                Vec4f position = gltf.@castBuffer(pos_accessor, i, Vec4f);
-               
-                vertices.push({
-                    .pos = position,
-                    .normal = normal,
-                    .tangent = tangent,
-                    .bitangent = bitangent,
-                    .tex_cord = tex_cord,
-                    .skin_pos = skin_pos,
-                    .skin_weight = skin_weight,
-                });
-            }
-        }
-    }
+    NodeIterator* iterator = gltf::iterator(scene.nodes, gltf);
+    defer iterator.free();
 
     defer {
-        vertices.free();
-        indices.free();
         joints.free();
         indirect_commands.free();
     }
@@ -223,17 +135,11 @@ fn void! main()
     }
 
    // Creating buffers
-    vertex_buffer = vk::bufferCreateInfo()
-               .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
+    mesh_buffer = vk::bufferCreateInfo()
+               .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-               .setSize(vertices.byte_size())
+               .setSize(scene.buffer_info.byteLength)
                .bind(&device_allocation)!;
-
-    index_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(indices.byte_size())
-                .bind(&device_allocation)!;
 
     light_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
@@ -281,11 +187,57 @@ fn void! main()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(Uniform.sizeof)
-                .bind(&local_allocation)!;                
+                .bind(&local_allocation)!;
+
+    while (try node = iterator.next()) {
+        bool skinned_node = node.hasSkin();
+        Matrix4f node_matrix = node.globalMatrix().transpose();
+        Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
+
+        if (node.hasMesh()) {
+            Mesh mesh = gltf.meshes[node.mesh];
+
+            foreach (prim_index, primitive: mesh.primitives) {
+                Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+                Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+
+                int material_index = (int)primitive.attributes["material"] ?? -1;
+
+                usz pos_offset = gltf.get_offset(primitive.attributes["POSITION"]!!);
+                usz normal_offset = gltf.get_offset(primitive.attributes["NORMAL"]!!);
+                usz tex_offset = gltf.get_offset(primitive.attributes["TEXCOORD_0"]!!);
+                usz tagnent_offset = gltf.get_offset(primitive.attributes["TANGENT"] ?? 0);
+                usz skinpos_offset = gltf.get_offset(primitive.attributes["JOINTS_0"] ?? 0);
+                usz weights_offset = gltf.get_offset(primitive.attributes["WEIGHTS_0"] ?? 0);
+
+                InstanceData data = {
+                    .has_skin = (int)skinned_node,
+                    .material_index = material_index,
+                    .node_matrix = node_matrix,
+                    .inverse_node_matrix = inverse_node_matrix,
+
+                    .positions = mesh_buffer.address + (uint)pos_offset,
+                    .normals = mesh_buffer.address + (uint)normal_offset,
+                    .tex_cords = mesh_buffer.address + (uint)tex_offset,
+                    .tangents = mesh_buffer.address + (uint)tagnent_offset,
+                    .skin_pos = mesh_buffer.address + (uint)skinpos_offset,
+                    .weights = mesh_buffer.address + (uint)weights_offset,
+                };
+
+                instance_buffer.push(&data, size: InstanceData.sizeof);
+                indirect_commands.push(DrawIndexedIndirectCommand {
+                    .indexCount = index_accessor.count,
+                    .firstInstance = 0,
+                    .instanceCount = 1,
+                    .firstIndex = (uint)(index_accessor.offset / index_accessor.stride()),
+                    .vertexOffset = 0,
+                });
+            }
+        }
+    }              
 
     // Upload data to buffers
     AddressBuffer addresses = AddressBuffer {
-        vertex_buffer.address,
         light_buffer.address,
         material_buffer.address,
         joint_buffer.address,
@@ -305,33 +257,26 @@ fn void! main()
     material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
     address_buffer.upload(&addresses, AddressBuffer.sizeof);
 
-    usz device_buffer_size = indices.byte_size() + vertices.byte_size() + gltf.lights.byte_size() + indirect_commands.byte_size();
+    usz device_buffer_size = scene.buffer_info.byteLength + gltf.lights.byte_size() + indirect_commands.byte_size();
     vk::@upload_from_stage(size: device_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
-        stage_buffer.push(indices.entries, indices.byte_size());
-        stage_buffer.push(vertices.entries, vertices.byte_size());
+        stage_buffer.push(gltf.buffers[0].data, scene.buffer_info.byteLength);
         stage_buffer.push(gltf.lights.entries, gltf.lights.byte_size());
         stage_buffer.push(indirect_commands.entries, indirect_commands.byte_size());
 
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, index_buffer.buffer, 1, &&BufferCopy {
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, mesh_buffer.buffer, 1, &&BufferCopy {
              .srcOffset = 0,
              .dstOffset = 0,
-             .size = indices.byte_size()
-        });
-
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, vertex_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = indices.byte_size(),
-            .dstOffset = 0,
-            .size = vertices.byte_size()
+             .size = scene.buffer_info.byteLength
         });
 
         vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, light_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = indices.byte_size() + vertices.byte_size(),
+            .srcOffset = scene.buffer_info.byteLength,
             .dstOffset = 0,
             .size = gltf.lights.byte_size()
         });
 
         vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, indirect_commands_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = indices.byte_size() + vertices.byte_size() + gltf.lights.byte_size(),
+            .srcOffset = scene.buffer_info.byteLength + gltf.lights.byte_size(),
             .dstOffset = 0,
             .size = indirect_commands.byte_size()
         });
@@ -525,7 +470,6 @@ fn void! main()
         shadow_pipeline.free(context.device);
     }
 
-    Scene scene = gltf.scenes[0];
     Clock time = clock::now();
 
     bool running = true;
@@ -538,13 +482,13 @@ fn void! main()
         .extent = context.extent,
     });
 
+    // instance_buffer.used_size = 0;
+    // foreach (node_index: scene.nodes) build_instances(gltf.nodes[node_index], &instance_buffer);
+
     Vec2f prev_mouse;
     while (running) {
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
 
-        instance_buffer.used_size = 0;
-        foreach (node_index: scene.nodes) build_instances(gltf.nodes[node_index], &instance_buffer);
-        
         c3w::Event event = win.getEvent();
 
         if (win.is_pressed(LEFT_MOUSE)) {
@@ -563,12 +507,9 @@ fn void! main()
             camera.zoom(-5);
             uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
         }
-        
-        switch (event.type) {
-            case KEY_PRESSED: {
-                if (event.value == ESCAPE) running = false;
-            }
-            default: {}
+
+        if (win.is_pressed(ESCAPE)) {
+            running = false;
         }
 
         uint next_image = context.next_image()!!;
@@ -646,11 +587,11 @@ fn void! main()
         // Begin dynamic rendering
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
-        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, mesh_buffer.buffer, 139104, vk::INDEX_TYPE_UINT16);
 
         // Draw shadowmap
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);
-        
+
         foreach (uint light_index, light: gltf.lights) {
             RenderingAttachmentInfo shadow_depth_target = vk::renderingAttachmentInfo()
             .setImageView(shadow_maps[light_index].imageView)
@@ -669,7 +610,7 @@ fn void! main()
 
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+            //vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -682,7 +623,7 @@ fn void! main()
         uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
         vk::cmdBeginRendering(command_buffer, &rendering_info);
 
-        vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+        //vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
@@ -692,39 +633,4 @@ fn void! main()
     }
     
     context.device.waitIdle();
-}
-
-fn void build_instances(gltf::Node node, MemoryBlock* instance_buffer) {
-    bool skinned_node = node.hasSkin();
-
-    if (skinned_node) {
-        Skin skin = gltf.skins[node.skin];
-        foreach (joint_index, joint: skin.joints) {
-           Node joint_node = gltf.nodes[joint];
-           joints[joint_index] = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
-        }
-        joint_buffer.upload(joints.entries, joints.byte_size());
-    }
-
-    if (node.hasMesh()) {
-        gltf::Mesh mesh = gltf.meshes[node.mesh];
-        Matrix4f node_matrix = node.globalMatrix().transpose();
-        Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
-       
-        foreach (primitive: mesh.primitives) {
-            int material_index = (int)primitive.attributes["material"] ?? -1;
-
-            InstanceData data = {
-                .has_skin = (int)skinned_node,
-                .material_index = material_index,
-                .node_matrix = node_matrix,
-                .inverse_node_matrix = inverse_node_matrix
-            };
-
-            instance_buffer.push(&data, size: InstanceData.sizeof);
-        }
-    }
-
-    // Draw child nodes
-    foreach (child_index: node.children) build_instances(gltf.nodes[child_index], instance_buffer);
 }

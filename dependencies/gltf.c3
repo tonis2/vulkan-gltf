@@ -16,6 +16,7 @@ def SkinList = List(<Skin>);
 def AttributeMap = HashMap(<String, usz>);
 def AnimationChannels = List(<AnimationChannel>);
 def Materials = List(<Material>);
+def NodeList = List(<Node>);
 
 const PUNCTUAL_LIGHT_EXTENSION = "KHR_lights_punctual";
 const TEXTURE_TRANSFORM_EXTENSION = "KHR_texture_transform";
@@ -129,7 +130,7 @@ fault ParseError
 
 struct Gltf {
     String name;
-    List(<Node>) nodes;
+    NodeList nodes;
     List(<Scene>) scenes;
     List(<Mesh>) meshes;
     List(<Buffer>) buffers;
@@ -1228,8 +1229,8 @@ fn Gltf! parse(InStream stream) {
             Accessor pos_accessor = content.accessors[primitive.attributes["POSITION"]!!];
             Accessor indices_accessor = content.accessors[primitive.attributes["indices"]!!];
             BufferView indices_view = content.bufferViews[indices_accessor.view];
-            usz offset = content.get_offset(indices_accessor);
-            
+            usz offset = content.get_offset((uint)primitive.attributes["indices"]!!);
+            io::printfn("%d", offset);
             if (scene.buffer_info.offset < offset) {
                 scene.buffer_info.offset = offset;
                 scene.buffer_info.byteLength = offset + indices_view.byteLength;
@@ -1521,9 +1522,45 @@ macro Gltf.@castBuffer(&self, Accessor accessor, usz index, #type) {
     return bitcast(*(char[#type.sizeof]*)buffer.data[(start_offset + (index * index_offset))..], #type);
 }
 
-fn usz Gltf.get_offset(&self, Accessor accessor) {
+fn usz Gltf.get_offset(&self, ulong attribute) {
+    Accessor accessor = self.accessors[attribute];
     BufferView bufferView = self.bufferViews[accessor.view];
     return accessor.offset + bufferView.offset;
+}
+
+fault IteratorErrors {
+    DONE
+}
+
+struct NodeIterator {
+    List(<uint>) nodes;
+    Gltf data;
+    uint index;
+}
+
+fn NodeIterator* iterator(List(<uint>) nodes, Gltf data, NodeIterator* parent_iterator = null) {
+    NodeIterator* node_iterator = parent_iterator == null ? 
+                  mem::new(NodeIterator, {.data = data, .index = 0 }) : 
+                  parent_iterator;
+
+    foreach (index: nodes) {
+        Node node = data.nodes[index];
+        node_iterator.nodes.push(index);
+        iterator(node.children, data, node_iterator);
+    }
+    return node_iterator;
+}
+
+fn Node! NodeIterator.next(&self) {
+    if (self.index == self.nodes.len()) return IteratorErrors.DONE?;
+    uint node_index = self.nodes[self.index];
+    self.index +=1;
+    return self.data.nodes[node_index];
+}
+
+fn void NodeIterator.free(&self) {
+    self.nodes.free();
+    mem::free(self);
 }
 
 fn void Gltf.debugBuffer(Gltf* self, Accessor accessor) {

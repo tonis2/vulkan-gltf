@@ -75,58 +75,15 @@ struct Material
     }
 };
 
-struct Instance
-{
-    int material_index;
-    int has_skin;
-    float4x4 node_matrix;
-    float4x4 inverse_node_matrix;
-};
-
-struct Uniform
-{
-    float4x4 perspective;
-    float4x4 view;
-    float4 eye;
-}
-
-struct PushData
-{
-    uint light_index;
-};
-
-[vk_push_constant]
-const PushData push_constant;
-
-[vk_binding(0)]
-cbuffer Buffers
-{
-    Vertex *vertices;
-    Light *lights;
-    Material *materials;
-    float4x4 *joints;
-    float4x4 *light_matrices;
-    Instance *instances;
-    Uniform *uniform;
-    uint light_count;
-}
-
-[vk_binding(1)]
-uniform Sampler2D image_samplers[];
-
-[vk_binding(2)]
-uniform Sampler2D shadow_samplers[];
-
 struct Vertex
 {
-    float4 position;
-    float4 normal;
+    float3 position;
+    float3 normal;
+    float2 tex_cord;
     float4 tangent;
     float4 bitangent;
     float4 skin_pos;
     float4 skin_weight;
-    float2 tex_cord;
-    float2 pad;
 
     float2 transformed_tex_pos(Material material)
     {
@@ -155,6 +112,70 @@ struct Vertex
     }
 };
 
+struct Instance
+{
+    int material_index;
+    int has_skin;
+    float4x4 node_matrix;
+    float4x4 inverse_node_matrix;
+
+    float3* positions;
+    float3* normals;
+    float2* text_cords;
+    float4* tangents;
+    float4* skin_pos;
+    float4* weights;
+
+    Vertex get_vertex(uint index) {
+        float4 tangent = tangents[index];
+        float3 normal = normals[index];
+        return {
+            positions[index],
+            normal,
+            text_cords[index],
+            tangent,
+            {mul(cross(tangent.xyz, normal), tangent.w), 1.0},
+            skin_pos[index],
+            weights[index]
+        };
+    }
+}
+
+struct Uniform
+{
+    float4x4 perspective;
+    float4x4 view;
+    float4 eye;
+}
+
+struct PushData
+{
+    uint light_index;
+};
+
+[vk_push_constant]
+const PushData push_constant;
+
+[vk_binding(0)]
+cbuffer Buffers
+{
+    Light *lights;
+    Material *materials;
+    float4x4 *joints;
+    float4x4 *light_matrices;
+    Instance *instances;
+    Uniform *uniform;
+    uint light_count;
+}
+
+[vk_binding(1)]
+uniform Sampler2D image_samplers[];
+
+[vk_binding(2)]
+uniform Sampler2D shadow_samplers[];
+
+
+
 // Output of the fragment shader
 struct FragmentData
 {
@@ -175,7 +196,7 @@ struct VertexInput {
 FragmentData vertexMain(VertexInput input)
 {
     Instance instance = instances[input.drawID];
-    Vertex vertex = vertices[input.vertID];
+    Vertex vertex = instance.get_vertex(input.vertID);
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -198,13 +219,13 @@ FragmentData vertexMain(VertexInput input)
     float4 frag_pos = mul(node_world, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
 
-    float4 normal = normalize(mul(instance.inverse_node_matrix, vertex.normal));
+    float4 normal = normalize(mul(instance.inverse_node_matrix, float4(vertex.normal, 1.0)));
     float4 tangent = normalize(mul(instance.inverse_node_matrix, vertex.tangent));
     float4 bitangent = normalize(mul(instance.inverse_node_matrix, vertex.bitangent));
     float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
-
+    //vertex.transformed_tex_pos(materials[instance.material_index])
     FragmentData output = {
-        vertex.transformed_tex_pos(materials[instance.material_index]),
+        vertex.tex_cord,
         instance.material_index,
         tbn,
         normal.xyz,
@@ -220,40 +241,42 @@ FragmentData vertexMain(VertexInput input)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
-   
+    Material material = materials[input.material_index];
+    float4 diffuse_texture = material.getBaseColor(input.tex_cord);
     if (input.material_index >= 0)
     {
         Material material = materials[input.material_index];
         float4 diffuse_texture = material.getBaseColor(input.tex_cord);
-        float3 light_factor = float3(0.0);
+        return diffuse_texture;
+        // float3 light_factor = float3(0.0);
 
-        if (diffuse_texture.a == 0.0)
-            discard;
+        // if (diffuse_texture.a == 0.0)
+        //     discard;
 
-        // Calculate lights
-        for (int i = 0; i < light_count; i++)
-        {
-            Light light = lights[i];
+        // // Calculate lights
+        // for (int i = 0; i < light_count; i++)
+        // {
+        //     Light light = lights[i];
 
-            // Diffuse light
-            float4 color = light.illuminate(material, input, uniform.eye.xyz);
+        //     // Diffuse light
+        //     float4 color = light.illuminate(material, input, uniform.eye.xyz);
 
-            // Calculate shadow
-            float4x4 light_view = light_matrices[i];
-            float4 shadow_pos = mul(light_view, float4(input.frag_pos, 1.0));
-            shadow_pos = shadow_pos / shadow_pos.w;
-            float3 shadow_cords = float3(
-                shadow_pos.xy * float2(0.5, -0.5) + 0.5,
-                shadow_pos.z);
+        //     // Calculate shadow
+        //     float4x4 light_view = light_matrices[i];
+        //     float4 shadow_pos = mul(light_view, float4(input.frag_pos, 1.0));
+        //     shadow_pos = shadow_pos / shadow_pos.w;
+        //     float3 shadow_cords = float3(
+        //         shadow_pos.xy * float2(0.5, -0.5) + 0.5,
+        //         shadow_pos.z);
 
-            float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
-            const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
-            float shadowFactor = shadow_cords.z < occluderDepth.x + 0.00060 || outOfView ? 1.0 : 0.0;
+        //     float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
+        //     const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
+        //     float shadowFactor = shadow_cords.z < occluderDepth.x + 0.00060 || outOfView ? 1.0 : 0.0;
 
-            light_factor += (color.rgb ) * shadowFactor;
-        }
+        //     light_factor += (color.rgb ) * shadowFactor;
+        // }
 
-        return diffuse_texture * float4(light_factor, 1.0);
+        // return diffuse_texture * float4(light_factor, 1.0);
     }
 
     return float4(0.5, 0.5, 0.5, 1.0);
@@ -268,7 +291,7 @@ struct ShadowData
 ShadowData vertexShadow(VertexInput input)
 {
     Instance instance = instances[input.drawID];
-    Vertex vertex = vertices[input.vertID];
+    Vertex vertex = instance.get_vertex(input.vertID);
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
