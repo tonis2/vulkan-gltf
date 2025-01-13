@@ -96,10 +96,10 @@ fn void! main()
     defer gltf.free();
     Scene scene = gltf.scenes[0];
 
-    NodeIterator* iterator = gltf::iterator(scene.nodes, gltf);
-    defer iterator.free();
+    List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
 
     defer {
+        scene_nodes.free();
         joints.free();
         indirect_commands.free();
     }
@@ -189,7 +189,8 @@ fn void! main()
                 .setSize(Uniform.sizeof)
                 .bind(&local_allocation)!;
 
-    while (try node = iterator.next()) {
+   foreach (node_index: scene_nodes) {
+        Node node = gltf.nodes[node_index];
         bool skinned_node = node.hasSkin();
         Matrix4f node_matrix = node.globalMatrix().transpose();
         Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();

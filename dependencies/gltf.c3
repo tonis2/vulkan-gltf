@@ -1532,35 +1532,15 @@ fault IteratorErrors {
     DONE
 }
 
-struct NodeIterator {
-    List(<uint>) nodes;
-    Gltf data;
-    uint index;
-}
-
-fn NodeIterator* iterator(List(<uint>) nodes, Gltf data, NodeIterator* parent_iterator = null) {
-    NodeIterator* node_iterator = parent_iterator == null ? 
-                  mem::new(NodeIterator, {.data = data, .index = 0 }) : 
-                  parent_iterator;
-
+fn List(<uint>) flatten_nodes(List(<uint>) nodes, Gltf data, List(<uint>)* list = null) {
+    if (list == null) list = List(<uint>){}.new_init();
     foreach (index: nodes) {
         Node node = data.nodes[index];
-        node_iterator.nodes.push(index);
-        iterator(node.children, data, node_iterator);
+        list.push(index);
+        flatten_nodes(node.children, data, list);
     }
-    return node_iterator;
-}
 
-fn Node! NodeIterator.next(&self) {
-    if (self.index == self.nodes.len()) return IteratorErrors.DONE?;
-    uint node_index = self.nodes[self.index];
-    self.index +=1;
-    return self.data.nodes[node_index];
-}
-
-fn void NodeIterator.free(&self) {
-    self.nodes.free();
-    mem::free(self);
+    return *list;
 }
 
 fn void Gltf.debugBuffer(Gltf* self, Accessor accessor) {
