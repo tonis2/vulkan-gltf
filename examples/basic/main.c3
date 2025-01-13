@@ -70,13 +70,13 @@ fn void! main()
     defer win.free();
 
     // Vulkan context
-    DeviceContext context = helpers::createContext(win, debug: true)!!;
+    DeviceContext context = helpers::createContext(win, debug: false)!!;
     defer context.free();
 
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/duck.gltf")!!;
+    gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
 
     // Preload vertex data from GLTF
@@ -86,7 +86,7 @@ fn void! main()
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
             primitive.attributes["first_index"] = indices.len();
             primitive.attributes["first_vertex"] = vertices.len();
-
+      
             for (usz i; i < index_accessor.count; i++) {
                 indices.push(gltf.@castBuffer(index_accessor, i, ushort));
             }

@@ -68,7 +68,7 @@ fn void! main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/boxes.glb")!!;
+    gltf = gltf::loadFile("assets/scene_test.glb")!!;
     Scene scene = gltf.scenes[0];
 
     defer {
@@ -455,7 +455,8 @@ fn void! main()
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, descriptorSets.len, descriptorSets.ptr);
-
+        vk::cmdBindIndexBuffer(buffer, gltf_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        
         foreach (node: scene.nodes) drawNode(gltf.nodes[node], command_buffer, pipeline_layout);
 
         vk::cmdEndRenderPass(command_buffer);
@@ -484,9 +485,9 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
             Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
             gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
             
-            usz pos_offset = gltf.get_offset(gltf.accessors[primitive.attributes["POSITION"]!!]);
-            usz normal_offset = gltf.get_offset(gltf.accessors[primitive.attributes["NORMAL"]!!]);
-            usz tex_offset = gltf.get_offset(gltf.accessors[primitive.attributes["TEXCOORD_0"]!!]);
+            usz pos_offset = gltf.get_offset(primitive.attributes["POSITION"]!!);
+            usz normal_offset = gltf.get_offset(primitive.attributes["NORMAL"]!!);
+            usz tex_offset = gltf.get_offset(primitive.attributes["TEXCOORD_0"]!!);
             
             PushConstantData constant_data = {
                 .matrix = node.globalMatrix().transpose(),
@@ -497,9 +498,9 @@ fn void drawNode(Node node, CommandBuffer buffer, PipelineLayout pipeline_layout
                 .tex_cords = gltf_buffer.address + (uint)tex_offset
             };
 
-            vk::cmdBindIndexBuffer(buffer, gltf_buffer.buffer, index_view.offset, vk::INDEX_TYPE_UINT16);
+   
             vk::cmdPushConstants(buffer, pipeline_layout, vk::SHADER_STAGE_VERTEX_BIT, 0, PushConstantData.sizeof, &constant_data);
-            vk::cmdDrawIndexed(buffer, index_accessor.count, 1, 0, 0, 0);
+            vk::cmdDrawIndexed(buffer, index_accessor.count, 1, (uint)index_view.offset / 2, 0, 0);
         }
     }
 
