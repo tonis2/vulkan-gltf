@@ -195,6 +195,15 @@ fn void! main()
         Matrix4f node_matrix = node.globalMatrix().transpose();
         Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
 
+        if (node.hasSkin()) {
+            Skin skin = gltf.skins[node.skin];
+            foreach (joint_index, joint: skin.joints) {
+                Node joint_node = gltf.nodes[joint];
+                joints[joint_index] = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
+            }
+            joint_buffer.upload(joints.entries, joints.byte_size());
+        }
+
         if (node.hasMesh()) {
             Mesh mesh = gltf.meshes[node.mesh];
 
