@@ -75,6 +75,8 @@ struct Material
     }
 };
 
+public typealias u8vec4 = vector<uint8_t, 4>;
+
 struct Vertex
 {
     float3 position;
@@ -82,7 +84,7 @@ struct Vertex
     float2 tex_cord;
     float4 tangent;
     float4 bitangent;
-    float4 skin_pos;
+    u8vec4 skin_pos;
     float4 skin_weight;
 
     float2 transformed_tex_pos(Material material)
@@ -112,6 +114,7 @@ struct Vertex
     }
 };
 
+
 struct Instance
 {
     int material_index;
@@ -123,7 +126,7 @@ struct Instance
     float3* normals;
     float2* text_cords;
     float4* tangents;
-    float4* skin_pos;
+    u8vec4* skin_pos;
     float4* weights;
 
     Vertex get_vertex(uint index) {
@@ -206,11 +209,12 @@ FragmentData vertexMain(VertexInput input)
 
     if (instance.has_skin > 0)
     {
+        uint4 skin_pos = asuint(vertex.skin_pos[0]);
         skin_matrix =
-            vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
-            vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
-            vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
-            vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
+            vertex.skin_weight[0] * joints[skin_pos[0]] +
+            vertex.skin_weight[1] * joints[skin_pos[1]] +
+            vertex.skin_weight[2] * joints[skin_pos[2]] +
+            vertex.skin_weight[3] * joints[skin_pos[3]];
     }
 
     float4x4 node_world = mul(instance.node_matrix, skin_matrix);
@@ -223,7 +227,7 @@ FragmentData vertexMain(VertexInput input)
     float4 tangent = normalize(mul(instance.inverse_node_matrix, vertex.tangent));
     float4 bitangent = normalize(mul(instance.inverse_node_matrix, vertex.bitangent));
     float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
-    //
+
     FragmentData output = {
         vertex.transformed_tex_pos(materials[instance.material_index]),
         instance.material_index,
@@ -301,11 +305,12 @@ ShadowData vertexShadow(VertexInput input)
 
     if (instance.has_skin > 0)
     {
+        uint4 skin_pos = asuint(vertex.skin_pos[0]);
         skin_matrix =
-            vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
-            vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
-            vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
-            vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
+            vertex.skin_weight[0] * joints[skin_pos[0]] +
+            vertex.skin_weight[1] * joints[skin_pos[1]] +
+            vertex.skin_weight[2] * joints[skin_pos[2]] +
+            vertex.skin_weight[3] * joints[skin_pos[3]];
     }
 
     float4x4 light_view = light_matrices[push_constant.light_index];

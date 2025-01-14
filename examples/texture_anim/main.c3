@@ -59,7 +59,6 @@ MemoryBlock indirect_commands_buffer;
 MemoryBlock address_buffer;
 
 Gltf gltf;
-List(<Matrix4f>) joints;
 AnimationChannels animaton_data;
 
 DescriptorImages descriptor_images;
@@ -96,20 +95,12 @@ fn void! main()
     defer gltf.free();
     Scene scene = gltf.scenes[0];
 
-    List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
-
     defer {
-        scene_nodes.free();
-        joints.free();
         indirect_commands.free();
     }
 
     if (!gltf.animations.is_empty()) animaton_data = gltf.load_animations({0});
     defer animaton_data.release();
-
-    foreach (skin: gltf.skins) {
-        foreach (matrix: skin.inverseBindMatrices) joints.push(matrix);
-    }
 
     // Create allocator of 50MB - DEVICE_ONLY memory
     vk::Allocation device_allocation = vk::Allocation {
@@ -165,10 +156,15 @@ fn void! main()
                 .setSize(gltf.materials.byte_size())
                 .bind(&local_allocation)!;
 
+    uint join_buffer_size = 0;
+    foreach (skin_index, skin: gltf.skins) {
+        foreach (joint: skin.joints) join_buffer_size += 1;
+    }
+
     joint_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(joints.byte_size())
+                .setSize(join_buffer_size * Matrix4f.sizeof)
                 .bind(&local_allocation)!;         
 
     address_buffer = vk::bufferCreateInfo()
@@ -189,20 +185,13 @@ fn void! main()
                 .setSize(Uniform.sizeof)
                 .bind(&local_allocation)!;
 
-   foreach (node_index: scene_nodes) {
+
+    List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
+    foreach (node_index: scene_nodes) {
         Node node = gltf.nodes[node_index];
         bool skinned_node = node.hasSkin();
         Matrix4f node_matrix = node.globalMatrix().transpose();
         Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
-
-        if (node.hasSkin()) {
-            Skin skin = gltf.skins[node.skin];
-            foreach (joint_index, joint: skin.joints) {
-                Node joint_node = gltf.nodes[joint];
-                joints[joint_index] = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
-            }
-            joint_buffer.upload(joints.entries, joints.byte_size());
-        }
 
         if (node.hasMesh()) {
             Mesh mesh = gltf.meshes[node.mesh];
@@ -210,7 +199,7 @@ fn void! main()
             foreach (prim_index, primitive: mesh.primitives) {
                 Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
                 int material_index = (int)primitive.attributes["material"] ?? -1;
-    
+
                 usz pos_offset = gltf.get_offset(primitive.attributes["POSITION"]!!);
                 usz normal_offset = gltf.get_offset(primitive.attributes["NORMAL"]!!);
                 usz tex_offset = gltf.get_offset(primitive.attributes["TEXCOORD_0"]!!);
@@ -492,8 +481,18 @@ fn void! main()
     });
 
     Vec2f prev_mouse;
+
     while (running) {
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
+
+        // Update joint animations buffer
+        foreach (skin: gltf.skins) {
+            foreach (joint_index, joint: skin.joints) {
+                Node joint_node = gltf.nodes[joint];
+                Matrix4f data = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
+                joint_buffer.upload(&data, size: Matrix4f.sizeof, offset: joint_index * Matrix4f.sizeof);
+            }
+        }
 
         c3w::Event event = win.getEvent();
 

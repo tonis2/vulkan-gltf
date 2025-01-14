@@ -1290,7 +1290,6 @@ fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
     AnimationChannels channels;
     foreach (index: indexes) {
         Animation animation = self.animations[index];
-
         foreach (channel : animation.channels) {
             AnimationSampler sampler = animation.samplers[channel.sampler];
             Node animation_node = self.nodes[channel.target.node];
@@ -1368,7 +1367,7 @@ fn void AnimationChannels.run_animation(&self, Gltf* gltf, NanoDuration time) {
                                node.rotation = Quaternionf{.v = next_value};
                             }
                             case SCALE: {
-                                 node.scale = next_value.xyz;
+                               node.scale = next_value.xyz;
                             }
                             default: {}
                         }
@@ -1526,10 +1525,6 @@ fn usz Gltf.get_offset(&self, ulong attribute) {
     Accessor accessor = self.accessors[attribute];
     BufferView bufferView = self.bufferViews[accessor.view];
     return accessor.offset + bufferView.offset;
-}
-
-fault IteratorErrors {
-    DONE
 }
 
 fn List(<uint>) flatten_nodes(List(<uint>) nodes, Gltf data, List(<uint>)* list = null) {
