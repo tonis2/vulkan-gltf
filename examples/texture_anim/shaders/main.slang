@@ -217,11 +217,9 @@ FragmentData vertexMain(VertexInput input)
             vertex.skin_weight[3] * joints[skin_pos[3]];
     }
 
-    float4x4 node_world = mul(instance.node_matrix, skin_matrix);
-    float4x4 world_view = mul(uniform.view, node_world);
-
-    float4 frag_pos = mul(node_world, float4(vertex.position.xyz, 1.0));
+    float4 frag_pos = mul(mul(instance.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
+    //float4x4 inverse_matrix = mul(instance.inverse_node_matrix, skin_matrix);
 
     float4 normal = normalize(mul(instance.inverse_node_matrix, float4(vertex.normal, 1.0)));
     float4 tangent = normalize(mul(instance.inverse_node_matrix, vertex.tangent));
