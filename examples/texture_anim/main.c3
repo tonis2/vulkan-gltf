@@ -185,28 +185,34 @@ fn void! main()
                 .setSize(Uniform.sizeof)
                 .bind(&local_allocation)!;
 
-
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
+
     foreach (node_index: scene_nodes) {
         Node node = gltf.nodes[node_index];
         bool skinned_node = node.hasSkin();
-        Matrix4f node_matrix = node.globalMatrix().transpose();
-        Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
+
 
         if (node.hasMesh()) {
+            Matrix4f node_matrix = node.globalMatrix().transpose();
+            Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
+
             Mesh mesh = gltf.meshes[node.mesh];
+
+            if (node.attributes.len() > 0) {
+                io::printfn("has instancing");
+            }
 
             foreach (prim_index, primitive: mesh.primitives) {
                 Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
                 int material_index = (int)primitive.attributes["material"] ?? -1;
 
                 usz pos_offset = gltf.get_offset(primitive.attributes["POSITION"]!!);
-                usz normal_offset = gltf.get_offset(primitive.attributes["NORMAL"]!!);
-                usz tex_offset = gltf.get_offset(primitive.attributes["TEXCOORD_0"]!!);
+                usz index_offset = gltf.get_offset(primitive.attributes["indices"]!!);
+                usz normal_offset = gltf.get_offset(primitive.attributes["NORMAL"] ?? 0);
+                usz tex_offset = gltf.get_offset(primitive.attributes["TEXCOORD_0"] ?? 0);
                 usz tagnent_offset = gltf.get_offset(primitive.attributes["TANGENT"] ?? 0);
                 usz skinpos_offset = gltf.get_offset(primitive.attributes["JOINTS_0"] ?? 0);
                 usz weights_offset = gltf.get_offset(primitive.attributes["WEIGHTS_0"] ?? 0);
-                usz index_offset = gltf.get_offset(primitive.attributes["indices"]!!);
 
                 InstanceData data = {
                     .has_skin = (int)skinned_node,

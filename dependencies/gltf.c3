@@ -21,6 +21,7 @@ def NodeList = List(<Node>);
 const PUNCTUAL_LIGHT_EXTENSION = "KHR_lights_punctual";
 const TEXTURE_TRANSFORM_EXTENSION = "KHR_texture_transform";
 const ANIMATION_POINTER_EXTENSION = "KHR_animation_pointer";
+const MESH_GPU_INSTANCING_EXTENSION = "EXT_mesh_gpu_instancing";
 
 enum Targets {
     ARRAY_BUFFER,
@@ -156,6 +157,7 @@ struct Scene {
 struct Node {
     Node* parent;
     String name;
+    AttributeMap attributes;
     int mesh;
     int camera;
     int skin;
@@ -354,7 +356,20 @@ fn void Node.fromJson(&self, Object* json) {
     int! camera = json.get_int("camera");
     int! skin = json.get_int("skin");
 
-    Object*! light = json.getExtension(PUNCTUAL_LIGHT_EXTENSION);
+    @when_extended(json, PUNCTUAL_LIGHT_EXTENSION; Object* extension) {
+        self.light = extension.get_int("light")!!;
+    };
+
+    @when_extended(json, MESH_GPU_INSTANCING_EXTENSION; Object* extension) {
+        Object*! attributes = extension.get("attributes");
+        if (try attributes) {
+             @pool() {
+                foreach (key : attributes.map.tcopy_keys()) {
+                    self.attributes[key] = (usz)attributes.map[key]!!.f;
+                }
+             };
+        }
+    };
 
     if (try name) self.name = name.copy();
     if (try skin) self.skin = skin;
@@ -382,10 +397,6 @@ fn void Node.fromJson(&self, Object* json) {
     if (try children) {
         foreach (node : children.array) self.children.push((uint)node.f);
     }
-
-    if (try light) {
-        self.light = light.get_int("light")!!;
-    }
 }
 
 fn bool Node.hasMesh(self) {
@@ -408,6 +419,7 @@ fn void Node.free(self) {
     self.children.free();
     self.weights.free();
     self.name.free();
+    self.attributes.free();
 }
 
 fn void Mesh.fromJson(&self, Object* json) {
@@ -1067,14 +1079,14 @@ fn Gltf! parse(InStream stream) {
     Object*! extensionsUsed = gltfJson.get("extensionsUsed");
 
     // Parse extensions used
-    if (try extensionsUsed) {
-        foreach (value : extensionsUsed.array) {
-            switch (value.s) {
-                case PUNCTUAL_LIGHT_EXTENSION : content.extensions.push(PUNCTUAL_LIGHT_EXTENSION);
-                default: {}
-            }
-        }
-    }
+    // if (try extensionsUsed) {
+    //     foreach (value : extensionsUsed.array) {
+    //         switch (value.s) {
+    //             case PUNCTUAL_LIGHT_EXTENSION : content.extensions.push(PUNCTUAL_LIGHT_EXTENSION);
+    //             default: {}
+    //         }
+    //     }
+    // }
 
     if (try extensions) {
         Object*! lights = gltfJson.getExtension(PUNCTUAL_LIGHT_EXTENSION);
