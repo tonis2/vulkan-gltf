@@ -14,11 +14,29 @@ struct Light
     float4 illuminate(Material material, FragmentData input, float3 eye) {
         float3 normal = material.getNormal(input.tex_cord, input.tbn);
         float3 L = position.xyz - input.frag_pos;
-        let lightSqrDist = dot(L, L);
-        let lightDirVS = L * rsqrt(lightSqrDist);
-        let lambert = intensity * 0.05 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
+  
 
-        return lambert * color;
+        float3 lightDir = normalize(position.xyz - input.frag_pos); 
+        float3 eyeDirection = normalize(eye - input.frag_pos);
+        float4 scatteredLight = float4(float3(0.2), 1.0);
+        float3 reflectedVector = reflect(-lightDir.xyz, normal);
+        switch (type) {
+            case 0: {
+                float diffuseFactor = max(dot(normal, lightDir), 0); 
+                float specularFactor = pow(max(dot(reflectedVector, eyeDirection), 0.0), 0.); 
+                return (scatteredLight * color) + (diffuseFactor * color) + (specularFactor * color);
+            }
+            case 1: {
+               let lightSqrDist = dot(L, L);
+               let lightDirVS = L * rsqrt(lightSqrDist);
+                float lambert = intensity * 0.002 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
+               return lambert * color;
+            }   
+            case 2: {
+                return color;
+            }
+        }
+        return color;
     }
 };
 
@@ -273,7 +291,7 @@ float4 fragmentMain(FragmentData input)
 
             float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
             const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
-            float shadowFactor = shadow_cords.z < occluderDepth.x + 0.00060 || outOfView ? 1.0 : 0.0;
+            float shadowFactor = shadow_cords.z < occluderDepth.x + 0.0005 || outOfView ? 1.0 : 0.3;
 
             light_factor += (color.rgb ) * shadowFactor;
         }
