@@ -1075,31 +1075,18 @@ fn Gltf! parse(InStream stream) {
     Object*! textures = gltfJson.get("textures");
     Object*! animations = gltfJson.get("animations");
     Object*! skins = gltfJson.get("skins");
-    Object*! extensions = gltfJson.get("extensions");
-    Object*! extensionsUsed = gltfJson.get("extensionsUsed");
 
-    // Parse extensions used
-    // if (try extensionsUsed) {
-    //     foreach (value : extensionsUsed.array) {
-    //         switch (value.s) {
-    //             case PUNCTUAL_LIGHT_EXTENSION : content.extensions.push(PUNCTUAL_LIGHT_EXTENSION);
-    //             default: {}
-    //         }
-    //     }
-    // }
-
-    if (try extensions) {
-        Object*! lights = gltfJson.getExtension(PUNCTUAL_LIGHT_EXTENSION);
-
-        // Parse light extension
+    @when_extended(gltfJson, PUNCTUAL_LIGHT_EXTENSION; Object* extension) {
+        Object*! lights = extension.get("lights");
+            // Parse light extension
         if (try lights) {
-            foreach (light: lights.map["lights"]!!.array) {
-              Light data;
-              data.fromJson(light);
-              content.lights.push(data);
+            foreach (light: lights.array) {
+                Light data;
+                data.fromJson(light);
+                content.lights.push(data);
             }
         }
-    }
+    };
 
     // Parse scenes
     if (try scenes) {
@@ -1575,10 +1562,6 @@ fn void Gltf.debugBuffer(Gltf* self, Accessor accessor) {
     }
 
     io::printf(" \n _______ \n%d");
-}
-
-fn Object*! Object.getExtension(self, String extension) {
-   return self.map["extensions"]!.map[extension];
 }
 
 fn void AnimationChannels.release(&self) {
