@@ -52,15 +52,18 @@ struct AddressBuffer {
     uint light_count;
 }
 
+
+Buffer(<List(<Light>)>) lights;
+
 MemoryBlock mesh_buffer;
 MemoryBlock light_buffer;
 MemoryBlock material_buffer;
-MemoryBlock uniform_buffer;
+
 MemoryBlock joint_buffer;
 MemoryBlock light_matrix_buffer;
 MemoryBlock instance_buffer;
 MemoryBlock indirect_commands_buffer;
-MemoryBlock address_buffer;
+
 
 Gltf gltf;
 AnimationChannels animaton_data;
@@ -129,6 +132,18 @@ fn void! main()
         local_allocation.free();
     }
 
+    Buffer(<Uniform>) uniform = Buffer(<Uniform>).new(
+         usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+         allocator: &local_allocation,
+         data: &&Uniform {
+            .perspective = camera.perspective.transpose(),
+            .view = camera.view.transpose(),
+            .eye = Vec4f {camera.eye, 0.0 },
+        }
+    );
+    
+    defer uniform.free();
+
    // Creating buffers
     mesh_buffer = vk::bufferCreateInfo()
                .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
@@ -171,30 +186,34 @@ fn void! main()
                 .setSize(join_buffer_size * Matrix4f.sizeof)
                 .bind(&local_allocation)!;         
 
-    address_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(AddressBuffer.sizeof)
-                .bind(&local_allocation)!;
-
     instance_buffer = vk::bufferCreateInfo()
                 .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
                 .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
                 .setSize(InstanceData.sizeof * gltf.meshes.len())
                 .bind(&local_allocation)!;
 
-    uniform_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(Uniform.sizeof)
-                .bind(&local_allocation)!;
+
+    Buffer(<AddressBuffer>) addresses = Buffer(<AddressBuffer>).new(
+         usage: vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+         allocator: &local_allocation,
+        .data = &&AddressBuffer {
+            light_buffer.address,
+            material_buffer.address,
+            joint_buffer.address,
+            light_matrix_buffer.address,
+            instance_buffer.address,
+            uniform.address,
+            (uint)gltf.lights.len()
+        },
+    );
+
+    defer addresses.free();
 
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
 
     foreach (node_index: scene_nodes) {
         Node node = gltf.nodes[node_index];
         bool skinned_node = node.hasSkin();
-
 
         if (node.hasMesh()) {
             Matrix4f node_matrix = node.globalMatrix().transpose();
@@ -253,26 +272,7 @@ fn void! main()
         }
     }              
 
-    // Upload data to buffers
-    AddressBuffer addresses = AddressBuffer {
-        light_buffer.address,
-        material_buffer.address,
-        joint_buffer.address,
-        light_matrix_buffer.address,
-        instance_buffer.address,
-        uniform_buffer.address,
-        (uint)gltf.lights.len()
-    };
-    
-   Uniform uniform_data = Uniform {
-        .perspective = camera.perspective.transpose(),
-        .view = camera.view.transpose(),
-        .eye = Vec4f {camera.eye, 0.0 },
-    };
-
-    uniform_buffer.upload(&uniform_data, Uniform.sizeof);
     material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
-    address_buffer.upload(&addresses, AddressBuffer.sizeof);
 
     usz device_buffer_size = scene.buffer_info.byteLength + gltf.lights.byte_size() + indirect_commands.byte_size();
     vk::@upload_from_stage(size: device_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
@@ -345,7 +345,7 @@ fn void! main()
             .setDstBinding(0)
             .setBufferInfo({
                 {
-                    .buffer = address_buffer.buffer,
+                    .buffer = addresses.buffer,
                     .offset = 0,
                     .range = AddressBuffer.sizeof,
                 },
@@ -518,18 +518,18 @@ fn void! main()
         if (win.is_pressed(LEFT_MOUSE)) {
             Vec2f mouse_pos = win.getMousePos();
             camera.rotate(mouse_pos.x - prev_mouse.x, -(mouse_pos.y - prev_mouse.y));
-            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+            uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
             prev_mouse = mouse_pos;
         }
 
         if (win.is_pressed(MOUSE_SCROLL_UP)) {
             camera.zoom(5);
-            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+            uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
         }
 
         if (win.is_pressed(MOUSE_SCROLL_DOWN)) {
             camera.zoom(-5);
-            uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+            uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
         }
 
         if (win.is_pressed(ESCAPE)) {
@@ -643,10 +643,7 @@ fn void! main()
         rendering_info.setColorAttachments({ main_render_target });
         rendering_info.setDepthAttachment(&main_depth_target);
 
-        // Set uniform view, back to camera
-        uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: context.frame * Uniform.sizeof + Uniform.view.offsetof);
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-
         vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
         vk::cmdEndRendering(command_buffer);
       
