@@ -14,22 +14,23 @@ struct Light
     float4 illuminate(Material material, FragmentData input, float3 eye) {
         float3 normal = material.getNormal(input.tex_cord, input.tbn);
         float3 L = position.xyz - input.frag_pos;
-  
 
-        float3 lightDir = normalize(position.xyz - input.frag_pos); 
-        float3 eyeDirection = normalize(eye - input.frag_pos);
-        float4 scatteredLight = float4(float3(0.2), 1.0);
-        float3 reflectedVector = reflect(-lightDir.xyz, normal);
         switch (type) {
+            //Directional
             case 0: {
+                float3 lightDir = normalize(position.xyz - input.frag_pos); 
+                float3 eyeDirection = normalize(eye - input.frag_pos);
+                float4 scatteredLight = float4(float3(0.2), 1.0);
+                float3 reflectedVector = reflect(-lightDir.xyz, normal);
+
                 float diffuseFactor = max(dot(normal, lightDir), 0); 
-                float specularFactor = pow(max(dot(reflectedVector, eyeDirection), 0.0), 0.); 
+                float specularFactor = pow(max(dot(reflectedVector, eyeDirection), 0.0), 0.5); 
                 return (scatteredLight * color) + (diffuseFactor * color) + (specularFactor * color);
             }
             case 1: {
                let lightSqrDist = dot(L, L);
                let lightDirVS = L * rsqrt(lightSqrDist);
-                float lambert = intensity * 0.002 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
+               float lambert = intensity * 0.002 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
                return lambert * color;
             }   
             case 2: {
@@ -147,6 +148,11 @@ struct Instance
     u8vec4* skin_pos;
     float4* weights;
 
+    // Instance data
+    float3* translate;
+    float4* rotate;
+    float3* scale;
+
     Vertex get_vertex(uint index) {
         float4 tangent = tangents[index];
         float3 normal = normals[index];
@@ -195,8 +201,6 @@ uniform Sampler2D image_samplers[];
 [vk_binding(2)]
 uniform Sampler2D shadow_samplers[];
 
-
-
 // Output of the fragment shader
 struct FragmentData
 {
@@ -211,6 +215,7 @@ struct FragmentData
 struct VertexInput {
     uint32_t vertID : SV_VertexID;
     uint32_t drawID : SV_DrawIndex;
+    uint32_t instanceID : SV_InstanceID;
 }
 
 [shader("vertex")]
@@ -235,7 +240,21 @@ FragmentData vertexMain(VertexInput input)
             vertex.skin_weight[3] * joints[skin_pos[3]];
     }
 
-    float4 frag_pos = mul(mul(instance.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
+    float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
+
+    if (input.instanceID > 0) {
+        float3 translation = instance.translate[input.instanceID];
+        float3 scale = instance.scale[input.instanceID];
+        float4x4 instance_matrix = {
+            1.0, 0, 0, translation.x,
+            0, 1.0, 0, translation.y,
+            0, 0, 1.0, translation.z,
+            0, 0, 0, 1
+        };
+        node_matrix = mul(node_matrix, instance_matrix);
+    }
+
+    float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
     //float4x4 inverse_matrix = mul(instance.inverse_node_matrix, skin_matrix);
 
@@ -290,6 +309,7 @@ float4 fragmentMain(FragmentData input)
                 shadow_pos.z);
 
             float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
+            // Fix artifacts
             const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
             float shadowFactor = shadow_cords.z < occluderDepth.x + 0.0005 || outOfView ? 1.0 : 0.3;
 
@@ -336,3 +356,19 @@ ShadowData vertexShadow(VertexInput input)
         mul(light_view, frag_pos)
     };
 }
+
+// float4 qmul(float4 q1, float4 q2)
+// {
+//     return float4(
+//         q2.xyz * q1.w + q1.xyz * q2.w + cross(q1.xyz, q2.xyz),
+//         q1.w * q2.w - dot(q1.xyz, q2.xyz)
+//     );
+// }
+
+// // Vector rotation with a quaternion
+// // http://mathworld.wolfram.com/Quaternion.html
+// float3 rotate_vector(float3 v, float4 r)
+// {
+//     float4 r_c = r * float4(-1, -1, -1, 1);
+//     return qmul(r, qmul(float4(v, 0), r_c)).xyz;
+// }

@@ -492,6 +492,9 @@ fn void! main()
     while (running) {
         c3w::Event event = win.getEvent();
 
+
+        c3w::Event event = win.getEvent();
+
         if (win.is_pressed(LEFT_MOUSE)) {
             Vec2f mouse_pos = win.getMousePos();
             camera.rotate(mouse_pos.x - prev_mouse.x, -(mouse_pos.y - prev_mouse.y));
@@ -508,12 +511,9 @@ fn void! main()
             camera.zoom(-5);
             uniform_buffer.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
         }
-        
-        switch (event.type) {
-            case KEY_PRESSED: {
-                if (event.value == ESCAPE) running = false;
-            }
-            default: {}
+
+        if (win.is_pressed(ESCAPE)) {
+            running = false;
         }
 
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());

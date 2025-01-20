@@ -25,6 +25,10 @@ struct InstanceData {
     vk::DeviceAddress skin_pos;
     vk::DeviceAddress weights;
 
+    vk::DeviceAddress translate;
+    vk::DeviceAddress rotate;
+    vk::DeviceAddress scale;
+
 }
 
 struct PushConstantData {
@@ -198,10 +202,6 @@ fn void! main()
 
             Mesh mesh = gltf.meshes[node.mesh];
 
-            if (node.attributes.len() > 0) {
-                io::printfn("has instancing");
-            }
-
             foreach (prim_index, primitive: mesh.primitives) {
                 Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
                 int material_index = (int)primitive.attributes["material"] ?? -1;
@@ -228,14 +228,27 @@ fn void! main()
                     .weights = mesh_buffer.address + (uint)weights_offset,
                 };
 
-                instance_buffer.push(&data, size: InstanceData.sizeof);
-                indirect_commands.push(DrawIndexedIndirectCommand {
+                DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
                     .indexCount = index_accessor.count,
                     .firstInstance = 0,
                     .instanceCount = 1,
                     .firstIndex = (uint)index_offset / index_accessor.stride(),
                     .vertexOffset = 0,
-                });
+                };
+
+                // Instanced node
+                if (node.attributes.len() > 0) {
+                    io::printfn("has instancing");
+                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                    // command.instanceCount = translation_accessor.count;
+
+                    usz translation_offset = gltf.get_offset(node.attributes["TRANSLATION"] ?? 0);
+                    usz rotation_offset = gltf.get_offset(node.attributes["ROTATION"] ?? 0);
+                    usz scale_offset = gltf.get_offset(node.attributes["SCALE"] ?? 0);
+                }
+
+                indirect_commands.push(command);
+                instance_buffer.push(&data, size: InstanceData.sizeof);
             }
         }
     }              
