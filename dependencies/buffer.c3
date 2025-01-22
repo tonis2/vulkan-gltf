@@ -1,4 +1,4 @@
-module helpers::buffer(<Type>);
+module helpers;
 
 import std::io, std::math;
 import vk;
@@ -10,7 +10,7 @@ import vk;
 
 fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
 
-struct Buffer
+struct Memory
 {
 	usz size;
     usz used_size;
@@ -21,10 +21,8 @@ struct Buffer
     DeviceAddress address;
 }
 
-fn Buffer Buffer.new(vk::BufferUsageFlagBits usage, vk::Allocation* allocator, Type* data, usz data_size = 0) @operator(construct)
-{   
-    if (data_size == 0) data_size = Type.sizeof;
-
+fn Memory! new_buffer(vk::BufferUsageFlagBits usage, vk::Allocation* allocator, void* data = null, usz data_size, vk::Allocation* stage_allocator = null, DeviceQueue* queue = null)
+{
     vk::Device device = allocator.device;
     vk::PhysicalDevice pdevice = allocator.pdevice;
 
@@ -62,8 +60,10 @@ fn Buffer Buffer.new(vk::BufferUsageFlagBits usage, vk::Allocation* allocator, T
 
     usz size = alignUp(mem_reqs.size, mem_reqs.alignment);
 
-    if ((allocator.size - allocator.used_size) < size) io::printfn("Allocation has no enough free memory");
-    assert((allocator.size - allocator.used_size) > size);
+    if ((allocator.size - allocator.used_size) < size) {
+        io::printfn("Allocation has no enough free memory");
+        return BufferError.BUFFER_TOO_SMALL?;
+    };
 
     usz offset = alignUp(allocator.used_size, mem_reqs.alignment);
     vk::bindBufferMemory(allocator.device, buffer, allocator.memory, offset)!!;
@@ -80,7 +80,7 @@ fn Buffer Buffer.new(vk::BufferUsageFlagBits usage, vk::Allocation* allocator, T
         address = vk::getBufferDeviceAddress(allocator.device, &address_info);
     }
 
-    Buffer response = Buffer {
+    Memory response = Memory {
         .buffer = buffer,
         .size = data_size,
         .used_size = 0,
@@ -88,35 +88,76 @@ fn Buffer Buffer.new(vk::BufferUsageFlagBits usage, vk::Allocation* allocator, T
         .allocator = allocator,
         .address = address,
     };
-    
-    if (data != null) {
-        // Device
-        if ((MemoryPropertyFlagBits)allocator.properties & vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
-
+    // CPU & GPU
+    if ((MemoryPropertyFlagBits)allocator.properties & (vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT) && data != null) {
+        response.upload(data, data_size); 
+    }
+    // GPU only
+    if ((MemoryPropertyFlagBits)allocator.properties & vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT && data != null) {
+        if (stage_allocator == null) {
+            io::printfn("Add stage allocator for uploading to GPU");
+            return BufferError.BUFFER_TOO_SMALL?;
         }
 
-        // Local
-        if ((MemoryPropertyFlagBits)allocator.properties & (vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT)) {
-            response.upload(data, data_size);
-        }
+        Memory stage_buffer = new_buffer(
+            vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+            stage_allocator,
+            data,
+            data_size: data_size
+        )!;
+
+        device.@single_time_command(queue: *queue; CommandBuffer command_buffer) {
+            vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, response.buffer, 1, &&BufferCopy {
+                .srcOffset = 0,
+                .dstOffset = 0,
+                .size = data_size
+            });
+        }!;
+
+        stage_buffer.free();
     }
 
     return response;
 }
 
-fn void Buffer.upload(&self, void* data, ulong size, usz offset = 0)
+
+fn void Memory.upload(&self, void* data, ulong size, usz offset = 0)
 {
     mem::copy(self.allocator.mapped + self.allocator_offset + offset, data, size);
 }
 
-fn void Buffer.push(&self, void* data, ulong size, usz offset = 0)
+fn void! Memory.upload_from_stage(&self, void* data, usz data_size, vk::Allocation* stage_allocator = null, DeviceQueue queue)
+{
+    vk::Device device = self.allocator.device;
+    vk::PhysicalDevice pdevice = self.allocator.pdevice;
+
+    Memory stage_buffer = new_buffer(
+        vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+        stage_allocator,
+        data,
+        data_size: data_size
+    )!;
+
+    device.@single_time_command(queue: queue; CommandBuffer command_buffer) {
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, self.buffer, 1, &&BufferCopy {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = data_size
+        });
+    }!;
+
+    stage_buffer.free();
+}
+
+fn void Memory.push(&self, void* data, ulong size, usz offset = 0)
 {
     mem::copy(self.allocator.mapped + self.allocator_offset + offset + self.used_size, data, size);
     self.used_size += size;
 }
 
-fn void Buffer.free(&self)
+fn void Memory.free(&self)
 {
+    // self.allocator.used_size -= self.size;
     vk::destroyBuffer(self.allocator.device, self.buffer, null);
 }
 

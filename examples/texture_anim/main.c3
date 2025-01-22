@@ -52,19 +52,6 @@ struct AddressBuffer {
     uint light_count;
 }
 
-
-Buffer(<List(<Light>)>) lights;
-
-MemoryBlock mesh_buffer;
-MemoryBlock light_buffer;
-MemoryBlock material_buffer;
-
-MemoryBlock joint_buffer;
-MemoryBlock light_matrix_buffer;
-MemoryBlock instance_buffer;
-MemoryBlock indirect_commands_buffer;
-
-
 Gltf gltf;
 AnimationChannels animaton_data;
 
@@ -132,71 +119,79 @@ fn void! main()
         local_allocation.free();
     }
 
-    Buffer(<Uniform>) uniform = Buffer(<Uniform>).new(
-         usage: vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-         allocator: &local_allocation,
-         data: &&Uniform {
-            .perspective = camera.perspective.transpose(),
-            .view = camera.view.transpose(),
-            .eye = Vec4f {camera.eye, 0.0 },
-        }
-    );
-    
-    defer uniform.free();
-
-   // Creating buffers
-    mesh_buffer = vk::bufferCreateInfo()
-               .setUsage(vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-               .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-               .setSize(scene.buffer_info.byteLength)
-               .bind(&device_allocation)!;
-
-    light_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(gltf.lights.byte_size())
-                .bind(&device_allocation)!;
-
-    indirect_commands_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof)
-                .bind(&device_allocation)!;
-
-    light_matrix_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(gltf.lights.len() * Matrix4f.sizeof)
-                .bind(&local_allocation)!;                 
-
-    material_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(gltf.materials.byte_size())
-                .bind(&local_allocation)!;
-
     uint join_buffer_size = 0;
     foreach (skin_index, skin: gltf.skins) {
         foreach (joint: skin.joints) join_buffer_size += 1;
     }
+  
+    Memory uniform = helpers::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &local_allocation,
+        &&Uniform {
+            .perspective = camera.perspective.transpose(),
+            .view = camera.view.transpose(),
+            .eye = Vec4f {camera.eye, 0.0 },
+        },
+        data_size: Uniform.sizeof
+    )!!;
+    
+    Memory material_buffer = helpers::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &local_allocation,
+        gltf.materials.entries,
+        gltf.materials.byte_size()
+    )!!;
 
-    joint_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(join_buffer_size * Matrix4f.sizeof)
-                .bind(&local_allocation)!;         
+    Memory light_matrix_buffer = helpers::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &local_allocation,
+        null,
+        data_size: gltf.lights.len() * Matrix4f.sizeof
+    )!!;
 
-    instance_buffer = vk::bufferCreateInfo()
-                .setUsage(vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-                .setSharingMode(vk::SHARING_MODE_EXCLUSIVE)
-                .setSize(InstanceData.sizeof * gltf.meshes.len())
-                .bind(&local_allocation)!;
+    Memory joint_buffer = helpers::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &local_allocation,
+        null,
+        data_size: join_buffer_size * Matrix4f.sizeof
+    )!!;
 
+    Memory instance_buffer = helpers::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &local_allocation,
+        null,
+        data_size: InstanceData.sizeof * gltf.meshes.len()
+    )!!;
 
-    Buffer(<AddressBuffer>) addresses = Buffer(<AddressBuffer>).new(
-         usage: vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-         allocator: &local_allocation,
-        .data = &&AddressBuffer {
+    Memory light_buffer = helpers::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &device_allocation,
+        gltf.lights.entries,
+        data_size: gltf.lights.byte_size(),
+        stage_allocator: &local_allocation,
+        queue: &context.graphics_queue
+    )!!;
+
+    Memory mesh_buffer = helpers::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &device_allocation,
+        gltf.buffers[0].data,
+        data_size: scene.buffer_info.byteLength,
+        stage_allocator: &local_allocation,
+        queue: &context.graphics_queue
+    )!!;
+
+    Memory indirect_commands_buffer = helpers::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &device_allocation,
+        null,
+        data_size: gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof,
+    )!!;
+
+    Memory addresses = helpers::new_buffer(
+        vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        &local_allocation,
+        &&AddressBuffer {
             light_buffer.address,
             material_buffer.address,
             joint_buffer.address,
@@ -205,9 +200,20 @@ fn void! main()
             uniform.address,
             (uint)gltf.lights.len()
         },
-    );
+        data_size: AddressBuffer.sizeof
+    )!!;
 
-    defer addresses.free();
+    defer {
+        uniform.free();
+        material_buffer.free();
+        light_matrix_buffer.free();
+        joint_buffer.free();
+        instance_buffer.free();
+        light_buffer.free();
+        mesh_buffer.free();
+        indirect_commands_buffer.free();
+        addresses.free();
+    };
 
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
 
@@ -270,35 +276,10 @@ fn void! main()
                 instance_buffer.push(&data, size: InstanceData.sizeof);
             }
         }
-    }              
-
-    material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
-
-    usz device_buffer_size = scene.buffer_info.byteLength + gltf.lights.byte_size() + indirect_commands.byte_size();
-    vk::@upload_from_stage(size: device_buffer_size, queue: context.graphics_queue, allocator: local_allocation; MemoryBlock stage_buffer, CommandBuffer command_buffer) {
-        stage_buffer.push(gltf.buffers[0].data, scene.buffer_info.byteLength);
-        stage_buffer.push(gltf.lights.entries, gltf.lights.byte_size());
-        stage_buffer.push(indirect_commands.entries, indirect_commands.byte_size());
-
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, mesh_buffer.buffer, 1, &&BufferCopy {
-             .srcOffset = 0,
-             .dstOffset = 0,
-             .size = scene.buffer_info.byteLength
-        });
-
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, light_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = scene.buffer_info.byteLength,
-            .dstOffset = 0,
-            .size = gltf.lights.byte_size()
-        });
-
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, indirect_commands_buffer.buffer, 1, &&BufferCopy {
-            .srcOffset = scene.buffer_info.byteLength + gltf.lights.byte_size(),
-            .dstOffset = 0,
-            .size = indirect_commands.byte_size()
-        });
-    }!;
+    }
     
+    indirect_commands_buffer.upload_from_stage(indirect_commands.entries, indirect_commands.byte_size(), &local_allocation, context.graphics_queue)!;
+
     // Create GLTF texture images
     foreach (image : gltf.images) {
         stb::Image image_data;
@@ -503,6 +484,7 @@ fn void! main()
 
     while (running) {
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
+        //material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
 
         // Update joint animations buffer
         foreach (skin: gltf.skins) {
@@ -537,8 +519,7 @@ fn void! main()
         }
 
         uint next_image = context.next_image()!!;
-        material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
-
+    
         ImageMemoryBarrier2 begin_barrier = {
             .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
             .image = context.swapchain_images[next_image],
