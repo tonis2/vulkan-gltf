@@ -164,7 +164,7 @@ fn void! main()
     )!!;
 
     Memory light_buffer = helpers::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
         gltf.lights.entries,
         data_size: gltf.lights.byte_size(),
@@ -173,7 +173,7 @@ fn void! main()
     )!!;
 
     Memory mesh_buffer = helpers::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
         gltf.buffers[0].data,
         data_size: scene.buffer_info.byteLength,
@@ -182,7 +182,7 @@ fn void! main()
     )!!;
 
     Memory indirect_commands_buffer = helpers::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
         null,
         data_size: gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof,
@@ -296,7 +296,7 @@ fn void! main()
         }
 
         // Create vulkan texture image
-        descriptor_images.addImageTexture(image_data, &device_allocation, context.graphics_queue)!;
+        descriptor_images.addImageTexture(image_data, &device_allocation, &local_allocation, context.graphics_queue)!;
         image_data.free();
     }
 

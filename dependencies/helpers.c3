@@ -342,7 +342,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     return context;
 }
 
-fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allocation* allocator, DeviceQueue queue) {
+fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allocation* allocator, vk::Allocation* stage_allocator, DeviceQueue queue) {
     vk::Device device = allocator.device;
     vk::PhysicalDevice pdevice = allocator.pdevice; 
 
@@ -360,12 +360,50 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
         .setTiling(vk::IMAGE_TILING_OPTIMAL)
         .setFormat(image_format)
         .build(device)!;
-        texture_image.bind(allocator)!;
 
-    // Memory stage_buffer = new_buffer(vk::BUFFER_USAGE_TRANSFER_SRC_BIT, );
-    MemoryBlock stage_image = vk::create_staging_buffer(size: (usz)image_data.width * image_data.height * 4, device: device, pdevice: pdevice)!;
-    stage_image.upload(image_data.pixels, (usz)image_data.width * image_data.height * 4);
-    defer stage_image.free(device);
+    Memory image_buffer = create_image_buffer(texture_image, allocator)!;
+
+    texture.sampler = vk::samplerCreateInfo()
+            .setMagFilter(vk::FILTER_NEAREST)
+            .setMinFilter(vk::FILTER_NEAREST)
+            .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+            .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+            .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_REPEAT)
+            .setMipLodBias(0.0)
+            .setMinLod(0.0)
+            .setMaxLod(1.0)
+            .setMaxAnisotropy(1.0)
+            .setAnisotropyEnable(vk::FALSE)
+            .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
+            .build(device)!;
+
+    texture.imageView = vk::imageViewCreateInfo()
+            .setViewType(vk::IMAGE_VIEW_TYPE_2D)
+            .setFormat(image_format)
+            .setComponents({
+                .r = vk::COMPONENT_SWIZZLE_R,
+                .g = vk::COMPONENT_SWIZZLE_G,
+                .b = vk::COMPONENT_SWIZZLE_B,
+                .a = vk::COMPONENT_SWIZZLE_A,
+            })
+            .setSubresourceRange({
+                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+                .levelCount = 1,
+            })
+            .setImage(texture_image)
+            .build(device)!;
+
+    Memory stage_buffer = helpers::new_buffer(
+        vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+        stage_allocator,
+        image_data.pixels,
+        (usz)image_data.width * image_data.height * 4
+    )!;
+
+    defer stage_buffer.free();
 
     vk::ImageMemoryBarrier2 transfer_barrier = {
         .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -424,7 +462,7 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
 
         vk::cmdCopyBufferToImage(
             command_buffer,
-            stage_image.buffer,
+            stage_buffer.buffer,
             texture_image,
             vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             1,
@@ -434,39 +472,6 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers({ finalize_barrier }));
     }!;
-
-    texture.sampler = vk::samplerCreateInfo()
-                        .setMagFilter(vk::FILTER_NEAREST)
-                        .setMinFilter(vk::FILTER_NEAREST)
-                        .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-                        .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-                        .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_REPEAT)
-                        .setMipLodBias(0.0)
-                        .setMinLod(0.0)
-                        .setMaxLod(1.0)
-                        .setMaxAnisotropy(1.0)
-                        .setAnisotropyEnable(vk::FALSE)
-                        .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
-                        .build(device)!;
-
-    texture.imageView = vk::imageViewCreateInfo()
-            .setViewType(vk::IMAGE_VIEW_TYPE_2D)
-            .setFormat(image_format)
-            .setComponents({
-                .r = vk::COMPONENT_SWIZZLE_R,
-                .g = vk::COMPONENT_SWIZZLE_G,
-                .b = vk::COMPONENT_SWIZZLE_B,
-                .a = vk::COMPONENT_SWIZZLE_A,
-            })
-            .setSubresourceRange({
-                .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-                .levelCount = 1,
-            })
-            .setImage(texture_image)
-            .build(device)!;
 
     self.push(texture);
 }

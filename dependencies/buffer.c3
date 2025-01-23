@@ -3,11 +3,6 @@ module helpers;
 import std::io, std::math;
 import vk;
 
-// def ElementPredicate = fn bool(Type *type);
-// def ElementTest = fn bool(Type *type, any context);
-// const ELEMENT_IS_EQUATABLE = types::is_equatable_type(Type);
-// const ELEMENT_IS_POINTER = Type.kindof == POINTER;
-
 fn usz alignUp(usz value, usz factor)  => value + factor - 1 - (value + factor - 1) % factor;
 
 struct Memory
@@ -121,14 +116,9 @@ fn Memory! new_buffer(vk::BufferUsageFlagBits usage, vk::Allocation* allocator, 
     return response;
 }
 
-fn Memory! new_image(
+fn Memory! create_image_buffer(
     vk::Image image, 
-    vk::Allocation* allocator, 
-    void* data = null, 
-    usz data_size, 
-    vk::Allocation* stage_allocator = null, 
-    DeviceQueue* queue = null,
-    vk::ImageMemoryBarrier2* finalize_barrier,
+    vk::Allocation* allocator
 )
 {
     vk::Device device = allocator.device;
@@ -197,11 +187,11 @@ fn void Memory.push(&self, void* data, ulong size, usz offset = 0)
 fn void Memory.free(&self)
 {
     self.allocator.used_size -= self.size;
-    vk::destroyBuffer(self.allocator.device, self.buffer, null);
+    if (self.buffer != null) {
+        vk::destroyBuffer(self.allocator.device, self.buffer, null);
+    }
+
+    if (self.image != null) {
+        vk::destroyImage(self.allocator.device, self.image, null);
+    }
 }
-
-// macro Buffer @from_list(#list, vk::BufferUsageFlagBits flags, vk::Allocation* allocator)
-// {
-//     usz list_size = #list.byte_size();
-
-// }
