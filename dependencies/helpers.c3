@@ -362,6 +362,7 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
         .build(device)!;
         texture_image.bind(allocator)!;
 
+    // Memory stage_buffer = new_buffer(vk::BUFFER_USAGE_TRANSFER_SRC_BIT, );
     MemoryBlock stage_image = vk::create_staging_buffer(size: (usz)image_data.width * image_data.height * 4, device: device, pdevice: pdevice)!;
     stage_image.upload(image_data.pixels, (usz)image_data.width * image_data.height * 4);
     defer stage_image.free(device);

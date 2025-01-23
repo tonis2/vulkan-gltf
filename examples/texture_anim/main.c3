@@ -105,7 +105,7 @@ fn void! main()
         .size = 50_000_000
     }.build()!;
 
-    // Allocation where data can be changed from CPU, used when you need to update the data
+    // Allocation where data can be changed from CPU
     vk::Allocation local_allocation = vk::Allocation {
         .device = context.device,
         .pdevice = context.pdevice,
@@ -482,6 +482,8 @@ fn void! main()
 
     Vec2f prev_mouse;
 
+
+
     while (running) {
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
         //material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
@@ -565,7 +567,7 @@ fn void! main()
             .color = { .float32 = { 0.0, 0.0, 0.0, 1.0 }}
         });
 
-       RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
+        RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
         .setImageView(descriptor_images.last()!!.imageView)
         .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
         .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
