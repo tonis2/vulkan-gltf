@@ -7,7 +7,7 @@
 	"dependencies": ["c3w", "vk", "stb"],
 	"features": [],
 	"linked-libraries": ["./dependencies/libvulkan.a"],
-	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/helpers.c3", "./dependencies/buffer.c3"],
+	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/helpers.c3"],
 	"script-dir": "./",
 	"targets": {
 		"shaders": {
