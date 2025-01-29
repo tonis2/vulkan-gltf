@@ -1,4 +1,5 @@
 // Shader written in Slang https://github.com/shader-slang/slang
+
 struct TextureInfo
 {
     int source;
@@ -7,6 +8,11 @@ struct TextureInfo
     float pad;
     float2 offset;
     float2 scale;
+
+    bool can_sample()
+    {
+        return sampler >= 0;
+    }
 };
 
 struct Material
@@ -28,7 +34,7 @@ struct Material
 
     float4 getBaseColor(float2 tex_pos)
     {
-        if (baseColorTexture.sampler >= 0)
+        if (baseColorTexture.can_sample())
         {
             return image_samplers[baseColorTexture.sampler].Sample(tex_pos) * baseColorFactor;
         }
@@ -37,61 +43,94 @@ struct Material
     }
 };
 
-struct PushData
+public typealias u8vec4 = vector<uint8_t, 4>;
+
+struct Vertex
 {
-    float4x4 model_matrix;
-    int material_index;
-    bool has_skin;
+    float3 position;
+    float3 normal;
+    float2 tex_cord;
+    u8vec4 skin_pos;
+    float4 skin_weight;
 };
+
+struct Instance
+{
+    int material_index;
+    int has_skin;
+    float4x4 node_matrix;
+    float3* positions;
+    float3* normals;
+    float2* text_cords;
+    u8vec4* skin_pos;
+    float4* weights;
+
+    // Instance data
+    float3* translate;
+    float4* rotate;
+    float3* scale;
+
+    Vertex get_vertex(uint index) {
+        float3 normal = normals[index];
+        return {
+            positions[index],
+            normal,
+            text_cords[index],
+            skin_pos[index],
+            weights[index]
+        };
+    }
+}
 
 struct Uniform
 {
-    float4x4 projection;
+    float4x4 perspective;
     float4x4 view;
-    float3 eye;
+    float4 eye;
 }
 
-[vk_push_constant]
-const PushData push_constant;
+// struct PushData
+// {
+//     uint light_index;
+// };
+
+// [vk_push_constant]
+// const PushData push_constant;
 
 [vk_binding(0)]
 cbuffer Buffers
 {
-    Vertex *vertices;
+    Material *materials;
     float4x4 *joints;
+    Instance *instances;
     Uniform *uniform;
-    Material* materials;
 }
 
 [vk_binding(1)]
 uniform Sampler2D image_samplers[];
 
-struct Vertex
-{
-    float4 position;
-    float2 tex_cord;
-    float2 offset;
-    float4 skin_pos;
-    float4 skin_weight;
-};
+[vk_binding(2)]
+uniform Sampler2D shadow_samplers[];
 
 // Output of the fragment shader
 struct FragmentData
 {
     float2 tex_cord;
     int material_index;
-};
-
-struct VertexOutPut
-{
-    FragmentData vertex_output;
     float4 sv_position : SV_Position;
 };
 
+struct VertexInput {
+    uint32_t vertID : SV_VertexID;
+    uint32_t drawID : SV_DrawIndex;
+    uint32_t instanceID : SV_InstanceID;
+}
+
 [shader("vertex")]
-VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
+FragmentData vertexMain(VertexInput input)
 {
-    Vertex vertex = vertices[vertID];
+    Instance instance = instances[input.drawID];
+    Vertex vertex = instance.get_vertex(input.vertID);
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -99,21 +138,24 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
         0, 0, 0, 1
     };
 
-    if (push_constant.has_skin)
+    if (instance.has_skin > 0)
     {
+        uint4 skin_pos = asuint(vertex.skin_pos[0]);
         skin_matrix =
-            vertex.skin_weight[0] * joints[uint(vertex.skin_pos[0])] +
-            vertex.skin_weight[1] * joints[uint(vertex.skin_pos[1])] +
-            vertex.skin_weight[2] * joints[uint(vertex.skin_pos[2])] +
-            vertex.skin_weight[3] * joints[uint(vertex.skin_pos[3])];
+            vertex.skin_weight[0] * joints[skin_pos[0]] +
+            vertex.skin_weight[1] * joints[skin_pos[1]] +
+            vertex.skin_weight[2] * joints[skin_pos[2]] +
+            vertex.skin_weight[3] * joints[skin_pos[3]];
     }
 
-    VertexOutPut output = {
-        {
-            vertex.tex_cord,
-            push_constant.material_index,
-        },
-        mul(mul(mul(mul(uniform.projection, uniform.view), push_constant.model_matrix), skin_matrix), float4(vertex.position.xyz, 1.0))
+    float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
+    float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
+    float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
+
+    FragmentData output = {
+        vertex.tex_cord,
+        instance.material_index,
+        vertex_pos
     };
 
     return output;
@@ -124,14 +166,14 @@ VertexOutPut vertexMain(uint32_t vertID: SV_VertexID)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
-    Material material;
-    float4 color = float4(0.5, 0.5, 0.5, 1.0);
-
+    Material material = materials[input.material_index];
+    float4 diffuse_texture = material.getBaseColor(input.tex_cord);
     if (input.material_index >= 0)
     {
-        material = materials[input.material_index];
-        return material.getBaseColor(input.tex_cord);
+        Material material = materials[input.material_index];
+        float4 diffuse_texture = material.getBaseColor(input.tex_cord);
+        return diffuse_texture;
     }
 
-    return color;
+    return float4(0.5, 0.5, 0.5, 1.0);
 }

@@ -118,13 +118,8 @@ fn void! main()
         device_allocation.free();
         local_allocation.free();
     }
-
-    uint join_buffer_size = 0;
-    foreach (skin_index, skin: gltf.skins) {
-        foreach (joint: skin.joints) join_buffer_size += 1;
-    }
   
-    Memory uniform = helpers::new_buffer(
+    Memory uniform = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &local_allocation,
         &&Uniform {
@@ -135,35 +130,38 @@ fn void! main()
         data_size: Uniform.sizeof
     )!!;
     
-    Memory material_buffer = helpers::new_buffer(
+    Memory material_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &local_allocation,
         gltf.materials.entries,
         gltf.materials.byte_size()
     )!!;
 
-    Memory light_matrix_buffer = helpers::new_buffer(
+    Memory light_matrix_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &local_allocation,
         null,
         data_size: gltf.lights.len() * Matrix4f.sizeof
     )!!;
 
-    Memory joint_buffer = helpers::new_buffer(
+    uint joint_buffer_size = 0;
+    foreach (skin_index, skin: gltf.skins) joint_buffer_size += skin.joints.len();
+
+    Memory joint_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &local_allocation,
         null,
-        data_size: join_buffer_size * Matrix4f.sizeof
+        data_size: joint_buffer_size * Matrix4f.sizeof
     )!!;
 
-    Memory instance_buffer = helpers::new_buffer(
+    Memory instance_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &local_allocation,
         null,
         data_size: InstanceData.sizeof * gltf.meshes.len()
     )!!;
 
-    Memory light_buffer = helpers::new_buffer(
+    Memory light_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
         gltf.lights.entries,
@@ -172,7 +170,7 @@ fn void! main()
         queue: &context.graphics_queue
     )!!;
 
-    Memory mesh_buffer = helpers::new_buffer(
+    Memory mesh_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
         gltf.buffers[0].data,
@@ -181,14 +179,14 @@ fn void! main()
         queue: &context.graphics_queue
     )!!;
 
-    Memory indirect_commands_buffer = helpers::new_buffer(
+    Memory indirect_commands_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
         null,
         data_size: gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof,
     )!!;
 
-    Memory addresses = helpers::new_buffer(
+    Memory addresses = vk::new_buffer(
         vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         &local_allocation,
         &&AddressBuffer {
@@ -203,18 +201,6 @@ fn void! main()
         data_size: AddressBuffer.sizeof
     )!!;
 
-    defer {
-        uniform.free();
-        material_buffer.free();
-        light_matrix_buffer.free();
-        joint_buffer.free();
-        instance_buffer.free();
-        light_buffer.free();
-        mesh_buffer.free();
-        indirect_commands_buffer.free();
-        addresses.free();
-    };
-
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
 
     foreach (node_index: scene_nodes) {
@@ -224,7 +210,6 @@ fn void! main()
         if (node.hasMesh()) {
             Matrix4f node_matrix = node.globalMatrix().transpose();
             Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
-
             Mesh mesh = gltf.meshes[node.mesh];
 
             foreach (prim_index, primitive: mesh.primitives) {
@@ -481,8 +466,6 @@ fn void! main()
     });
 
     Vec2f prev_mouse;
-
-
 
     while (running) {
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());

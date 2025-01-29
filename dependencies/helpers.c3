@@ -361,7 +361,7 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
         .setFormat(image_format)
         .build(device)!;
 
-    Memory image_buffer = create_image_buffer(texture_image, allocator)!;
+    vk::create_image_buffer(texture_image, allocator)!;
 
     texture.sampler = vk::samplerCreateInfo()
             .setMagFilter(vk::FILTER_NEAREST)
@@ -396,7 +396,7 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
             .setImage(texture_image)
             .build(device)!;
 
-    Memory stage_buffer = helpers::new_buffer(
+    Memory stage_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
         stage_allocator,
         image_data.pixels,
@@ -496,7 +496,7 @@ fn vk::Image! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator,
     .setFormat(format)
     .build(device)!;
 
-    depth_image.bind(allocator)!;
+    vk::create_image_buffer(depth_image, allocator)!;
 
     texture.sampler = vk::samplerCreateInfo()
     .setMagFilter(vk::FILTER_LINEAR)
@@ -613,11 +613,13 @@ fn PipelineLayer! createPipelineLayout(WriteDescriptorSet[] descriptor_layouts, 
         .bindingCount = flags.len,
         .pBindings = bindings
     }.build(device)!;
+    
+    PipelineLayoutCreateInfo pipeline_layout_info = vk::pipelineLayoutCreateInfo()
+    .setSetLayouts({ descriptor_layout });
+    
+    if (push_ranges.len > 0) pipeline_layout_info.setPushConstantRanges(push_ranges);
 
-    layer.layout = vk::pipelineLayoutCreateInfo()
-    .setPushConstantRanges(push_ranges)
-    .setSetLayouts({ descriptor_layout }).build(device)!;
-
+    layer.layout = pipeline_layout_info.build(device)!;
     layer.descriptor_layout = descriptor_layout;
     return layer;
 }
