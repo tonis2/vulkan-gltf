@@ -145,7 +145,7 @@ fn void! main()
     )!!;
 
     uint joint_buffer_size = 0;
-    foreach (skin_index, skin: gltf.skins) joint_buffer_size += skin.joints.len();
+    foreach (skin_index, skin: gltf.skins) joint_buffer_size += (uint)skin.joints.len();
 
     Memory joint_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
