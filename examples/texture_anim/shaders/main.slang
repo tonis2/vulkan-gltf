@@ -94,16 +94,15 @@ struct Material
     }
 };
 
-public typealias u8vec4 = vector<uint8_t, 4>;
-
 struct Vertex
 {
-    float3 position;
-    float3 normal;
+    float4 position;
+    float4 normal;
     float2 tex_cord;
+    float2 pad;
     float4 tangent;
     float4 bitangent;
-    u8vec4 skin_pos;
+    uint4 skin_pos;
     float4 skin_weight;
 
     float2 transformed_tex_pos(Material material)
@@ -134,38 +133,12 @@ struct Vertex
 };
 
 
-struct Instance
+struct DrawCommand
 {
     int material_index;
     int has_skin;
     float4x4 node_matrix;
     float4x4 inverse_node_matrix;
-
-    float3* positions;
-    float3* normals;
-    float2* text_cords;
-    float4* tangents;
-    u8vec4* skin_pos;
-    float4* weights;
-
-    // Instance data
-    float3* translate;
-    float4* rotate;
-    float3* scale;
-
-    Vertex get_vertex(uint index) {
-        float4 tangent = tangents[index];
-        float3 normal = normals[index];
-        return {
-            positions[index],
-            normal,
-            text_cords[index],
-            tangent,
-            {mul(cross(tangent.xyz, normal), tangent.w), 1.0},
-            skin_pos[index],
-            weights[index]
-        };
-    }
 }
 
 struct Uniform
@@ -186,11 +159,13 @@ const PushData push_constant;
 [vk_binding(0)]
 cbuffer Buffers
 {
+    Vertex* mesh_data;
+    DrawCommand *draw_data;
+    float4x4 *instance_data;
     Light *lights;
     Material *materials;
     float4x4 *joints;
     float4x4 *light_matrices;
-    Instance *instances;
     Uniform *uniform;
     uint light_count;
 }
@@ -221,8 +196,8 @@ struct VertexInput {
 [shader("vertex")]
 FragmentData vertexMain(VertexInput input)
 {
-    Instance instance = instances[input.drawID];
-    Vertex vertex = instance.get_vertex(input.vertID);
+    DrawCommand instance = draw_data[input.drawID];
+    Vertex vertex = mesh_data[input.vertID];
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -232,33 +207,24 @@ FragmentData vertexMain(VertexInput input)
 
     if (instance.has_skin > 0)
     {
-        uint4 skin_pos = asuint(vertex.skin_pos[0]);
         skin_matrix =
-            vertex.skin_weight[0] * joints[skin_pos[0]] +
-            vertex.skin_weight[1] * joints[skin_pos[1]] +
-            vertex.skin_weight[2] * joints[skin_pos[2]] +
-            vertex.skin_weight[3] * joints[skin_pos[3]];
+            vertex.skin_weight[0] * joints[vertex.skin_pos[0]] +
+            vertex.skin_weight[1] * joints[vertex.skin_pos[1]] +
+            vertex.skin_weight[2] * joints[vertex.skin_pos[2]] +
+            vertex.skin_weight[3] * joints[vertex.skin_pos[3]];
     }
 
     float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
 
-    if (input.instanceID > 0) {
-        float3 translation = instance.translate[input.instanceID];
-        float3 scale = instance.scale[input.instanceID];
-        float4x4 instance_matrix = {
-            1.0, 0, 0, translation.x,
-            0, 1.0, 0, translation.y,
-            0, 0, 1.0, translation.z,
-            0, 0, 0, 1
-        };
-        node_matrix = mul(node_matrix, instance_matrix);
-    }
+    // if (input.instanceID > 0) {
+    //     node_matrix = mul(node_matrix, instance.instance_matrix[input.instanceID]);
+    // }
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
     //float4x4 inverse_matrix = mul(instance.inverse_node_matrix, skin_matrix);
 
-    float4 normal = normalize(mul(instance.inverse_node_matrix, float4(vertex.normal, 1.0)));
+    float4 normal = normalize(mul(instance.inverse_node_matrix, float4(vertex.normal.xyz, 1.0)));
     float4 tangent = normalize(mul(instance.inverse_node_matrix, vertex.tangent));
     float4 bitangent = normalize(mul(instance.inverse_node_matrix, vertex.bitangent));
     float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
@@ -281,7 +247,7 @@ float4 fragmentMain(FragmentData input)
     : SV_Target
 {
     Material material = materials[input.material_index];
-    float4 diffuse_texture = material.getBaseColor(input.tex_cord);
+
     if (input.material_index >= 0)
     {
         Material material = materials[input.material_index];
@@ -330,8 +296,8 @@ struct ShadowData
 [shader("vertex")]
 ShadowData vertexShadow(VertexInput input)
 {
-    Instance instance = instances[input.drawID];
-    Vertex vertex = instance.get_vertex(input.vertID);
+    DrawCommand instance = draw_data[input.drawID];
+    Vertex vertex = mesh_data[input.vertID];
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -341,12 +307,11 @@ ShadowData vertexShadow(VertexInput input)
 
     if (instance.has_skin > 0)
     {
-        uint4 skin_pos = asuint(vertex.skin_pos[0]);
         skin_matrix =
-            vertex.skin_weight[0] * joints[skin_pos[0]] +
-            vertex.skin_weight[1] * joints[skin_pos[1]] +
-            vertex.skin_weight[2] * joints[skin_pos[2]] +
-            vertex.skin_weight[3] * joints[skin_pos[3]];
+            vertex.skin_weight[0] * joints[vertex.skin_pos[0]] +
+            vertex.skin_weight[1] * joints[vertex.skin_pos[1]] +
+            vertex.skin_weight[2] * joints[vertex.skin_pos[2]] +
+            vertex.skin_weight[3] * joints[vertex.skin_pos[3]];
     }
 
     float4x4 light_view = light_matrices[push_constant.light_index];
@@ -356,19 +321,3 @@ ShadowData vertexShadow(VertexInput input)
         mul(light_view, frag_pos)
     };
 }
-
-// float4 qmul(float4 q1, float4 q2)
-// {
-//     return float4(
-//         q2.xyz * q1.w + q1.xyz * q2.w + cross(q1.xyz, q2.xyz),
-//         q1.w * q2.w - dot(q1.xyz, q2.xyz)
-//     );
-// }
-
-// // Vector rotation with a quaternion
-// // http://mathworld.wolfram.com/Quaternion.html
-// float3 rotate_vector(float3 v, float4 r)
-// {
-//     float4 r_c = r * float4(-1, -1, -1, 1);
-//     return qmul(r, qmul(float4(v, 0), r_c)).xyz;
-// }

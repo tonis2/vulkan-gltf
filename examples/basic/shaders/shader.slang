@@ -167,7 +167,6 @@ float4 fragmentMain(FragmentData input)
     : SV_Target
 {
     Material material = materials[input.material_index];
-    float4 diffuse_texture = material.getBaseColor(input.tex_cord);
     if (input.material_index >= 0)
     {
         Material material = materials[input.material_index];

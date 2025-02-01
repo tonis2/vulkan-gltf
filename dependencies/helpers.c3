@@ -630,3 +630,39 @@ fn void PipelineLayer.free(&self, Device device) {
     self.descriptor_layout.free(device);
     self.sets.free();
 }
+
+struct DynamicBuffer {
+    usz size;
+    usz used_size;
+    usz page_size;
+    char* data;
+}
+
+fn DynamicBuffer DynamicBuffer.new(usz size = 256) @operator(construct) {
+    return DynamicBuffer {
+        .size = size,
+        .used_size = 0,
+        .data = mem::new_array(char, size)
+    };
+}
+
+fn usz DynamicBuffer.push(&self, void* data, usz size) {
+    if (self.used_size + size > self.size) {
+        // need to increase mem size
+        usz new_size = self.size + size;
+        self.data = mem::realloc(self.data, new_size);
+        self.size = new_size;
+        mem::copy(self.data + self.used_size, data, size);
+        self.used_size += size;
+    } else {
+        mem::copy(self.data + self.used_size, data, size);
+        self.used_size += size;
+    }
+    return self.used_size - size;
+}
+
+fn void DynamicBuffer.free(&self) {
+    mem::free(self.data);
+    self.size = 0;
+    self.used_size = 0;
+}

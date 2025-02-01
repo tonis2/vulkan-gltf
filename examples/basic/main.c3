@@ -171,6 +171,7 @@ fn void! main()
     )!!;
 
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
+    defer scene_nodes.free();
 
     foreach (node_index: scene_nodes) {
         Node node = gltf.nodes[node_index];

@@ -12,23 +12,22 @@ import helpers;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-struct InstanceData {
+struct Vertex {
+    Vec3f pos;
+    Vec3f normal;
+    Vec2f tex_cord;
+    Vec4f tangent;
+    Vec4f bitangent;
+    uint[4] skin_pos;
+    Vec4f skin_weight;
+}
+
+struct DrawData {
     int material_index;
     int has_skin;
     Matrix4f node_matrix;
     Matrix4f inverse_node_matrix;
-
-    vk::DeviceAddress positions;
-    vk::DeviceAddress normals;
-    vk::DeviceAddress tex_cords;
-    vk::DeviceAddress tangents;
-    vk::DeviceAddress skin_pos;
-    vk::DeviceAddress weights;
-
-    vk::DeviceAddress translate;
-    vk::DeviceAddress rotate;
-    vk::DeviceAddress scale;
-
+    vk::DeviceAddress instance_matrix;
 }
 
 struct PushConstantData {
@@ -43,11 +42,13 @@ struct Uniform {
 
 // Used to send buffer device addresses to GPU
 struct AddressBuffer {
+    vk::DeviceAddress mesh_buffer;
+    vk::DeviceAddress draw_buffer;
+    vk::DeviceAddress instance_buffer;
     vk::DeviceAddress lights;
     vk::DeviceAddress materials;
     vk::DeviceAddress joints;
     vk::DeviceAddress light_matrixes;
-    vk::DeviceAddress instance_buffer;
     vk::DeviceAddress uniform_buffer;
     uint light_count;
 }
@@ -57,8 +58,6 @@ AnimationChannels animaton_data;
 
 DescriptorImages descriptor_images;
 DescriptorImages shadow_maps;
-
-List(<DrawIndexedIndirectCommand>) indirect_commands;
 
 Vec2f window_size = {800, 600};
 char[*] shader = $embed("./shaders/main.spv");
@@ -85,13 +84,9 @@ fn void! main()
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    gltf = gltf::loadFile("assets/instancing.glb")!!;
     defer gltf.free();
     Scene scene = gltf.scenes[0];
-
-    defer {
-        indirect_commands.free();
-    }
 
     if (!gltf.animations.is_empty()) animaton_data = gltf.load_animations({0});
     defer animaton_data.release();
@@ -118,6 +113,148 @@ fn void! main()
         device_allocation.free();
         local_allocation.free();
     }
+
+    List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
+    defer scene_nodes.free();
+
+    DynamicBuffer scene_buffer = DynamicBuffer.new();
+    defer scene_buffer.free();
+
+    List(<Matrix4f>) instance_matrices;
+    defer instance_matrices.free();
+
+    Memory indirect_commands_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+        &local_allocation,
+        null,
+        data_size: gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof,
+    )!!;
+
+    Memory draw_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &local_allocation,
+        null,
+        data_size: DrawData.sizeof * gltf.meshes.len()
+    )!!;
+
+    foreach (node_index: scene_nodes) {
+        Node node = gltf.nodes[node_index];
+        bool skinned_node = node.hasSkin();
+
+        if (node.hasMesh()) {
+            Matrix4f node_matrix = node.globalMatrix().transpose();
+            Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
+            Mesh mesh = gltf.meshes[node.mesh];
+
+            foreach (prim_index, primitive: mesh.primitives) {
+                Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+                gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
+                Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+                int material_index = (int)primitive.attributes["material"] ?? -1;
+
+                for (usz i; i < pos_accessor.count; i++) {
+                    Vec2f tex_cord = {|
+                        usz! attribute = primitive.attributes["TEXCOORD_0"];
+                        if (catch err = attribute) return Vec2f {0,0};
+
+                        Accessor accessor = gltf.accessors[attribute];
+                        return gltf.@castBuffer(accessor, i, Vec2f);
+                    |};
+
+                    Vec3f normal = {|
+                        usz! attribute = primitive.attributes["NORMAL"];
+                        if (catch err = attribute) return Vec3f {0,0,0};
+
+                        Accessor accessor = gltf.accessors[attribute];
+                        return gltf.@castBuffer(accessor, i, Vec3f);
+                    |};
+
+                    Vec4f tangent = {|
+                        usz! attribute = primitive.attributes["TANGENT"];
+                        if (catch err = attribute) return Vec4f {0,0,0,0};
+                        Accessor accessor = gltf.accessors[attribute];
+                        return gltf.@castBuffer(accessor, i, Vec4f);
+                    |};
+
+                    uint[4] skin_pos = {|
+                        usz! attribute = primitive.attributes["JOINTS_0"];
+                        if (catch err = attribute) return uint[4] {0,0,0,0};
+                        Accessor accessor = gltf.accessors[attribute];
+
+                        if (accessor.data_type == DataType.USHORT) {
+                            short[4] array = gltf.@castBuffer(accessor, i, short[4]);
+                            return uint[4]{array[0], array[1], array[2], array[3]};
+                        };
+
+                        if (accessor.data_type == DataType.CHAR) {
+                            char[4] array = gltf.@castBuffer(accessor, i, char[4]);
+                            return uint[4]{array[0], array[1], array[2], array[3]};
+                        };
+
+                        return uint[4] {0,0,0,0};
+                    |};
+
+                    Vec4f skin_weight = {|
+                        usz! attribute = primitive.attributes["WEIGHTS_0"];
+                        if (catch err = attribute) return Vec4f {0,0,0,0};
+
+                        Accessor accessor = gltf.accessors[attribute];
+                        return gltf.@castBuffer(accessor, i, Vec4f);
+                    |};
+
+                    Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
+
+                    scene_buffer.push(
+                        &&Vertex{
+                            .pos = position,
+                            .normal = normal,
+                            .tex_cord = tex_cord,
+                            .tangent = tangent,
+                            .bitangent = Vec4f { normal.cross(tangent.xyz) * tangent.w, 1.0 },
+                            .skin_pos = skin_pos,
+                            .skin_weight = skin_weight
+                        }, Vertex.sizeof
+                    );
+                }
+
+                DrawData data = {
+                    .has_skin = (int)skinned_node,
+                    .material_index = material_index,
+                    .node_matrix = node_matrix,
+                    .inverse_node_matrix = inverse_node_matrix,
+                };
+
+                usz index_offset = scene_buffer.push(gltf.get_data(index_view), index_view.byteLength);
+
+                DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
+                    .indexCount = index_accessor.count,
+                    .firstInstance = 0,
+                    .instanceCount = 1,
+                    .firstIndex = (uint)index_offset / index_accessor.stride(),
+                    .vertexOffset = 0,
+                };
+
+                // Instanced node
+                if (node.attributes.len() > 0) {
+                    io::printfn("has instancing");
+                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                    Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
+                    Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
+                    // command.instanceCount = translation_accessor.count;
+
+                    for (uint i = 0; i < translation_accessor.count; i++) {
+                      Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
+                      Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
+                      Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
+                      instance_matrices.push(gltf::to_matrix(translation, scale, rotation));
+                    }
+                }
+
+                indirect_commands_buffer.push(&command, size: DrawIndexedIndirectCommand.sizeof);
+                draw_buffer.push(&data, size: DrawData.sizeof);
+            }
+        }
+    }
   
     Memory uniform = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -131,10 +268,12 @@ fn void! main()
     )!!;
     
     Memory material_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+        &device_allocation,
         gltf.materials.entries,
-        gltf.materials.byte_size()
+        gltf.materials.byte_size(),
+        stage_allocator: &local_allocation,
+        queue: &context.graphics_queue
     )!!;
 
     Memory light_matrix_buffer = vk::new_buffer(
@@ -154,13 +293,6 @@ fn void! main()
         data_size: joint_buffer_size * Matrix4f.sizeof
     )!!;
 
-    Memory instance_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
-        null,
-        data_size: InstanceData.sizeof * gltf.meshes.len()
-    )!!;
-
     Memory light_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
@@ -173,97 +305,37 @@ fn void! main()
     Memory mesh_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
-        gltf.buffers[0].data,
-        data_size: scene.buffer_info.byteLength,
+        scene_buffer.data,
+        data_size: scene_buffer.size,
         stage_allocator: &local_allocation,
         queue: &context.graphics_queue
     )!!;
 
-    Memory indirect_commands_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+    Memory instance_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
-        null,
-        data_size: gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof,
+        instance_matrices.entries,
+        data_size: scene.instance_info.count * Matrix4f.sizeof,
+        stage_allocator: &local_allocation,
+        queue: &context.graphics_queue
     )!!;
 
     Memory addresses = vk::new_buffer(
         vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         &local_allocation,
         &&AddressBuffer {
+            mesh_buffer.address,
+            draw_buffer.address,
+            instance_buffer.address,
             light_buffer.address,
             material_buffer.address,
             joint_buffer.address,
             light_matrix_buffer.address,
-            instance_buffer.address,
             uniform.address,
             (uint)gltf.lights.len()
         },
         data_size: AddressBuffer.sizeof
     )!!;
-
-    List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
-
-    foreach (node_index: scene_nodes) {
-        Node node = gltf.nodes[node_index];
-        bool skinned_node = node.hasSkin();
-
-        if (node.hasMesh()) {
-            Matrix4f node_matrix = node.globalMatrix().transpose();
-            Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
-            Mesh mesh = gltf.meshes[node.mesh];
-
-            foreach (prim_index, primitive: mesh.primitives) {
-                Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-                int material_index = (int)primitive.attributes["material"] ?? -1;
-
-                usz pos_offset = gltf.get_offset(primitive.attributes["POSITION"]!!);
-                usz index_offset = gltf.get_offset(primitive.attributes["indices"]!!);
-                usz normal_offset = gltf.get_offset(primitive.attributes["NORMAL"] ?? 0);
-                usz tex_offset = gltf.get_offset(primitive.attributes["TEXCOORD_0"] ?? 0);
-                usz tagnent_offset = gltf.get_offset(primitive.attributes["TANGENT"] ?? 0);
-                usz skinpos_offset = gltf.get_offset(primitive.attributes["JOINTS_0"] ?? 0);
-                usz weights_offset = gltf.get_offset(primitive.attributes["WEIGHTS_0"] ?? 0);
-
-                InstanceData data = {
-                    .has_skin = (int)skinned_node,
-                    .material_index = material_index,
-                    .node_matrix = node_matrix,
-                    .inverse_node_matrix = inverse_node_matrix,
-
-                    .positions = mesh_buffer.address + (uint)pos_offset,
-                    .normals = mesh_buffer.address + (uint)normal_offset,
-                    .tex_cords = mesh_buffer.address + (uint)tex_offset,
-                    .tangents = mesh_buffer.address + (uint)tagnent_offset,
-                    .skin_pos = mesh_buffer.address + (uint)skinpos_offset,
-                    .weights = mesh_buffer.address + (uint)weights_offset,
-                };
-
-                DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
-                    .indexCount = index_accessor.count,
-                    .firstInstance = 0,
-                    .instanceCount = 1,
-                    .firstIndex = (uint)index_offset / index_accessor.stride(),
-                    .vertexOffset = 0,
-                };
-
-                // Instanced node
-                if (node.attributes.len() > 0) {
-                    io::printfn("has instancing");
-                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                    // command.instanceCount = translation_accessor.count;
-
-                    usz translation_offset = gltf.get_offset(node.attributes["TRANSLATION"] ?? 0);
-                    usz rotation_offset = gltf.get_offset(node.attributes["ROTATION"] ?? 0);
-                    usz scale_offset = gltf.get_offset(node.attributes["SCALE"] ?? 0);
-                }
-
-                indirect_commands.push(command);
-                instance_buffer.push(&data, size: InstanceData.sizeof);
-            }
-        }
-    }
-    
-    indirect_commands_buffer.upload_from_stage(indirect_commands.entries, indirect_commands.byte_size(), &local_allocation, context.graphics_queue)!;
 
     // Create GLTF texture images
     foreach (image : gltf.images) {
@@ -600,7 +672,7 @@ fn void! main()
 
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+            //vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -610,7 +682,7 @@ fn void! main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+        //vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
