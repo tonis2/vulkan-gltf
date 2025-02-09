@@ -64,7 +64,7 @@ char[*] shader = $embed("./shaders/main.spv");
 
 camera::Camera camera;
 
-fn void! main()
+fn void main()
 {
     c3w::Window win = c3w::new(
         params: {
@@ -98,7 +98,7 @@ fn void! main()
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
         .size = 50_000_000
-    }.build()!;
+    }.build()!!;
 
     // Allocation where data can be changed from CPU
     vk::Allocation local_allocation = vk::Allocation {
@@ -107,7 +107,7 @@ fn void! main()
         .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
         .size = 20_000_000
-    }.build()!;
+    }.build()!!;
 
     defer {
         device_allocation.free();
@@ -353,16 +353,16 @@ fn void! main()
         }
 
         // Create vulkan texture image
-        descriptor_images.addImageTexture(image_data, &device_allocation, &local_allocation, context.graphics_queue)!;
+        descriptor_images.addImageTexture(image_data, &device_allocation, &local_allocation, context.graphics_queue)!!;
         image_data.free();
     }
 
     // Create depth texture
-    descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
+    descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!!;
 
     // Shadowmap depth
     foreach (i, light: gltf.lights) {
-        shadow_maps.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!;
+        shadow_maps.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!!;
 
         // Upload light view matrixes
         Matrix4f light_view = camera.perspective.mul(matrix::look_at(<float>)(light.position, camera.target, {0.0, 1.0, 0.0})).transpose();
@@ -410,14 +410,14 @@ fn void! main()
             },
         },
         context.device
-    )!;
+    )!!;
 
     defer pipeline_layout.free(context.device);
 
     ShaderModule shader_module = vk::shaderModuleCreateInfo()
     .setCodeSize(shader.len)
     .setCode((uint*)&shader[0])
-    .build(context.device)!;
+    .build(context.device)!!;
 
     defer shader_module.free(context.device);
 
@@ -500,7 +500,7 @@ fn void! main()
     .setColorBlendState(&color_blend_state)
     .setViewportState(&view_port_state)
     .setNext(&p_rendering_info)
-    .build(context.device)!;
+    .build(context.device)!!;
 
     Pipeline shadow_pipeline = vk::graphicsPipelineCreateInfo()
     .setStages({
@@ -518,7 +518,7 @@ fn void! main()
     .setColorBlendState(&color_blend_state)
     .setViewportState(&view_port_state)
     .setNext(&p_rendering_info)
-    .build(context.device)!;
+    .build(context.device)!!;
 
     defer {
         pipeline.free(context.device);
@@ -552,27 +552,20 @@ fn void! main()
             }
         }
 
-        c3w::Event event = win.getEvent();
+        EventMap[] event_map = win.getEvent();
 
-        if (win.is_pressed(LEFT_MOUSE)) {
-            Vec2f mouse_pos = win.getMousePos();
-            camera.rotate(mouse_pos.x - prev_mouse.x, -(mouse_pos.y - prev_mouse.y));
-            uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
-            prev_mouse = mouse_pos;
-        }
-
-        if (win.is_pressed(MOUSE_SCROLL_UP)) {
-            camera.zoom(5);
-            uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
-        }
-
-        if (win.is_pressed(MOUSE_SCROLL_DOWN)) {
-            camera.zoom(-5);
-            uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
-        }
-
-        if (win.is_pressed(ESCAPE)) {
-            running = false;
+        foreach (event: event_map) {
+            switch {
+                case event.is_pressed(LEFT_MOUSE): {
+                    Vec2f mouse_pos = win.getMousePos();
+                    camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
+                    uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+                    prev_mouse = mouse_pos;
+                }
+                case event.is_pressed(ESCAPE): {
+                    running = false;
+                }
+            }
         }
 
         uint next_image = context.next_image()!!;
@@ -630,8 +623,8 @@ fn void! main()
         .setClearValue({ .depthStencil = { 1.0, 0 } });
 
         CommandBuffer command_buffer = context.command_buffers[next_image];
-        vk::resetCommandBuffer(command_buffer, 0)!;
-        vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!;
+        vk::resetCommandBuffer(command_buffer, 0)!!;
+        vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!!;
 
         // Dynamic state
         vk::cmdSetDepthTestEnable(command_buffer, vk::TRUE);
@@ -688,7 +681,7 @@ fn void! main()
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
         vk::endCommandBuffer(command_buffer)!!;
          
-        context.present_image(next_image, command_buffer)!;
+        context.present_image(next_image, command_buffer)!!;
     }
     
     context.device.waitIdle();
