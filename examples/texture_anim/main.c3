@@ -25,6 +25,7 @@ struct Vertex {
 struct DrawData {
     int material_index;
     int has_skin;
+    uint vertex_offset;
     Matrix4f node_matrix;
     Matrix4f inverse_node_matrix;
     vk::DeviceAddress instance_matrix;
@@ -68,8 +69,8 @@ fn void main()
 {
     c3w::Window win = c3w::new(
         params: {
-            .width = (int)window_size.x,
-            .height = (int)window_size.y,
+            .width = 800,
+            .height = 600,
             .x = 0,
             .y = 0
         },
@@ -78,14 +79,16 @@ fn void main()
     defer win.free();
 
     // Vulkan context
-    DeviceContext context = helpers::createContext(win, debug: false)!!;
+    DeviceContext context = helpers::createContext(win, debug: true)!!;
     defer context.free();
 
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/instancing.glb")!!;
+    gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
+    assert(gltf.lights.len() > 0);
+
     Scene scene = gltf.scenes[0];
 
     if (!gltf.animations.is_empty()) animaton_data = gltf.load_animations({0});
@@ -151,6 +154,25 @@ fn void main()
                 gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
                 Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
                 int material_index = (int)primitive.attributes["material"] ?? -1;
+                usz index_offset = scene_buffer.push(gltf.get_data(index_view), index_view.byteLength);
+
+                DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
+                    .indexCount = index_accessor.count,
+                    .firstInstance = 0,
+                    .instanceCount = 1,
+                    .firstIndex = (uint)index_offset / index_accessor.stride(),
+                    .vertexOffset = 0,
+                };
+                
+                DrawData data = {
+                    .has_skin = (int)skinned_node,
+                    .material_index = material_index,
+                    .node_matrix = node_matrix,
+                    .inverse_node_matrix = inverse_node_matrix,
+                    .vertex_offset = (uint)scene_buffer.used_size
+                };   
+
+                draw_buffer.push(&data, size: DrawData.sizeof);
 
                 for (usz i; i < pos_accessor.count; i++) {
                     Vec2f tex_cord = {|
@@ -205,7 +227,7 @@ fn void main()
                     Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
 
                     scene_buffer.push(
-                        &&Vertex{
+                        &&Vertex {
                             .pos = position,
                             .normal = normal,
                             .tex_cord = tex_cord,
@@ -215,24 +237,7 @@ fn void main()
                             .skin_weight = skin_weight
                         }, Vertex.sizeof
                     );
-                }
-
-                DrawData data = {
-                    .has_skin = (int)skinned_node,
-                    .material_index = material_index,
-                    .node_matrix = node_matrix,
-                    .inverse_node_matrix = inverse_node_matrix,
-                };
-
-                usz index_offset = scene_buffer.push(gltf.get_data(index_view), index_view.byteLength);
-
-                DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
-                    .indexCount = index_accessor.count,
-                    .firstInstance = 0,
-                    .instanceCount = 1,
-                    .firstIndex = (uint)index_offset / index_accessor.stride(),
-                    .vertexOffset = 0,
-                };
+                }       
 
                 // Instanced node
                 if (node.attributes.len() > 0) {
@@ -251,7 +256,6 @@ fn void main()
                 }
 
                 indirect_commands_buffer.push(&command, size: DrawIndexedIndirectCommand.sizeof);
-                draw_buffer.push(&data, size: DrawData.sizeof);
             }
         }
     }
@@ -315,7 +319,7 @@ fn void main()
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
         instance_matrices.entries,
-        data_size: scene.instance_info.count * Matrix4f.sizeof,
+        data_size: instance_matrices.len() * Matrix4f.sizeof,
         stage_allocator: &local_allocation,
         queue: &context.graphics_queue
     )!!;
@@ -562,6 +566,14 @@ fn void main()
                     uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
                     prev_mouse = mouse_pos;
                 }
+                case event.is_pressed(MOUSE_SCROLL_DOWN): {
+                    camera.zoom(5);
+                    uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+                }
+                case event.is_pressed(MOUSE_SCROLL_UP): {
+                    camera.zoom(-5);
+                    uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+                }
                 case event.is_pressed(ESCAPE): {
                     running = false;
                 }
@@ -665,7 +677,7 @@ fn void main()
 
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            //vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+            vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)gltf.meshes.len(), DrawIndexedIndirectCommand.sizeof);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -675,7 +687,7 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        //vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+        vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)gltf.meshes.len(), DrawIndexedIndirectCommand.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

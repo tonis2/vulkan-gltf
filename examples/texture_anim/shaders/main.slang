@@ -11,31 +11,36 @@ struct Light
     float outer_angle;
     float3 pad;
 
-    float4 illuminate(Material material, FragmentData input, float3 eye) {
+    float4 illuminate(Material material, FragmentData input, float3 eye)
+    {
         float3 normal = material.getNormal(input.tex_cord, input.tbn);
         float3 L = position.xyz - input.frag_pos;
 
-        switch (type) {
-            //Directional
-            case 0: {
-                float3 lightDir = normalize(position.xyz - input.frag_pos); 
-                float3 eyeDirection = normalize(eye - input.frag_pos);
-                float4 scatteredLight = float4(float3(0.2), 1.0);
-                float3 reflectedVector = reflect(-lightDir.xyz, normal);
+        switch (type)
+        {
+        // Directional
+        case 0:
+        {
+            float3 lightDir = normalize(position.xyz - input.frag_pos);
+            float3 eyeDirection = normalize(eye - input.frag_pos);
+            float4 scatteredLight = float4(float3(0.2), 1.0);
+            float3 reflectedVector = reflect(-lightDir.xyz, normal);
 
-                float diffuseFactor = max(dot(normal, lightDir), 0); 
-                float specularFactor = pow(max(dot(reflectedVector, eyeDirection), 0.0), 0.5); 
-                return (scatteredLight * color) + (diffuseFactor * color) + (specularFactor * color);
-            }
-            case 1: {
-               let lightSqrDist = dot(L, L);
-               let lightDirVS = L * rsqrt(lightSqrDist);
-               float lambert = intensity * 0.002 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
-               return lambert * color;
-            }   
-            case 2: {
-                return color;
-            }
+            float diffuseFactor = max(dot(normal, lightDir), 0);
+            float specularFactor = pow(max(dot(reflectedVector, eyeDirection), 0.0), 0.5);
+            return (scatteredLight * color) + (diffuseFactor * color) + (specularFactor * color);
+        }
+        case 1:
+        {
+            let lightSqrDist = dot(L, L);
+            let lightDirVS = L * rsqrt(lightSqrDist);
+            float lambert = intensity * 0.002 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
+            return lambert * color;
+        }
+        case 2:
+        {
+            return color;
+        }
         }
         return color;
     }
@@ -132,13 +137,14 @@ struct Vertex
     }
 };
 
-
 struct DrawCommand
 {
     int material_index;
     int has_skin;
+    uint vertex_offset;
     float4x4 node_matrix;
     float4x4 inverse_node_matrix;
+    float3 pad;
 }
 
 struct Uniform
@@ -159,7 +165,7 @@ const PushData push_constant;
 [vk_binding(0)]
 cbuffer Buffers
 {
-    Vertex* mesh_data;
+    uint8_t *mesh_data;
     DrawCommand *draw_data;
     float4x4 *instance_data;
     Light *lights;
@@ -169,6 +175,7 @@ cbuffer Buffers
     Uniform *uniform;
     uint light_count;
 }
+
 
 [vk_binding(1)]
 uniform Sampler2D image_samplers[];
@@ -187,7 +194,8 @@ struct FragmentData
     float4 sv_position : SV_Position;
 };
 
-struct VertexInput {
+struct VertexInput
+{
     uint32_t vertID : SV_VertexID;
     uint32_t drawID : SV_DrawIndex;
     uint32_t instanceID : SV_InstanceID;
@@ -197,7 +205,10 @@ struct VertexInput {
 FragmentData vertexMain(VertexInput input)
 {
     DrawCommand instance = draw_data[input.drawID];
-    Vertex vertex = mesh_data[input.vertID];
+
+    Vertex *vertex_data = (Vertex *)(mesh_data + instance.vertex_offset);
+    Vertex vertex = vertex_data[input.vertID];
+
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -222,7 +233,7 @@ FragmentData vertexMain(VertexInput input)
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
-    //float4x4 inverse_matrix = mul(instance.inverse_node_matrix, skin_matrix);
+    // float4x4 inverse_matrix = mul(instance.inverse_node_matrix, skin_matrix);
 
     float4 normal = normalize(mul(instance.inverse_node_matrix, float4(vertex.normal.xyz, 1.0)));
     float4 tangent = normalize(mul(instance.inverse_node_matrix, vertex.tangent));
@@ -246,13 +257,11 @@ FragmentData vertexMain(VertexInput input)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
-    Material material = materials[input.material_index];
-
     if (input.material_index >= 0)
     {
         Material material = materials[input.material_index];
         float4 diffuse_texture = material.getBaseColor(input.tex_cord);
- 
+
         float3 light_factor = float3(0.0);
 
         if (diffuse_texture.a == 0.0)
@@ -279,7 +288,7 @@ float4 fragmentMain(FragmentData input)
             const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
             float shadowFactor = shadow_cords.z < occluderDepth.x + 0.0005 || outOfView ? 1.0 : 0.3;
 
-            light_factor += (color.rgb ) * shadowFactor;
+            light_factor += (color.rgb) * shadowFactor;
         }
 
         return diffuse_texture * float4(light_factor, 1.0);
@@ -297,7 +306,10 @@ struct ShadowData
 ShadowData vertexShadow(VertexInput input)
 {
     DrawCommand instance = draw_data[input.drawID];
-    Vertex vertex = mesh_data[input.vertID];
+
+    Vertex *vertex_data = (Vertex *)(mesh_data + instance.vertex_offset);
+    Vertex vertex = vertex_data[input.vertID];
+
     float4x4 skin_matrix = {
         1, 0, 0, 0,
         0, 1, 0, 0,

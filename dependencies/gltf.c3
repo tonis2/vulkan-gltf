@@ -155,8 +155,6 @@ struct SceneBufferInfo {
 
 struct Scene {
     String name;
-    SceneBufferInfo mesh_info;
-    SceneBufferInfo instance_info;
     List(<uint>) nodes;
 }
 
@@ -1224,39 +1222,6 @@ fn Gltf! parse(InStream stream) {
          foreach (node : scene.nodes) {
              content.nodes[node].mapValues(scene_index, &content);
          }
-    }
-
-    // Build buffer info for each scene, that shows its total allocation size
-    foreach (&scene: content.scenes) {
-        List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, content);
-        @pool() {
-            foreach (node_index: scene_nodes) {
-                Node node = content.nodes[node_index];
-                // Instance info data
-                if (node.attributes.len() > 0) {
-                    foreach (key : node.attributes.tcopy_keys()) {
-                        usz value = (usz)node.attributes[key]!;
-                        Accessor accessor = content.accessors[value];
-                        BufferView view = content.bufferViews[accessor.view];
-                        scene.instance_info.size += view.byteLength;
-                        scene.instance_info.count = accessor.count;
-                    }
-                }
-                // Meshes info
-                if (node.hasMesh()) {
-                    Mesh mesh = content.meshes[node.mesh];
-                    foreach (primitive: mesh.primitives) {
-                        foreach (key : primitive.attributes.tcopy_keys()) {
-                            usz value = (usz)primitive.attributes[key]!;
-                            Accessor accessor = content.accessors[value];
-                            BufferView view = content.bufferViews[accessor.view];
-                            scene.mesh_info.size += view.byteLength;
-                        }
-                    }
-                }
-            }
-        };
-        scene_nodes.free();
     }
 
     // Build inverseBindMatrixes for skins

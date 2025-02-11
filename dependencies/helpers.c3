@@ -130,7 +130,13 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     }
 
     if (env::OS_TYPE == LINUX) {
-        extensions.add_array({"VK_KHR_xcb_surface", "VK_KHR_wayland_surface"});
+        $if $feature(WAYLAND):
+            extensions.add_array({"VK_KHR_wayland_surface"});
+        $endif
+
+        $if $feature(X11):
+            extensions.add_array({"VK_KHR_xcb_surface"});
+        $endif
     }
 
     InstanceCreateInfo instanceInfo = vk::instanceCreateInfo()
