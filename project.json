@@ -6,7 +6,7 @@
 	"dependency-search-paths": [ "./dependencies"],
 	"dependencies": ["c3w", "vk", "stb"],
 	"features": ["X11"],
-	"linked-libraries": ["./dependencies/libvulkan.a"],
+	"linked-libraries": ["vulkan"],
 	"sources": ["./dependencies/gltf.c3", "./dependencies/camera.c3", "./dependencies/helpers.c3"],
 	"script-dir": "./",
 	"targets": {

@@ -25,10 +25,9 @@ struct Vertex {
 struct DrawData {
     int material_index;
     int has_skin;
-    uint vertex_offset;
+    uint instance_offset;
     Matrix4f node_matrix;
     Matrix4f inverse_node_matrix;
-    vk::DeviceAddress instance_matrix;
 }
 
 struct PushConstantData {
@@ -79,13 +78,13 @@ fn void main()
     defer win.free();
 
     // Vulkan context
-    DeviceContext context = helpers::createContext(win, debug: true)!!;
+    DeviceContext context = helpers::createContext(win, debug: false)!!;
     defer context.free();
 
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    gltf = gltf::loadFile("assets/instancing.glb")!!;
     defer gltf.free();
     assert(gltf.lights.len() > 0);
 
@@ -120,8 +119,8 @@ fn void main()
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
     defer scene_nodes.free();
 
-    DynamicBuffer scene_buffer = DynamicBuffer.new();
-    defer scene_buffer.free();
+    List(<Vertex>) vertices;
+    List(<ushort>) indices;
 
     List(<Matrix4f>) instance_matrices;
     defer instance_matrices.free();
@@ -151,17 +150,15 @@ fn void main()
 
             foreach (prim_index, primitive: mesh.primitives) {
                 Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-                gltf::BufferView index_view = gltf.bufferViews[index_accessor.view];
                 Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
                 int material_index = (int)primitive.attributes["material"] ?? -1;
-                usz index_offset = scene_buffer.push(gltf.get_data(index_view), index_view.byteLength);
 
                 DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
                     .indexCount = index_accessor.count,
                     .firstInstance = 0,
                     .instanceCount = 1,
-                    .firstIndex = (uint)index_offset / index_accessor.stride(),
-                    .vertexOffset = 0,
+                    .firstIndex = (uint)indices.len(),
+                    .vertexOffset = (uint)vertices.len(),
                 };
                 
                 DrawData data = {
@@ -169,8 +166,12 @@ fn void main()
                     .material_index = material_index,
                     .node_matrix = node_matrix,
                     .inverse_node_matrix = inverse_node_matrix,
-                    .vertex_offset = (uint)scene_buffer.used_size
-                };   
+                    .instance_offset = (uint)instance_matrices.len()
+                };
+
+                for (usz i; i < index_accessor.count; i++) {
+                    indices.push(gltf.@castBuffer(index_accessor, i, ushort));
+                }
 
                 draw_buffer.push(&data, size: DrawData.sizeof);
 
@@ -226,18 +227,17 @@ fn void main()
 
                     Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
 
-                    scene_buffer.push(
-                        &&Vertex {
+                    vertices.push({
                             .pos = position,
                             .normal = normal,
                             .tex_cord = tex_cord,
                             .tangent = tangent,
-                            .bitangent = Vec4f { normal.cross(tangent.xyz) * tangent.w, 1.0 },
+                            .bitangent = Vec4f {normal.cross(tangent.xyz) * tangent.w, 1.0 },
                             .skin_pos = skin_pos,
                             .skin_weight = skin_weight
-                        }, Vertex.sizeof
+                        }
                     );
-                }       
+                } 
 
                 // Instanced node
                 if (node.attributes.len() > 0) {
@@ -245,13 +245,13 @@ fn void main()
                     Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
                     Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
                     Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
-                    // command.instanceCount = translation_accessor.count;
+                    command.instanceCount = translation_accessor.count;
 
                     for (uint i = 0; i < translation_accessor.count; i++) {
                       Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
                       Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
                       Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
-                      instance_matrices.push(gltf::to_matrix(translation, scale, rotation));
+                      instance_matrices.push(gltf::to_matrix(translation, scale, rotation).transpose());
                     }
                 }
 
@@ -306,14 +306,26 @@ fn void main()
         queue: &context.graphics_queue
     )!!;
 
-    Memory mesh_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+    Memory vertex_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &device_allocation,
-        scene_buffer.data,
-        data_size: scene_buffer.size,
+        vertices.entries,
+        data_size: vertices.byte_size(),
         stage_allocator: &local_allocation,
         queue: &context.graphics_queue
     )!!;
+
+    Memory index_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+        &device_allocation,
+        indices.entries,
+        data_size: indices.byte_size(),
+        stage_allocator: &local_allocation,
+        queue: &context.graphics_queue
+    )!!;
+
+    vertices.free();
+    indices.free();
 
     Memory instance_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -328,7 +340,7 @@ fn void main()
         vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         &local_allocation,
         &&AddressBuffer {
-            mesh_buffer.address,
+            vertex_buffer.address,
             draw_buffer.address,
             instance_buffer.address,
             light_buffer.address,
@@ -654,7 +666,7 @@ fn void main()
         // Begin dynamic rendering
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
-        vk::cmdBindIndexBuffer(command_buffer, mesh_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         // Draw shadowmap
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);

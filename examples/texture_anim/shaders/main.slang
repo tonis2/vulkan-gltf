@@ -99,6 +99,7 @@ struct Material
     }
 };
 
+
 struct Vertex
 {
     float4 position;
@@ -141,10 +142,9 @@ struct DrawCommand
 {
     int material_index;
     int has_skin;
-    uint vertex_offset;
+    uint instance_offset;
     float4x4 node_matrix;
     float4x4 inverse_node_matrix;
-    float3 pad;
 }
 
 struct Uniform
@@ -165,7 +165,7 @@ const PushData push_constant;
 [vk_binding(0)]
 cbuffer Buffers
 {
-    uint8_t *mesh_data;
+    Vertex *vertices;
     DrawCommand *draw_data;
     float4x4 *instance_data;
     Light *lights;
@@ -205,9 +205,7 @@ struct VertexInput
 FragmentData vertexMain(VertexInput input)
 {
     DrawCommand instance = draw_data[input.drawID];
-
-    Vertex *vertex_data = (Vertex *)(mesh_data + instance.vertex_offset);
-    Vertex vertex = vertex_data[input.vertID];
+    Vertex vertex = vertices[input.vertID];
 
     float4x4 skin_matrix = {
         1, 0, 0, 0,
@@ -227,9 +225,9 @@ FragmentData vertexMain(VertexInput input)
 
     float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
 
-    // if (input.instanceID > 0) {
-    //     node_matrix = mul(node_matrix, instance.instance_matrix[input.instanceID]);
-    // }
+    if (input.instanceID > 0) {
+        node_matrix = mul(node_matrix, instance_data[instance.instance_offset + input.instanceID]);
+    }
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
@@ -241,7 +239,7 @@ FragmentData vertexMain(VertexInput input)
     float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
 
     FragmentData output = {
-        vertex.transformed_tex_pos(materials[instance.material_index]),
+        vertex.tex_cord,
         instance.material_index,
         tbn,
         normal.xyz,
@@ -261,7 +259,6 @@ float4 fragmentMain(FragmentData input)
     {
         Material material = materials[input.material_index];
         float4 diffuse_texture = material.getBaseColor(input.tex_cord);
-
         float3 light_factor = float3(0.0);
 
         if (diffuse_texture.a == 0.0)
@@ -306,9 +303,7 @@ struct ShadowData
 ShadowData vertexShadow(VertexInput input)
 {
     DrawCommand instance = draw_data[input.drawID];
-
-    Vertex *vertex_data = (Vertex *)(mesh_data + instance.vertex_offset);
-    Vertex vertex = vertex_data[input.vertID];
+    Vertex vertex = vertices[input.vertID];
 
     float4x4 skin_matrix = {
         1, 0, 0, 0,
@@ -326,8 +321,14 @@ ShadowData vertexShadow(VertexInput input)
             vertex.skin_weight[3] * joints[vertex.skin_pos[3]];
     }
 
+    float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
     float4x4 light_view = light_matrices[push_constant.light_index];
-    float4 frag_pos = mul(mul(instance.node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
+
+    if (input.instanceID > 0) {
+        node_matrix = mul(node_matrix, instance_data[instance.instance_offset + input.instanceID]);
+    }
+
+    float4 frag_pos = mul(mul(node_matrix, skin_matrix), float4(vertex.position.xyz, 1.0));
 
     return {
         mul(light_view, frag_pos)
