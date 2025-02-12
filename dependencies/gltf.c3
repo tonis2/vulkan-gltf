@@ -148,9 +148,13 @@ struct Gltf {
     SkinList skins;
 }
 
+struct SceneBufferInfo {
+    usz size;
+    usz count;
+}
+
 struct Scene {
     String name;
-    BufferView buffer_info;
     List(<uint>) nodes;
 }
 
@@ -1220,23 +1224,6 @@ fn Gltf! parse(InStream stream) {
          }
     }
 
-    // Create buffer-view for scene, for easy mesh buffer swaping
-    foreach (mesh : content.meshes) {
-        Scene* scene = &content.scenes[mesh.scene];
-
-        foreach (index, primitive: mesh.primitives) {
-            Accessor pos_accessor = content.accessors[primitive.attributes["POSITION"]!!];
-            Accessor indices_accessor = content.accessors[primitive.attributes["indices"]!!];
-            BufferView indices_view = content.bufferViews[indices_accessor.view];
-            usz offset = content.get_offset((uint)primitive.attributes["indices"]!!);
-      
-            if (scene.buffer_info.offset < offset) {
-                scene.buffer_info.offset = offset;
-                scene.buffer_info.byteLength = offset + indices_view.byteLength;
-            }
-        }
-    }
-
     // Build inverseBindMatrixes for skins
     foreach (&skin: content.skins) {
         Accessor skin_accessor = content.accessors[skin.inverseBindAccessor];
@@ -1451,17 +1438,19 @@ fn uint Accessor.dataSize(Accessor* self) {
 }
 
 // Returns matrix from node transform, scale, rotation
-fn Matrix4f Node.localMatrix(&self) {
-    Quaternionf rotation = self.rotation.normalize();
+fn Matrix4f Node.localMatrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
+
+fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rot) {
+    Quaternionf rotation = rot.normalize();
     float x = rotation.i;
     float y = rotation.j;
     float z = rotation.k;
     float w = rotation.l;
 
     return Matrix4f {
-        1 - 2*y*y - 2*z*z * self.scale.x, 2*x*y - 2*z*w, 2*x*z + 2*y*w, self.translation.x,
-        2*x*y + 2*z*w, 1 - 2*x*x - 2*z*z * self.scale.y, 2*y*z - 2*x*w, self.translation.y,
-        2*x*z - 2*y*w, 2*y*z + 2*x*w , 1 - 2*x*x - 2*y*y * self.scale.z, self.translation.z,
+        1 - 2*y*y - 2*z*z * scale.x, 2*x*y - 2*z*w, 2*x*z + 2*y*w, translation.x,
+        2*x*y + 2*z*w, 1 - 2*x*x - 2*z*z * scale.y, 2*y*z - 2*x*w, translation.y,
+        2*x*z - 2*y*w, 2*y*z + 2*x*w , 1 - 2*x*x - 2*y*y * scale.z, translation.z,
         0.0, 0.0, 0.0, 1.0,
     };
 }
@@ -1492,7 +1481,7 @@ fn Matrix4f Node.globalMatrix(&self) {
     return global_matrix;
 }
 
-fn char[]! parse_base64(char[] data, usz size) {
+fn char[]! parse_base64(char[] data, usz size) @private {
     usz offset = ((String)data).index_of_char(';')! + 8;
     char[]! buffer_data = base64::decode(data[offset..], allocator: allocator::heap());
 
@@ -1524,6 +1513,17 @@ fn usz Gltf.get_offset(&self, ulong attribute) {
     Accessor accessor = self.accessors[attribute];
     BufferView bufferView = self.bufferViews[accessor.view];
     return accessor.offset + bufferView.offset;
+}
+
+fn BufferView Gltf.get_view(&self, ulong attribute) {
+    Accessor accessor = self.accessors[attribute];
+    BufferView bufferView = self.bufferViews[accessor.view];
+    return bufferView;
+}
+
+fn char* Gltf.get_data(&self, BufferView view) {
+    Buffer buffer = self.buffers[view.buffer];
+    return buffer.data[view.offset..];
 }
 
 fn List(<uint>) flatten_nodes(List(<uint>) nodes, Gltf data, List(<uint>)* list = null) {
@@ -1568,7 +1568,6 @@ fn void AnimationChannels.release(&self) {
     foreach (entry: self) entry.values.free();
     self.free();
 }
-
 
 macro @when_extended(Object* object, String extension_name; @callback(Object* extension)) {
     Object*! extension = object.get("extensions");

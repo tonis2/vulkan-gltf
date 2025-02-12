@@ -115,13 +115,13 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     ZStringList validations;
     ZStringList extensions;
     ZStringList device_extensions;
-
+    //"VK_EXT_dynamic_rendering_unused_attachments"
     device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering"});
     validations.add_array({"VK_LAYER_KHRONOS_validation"});
     extensions.add_array({"VK_KHR_surface", "VK_EXT_debug_utils"});
 
     if (env::OS_TYPE == MACOS) {
-        extensions.add_array({"VK_MVK_macos_surface", "VK_KHR_portability_enumeration"});
+        extensions.add_array({"VK_EXT_metal_surface", "VK_KHR_portability_enumeration"});
         device_extensions.push("VK_KHR_portability_subset");
     }
 
@@ -130,7 +130,13 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     }
 
     if (env::OS_TYPE == LINUX) {
-        extensions.add_array({"VK_KHR_xlib_surface"});
+        $if $feature(WAYLAND):
+            extensions.add_array({"VK_KHR_wayland_surface"});
+        $endif
+
+        $if $feature(X11):
+            extensions.add_array({"VK_KHR_xcb_surface"});
+        $endif
     }
 
     InstanceCreateInfo instanceInfo = vk::instanceCreateInfo()
@@ -166,33 +172,44 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     }
 
     // Create surface
-    $switch(env::OS_TYPE)
-        $case LINUX: {
-            XlibSurfaceCreateInfoKHR createInfo = {
-                vk::STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR, 
-                null, 
-                0, 
-                win.src.display, 
-                win.src.window, 
-            };
-
-            vk::createXlibSurfaceKHR(context.instance, &createInfo, null, &context.surface)!!;
-        }
+      $switch(env::OS_TYPE)
         $case MACOS: {
-            MacOSSurfaceCreateInfoMVK createInfo = { 
-                vk::STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK, 
-                null, 
-                0, 
-                win.src.window
+            MetalSurfaceCreateInfoEXT createInfo = {
+                .sType = vk::STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
+                .pLayer = (CAMetalLayer*)win.src.layer.id
             };
+            vk::createMetalSurfaceEXT(context.instance, &createInfo, null, &context.surface)!!;
+        }
+        $case LINUX: {
+            $if $feature(WAYLAND):
+                WaylandSurfaceCreateInfoKHR createInfo = {
+                    vk::STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR, 
+                    null, 
+                    0, 
+                    win.src.display,
+                    win.src.surface,
+                };
+                vk::createWaylandSurfaceKHR(context.instance, &createInfo, null, &context.surface)!!;
+            $endif
+
+            $if $feature(X11):
+                XcbSurfaceCreateInfoKHR createInfo = {
+                    vk::STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR, 
+                    null, 
+                    0, 
+                    win.src.connection,
+                    (vk::Window)win.src.window,
+                };
+                vk::createXcbSurfaceKHR(context.instance, &createInfo, null, &context.surface)!!;
+            $endif
         }
         $case WIN32: {
             Win32SurfaceCreateInfoKHR createInfo = {
-                .sType = vk::STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-                .pNext = null,
-                .flags = 0,
-                .hinstance = win.src.instance,
-                .hwnd = win.src.window
+                vk::STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+                null,
+                0,
+                win.src.instance,
+                win.src.window
             };
             vk::createWin32SurfaceKHR(instance, &createInfo, null, &surface)!!;
         }
@@ -289,7 +306,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
 
     SurfaceFormatKHR format = SurfaceFormatKHR {.format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR};
     context.surface_format = format;
-    context.extent = capabilities.maxImageExtent;
+    context.extent = Extent2D {(uint)win.width, (uint)win.height};
     uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
 
     SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfoKHR()
@@ -629,4 +646,40 @@ fn void PipelineLayer.free(&self, Device device) {
     self.layout.free(device);
     self.descriptor_layout.free(device);
     self.sets.free();
+}
+
+struct DynamicBuffer {
+    usz size;
+    usz used_size;
+    usz page_size;
+    char* data;
+}
+
+fn DynamicBuffer DynamicBuffer.new(usz size = 256) @operator(construct) {
+    return DynamicBuffer {
+        .size = size,
+        .used_size = 0,
+        .data = mem::new_array(char, size)
+    };
+}
+
+fn usz DynamicBuffer.push(&self, void* data, usz size) {
+    if (self.used_size + size > self.size) {
+        // need to increase mem size
+        usz new_size = self.size + size;
+        self.data = mem::realloc(self.data, new_size);
+        self.size = new_size;
+        mem::copy(self.data + self.used_size, data, size);
+        self.used_size += size;
+    } else {
+        mem::copy(self.data + self.used_size, data, size);
+        self.used_size += size;
+    }
+    return self.used_size - size;
+}
+
+fn void DynamicBuffer.free(&self) {
+    mem::free(self.data);
+    self.size = 0;
+    self.used_size = 0;
 }
