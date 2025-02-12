@@ -32,10 +32,12 @@ struct Light
         }
         case 1:
         {
+            float4 scatteredLight = float4(float3(0.2), 1.0);
             let lightSqrDist = dot(L, L);
             let lightDirVS = L * rsqrt(lightSqrDist);
+            
             float lambert = intensity * 0.002 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
-            return lambert * color;
+            return (scatteredLight * color) + lambert * color;
         }
         case 2:
         {
