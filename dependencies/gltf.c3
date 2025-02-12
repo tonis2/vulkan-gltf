@@ -1448,9 +1448,9 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rot) {
     float w = rotation.l;
 
     return Matrix4f {
-        1 - 2*y*y - 2*z*z * scale.x, 2*x*y - 2*z*w, 2*x*z + 2*y*w, translation.x,
-        2*x*y + 2*z*w, 1 - 2*x*x - 2*z*z * scale.y, 2*y*z - 2*x*w, translation.y,
-        2*x*z - 2*y*w, 2*y*z + 2*x*w , 1 - 2*x*x - 2*y*y * scale.z, translation.z,
+        (1 - 2*y*y - 2*z*z) * scale.x, 2*x*y - 2*z*w, 2*x*z + 2*y*w, translation.x,
+        2*x*y + 2*z*w, (1 - 2*x*x - 2*z*z) * scale.y, 2*y*z - 2*x*w, translation.y,
+        2*x*z - 2*y*w, 2*y*z + 2*x*w , (1 - 2*x*x - 2*y*y) * scale.z, translation.z,
         0.0, 0.0, 0.0, 1.0,
     };
 }
