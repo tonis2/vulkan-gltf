@@ -59,7 +59,7 @@ AnimationChannels animaton_data;
 DescriptorImages descriptor_images;
 DescriptorImages shadow_maps;
 
-Vec2f window_size = {800, 600};
+
 char[*] shader = $embed("./shaders/main.spv");
 
 camera::Camera camera;
@@ -68,8 +68,8 @@ fn void main()
 {
     c3w::Window win = c3w::new(
         params: {
-            .width = 800,
-            .height = 600,
+            .width = 1200,
+            .height = 900,
             .x = 0,
             .y = 0
         },
@@ -82,7 +82,7 @@ fn void main()
     defer context.free();
 
     // Create camera
-    camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
+    camera = camera::new(eye: {0.0, 5.0, 10}, aspect: Vec2f{win.width, win.height}.x/win.height, min_zoom: 0.01, max_zoom: 1000);
 
     gltf = gltf::loadFile("assets/instancing.glb")!!;
     defer gltf.free();
@@ -99,7 +99,7 @@ fn void main()
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 50_000_000
+        .size = 100_000_000
     }.build()!!;
 
     // Allocation where data can be changed from CPU
@@ -108,7 +108,7 @@ fn void main()
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 20_000_000
+        .size = 40_000_000
     }.build()!!;
 
     defer {
@@ -241,11 +241,12 @@ fn void main()
 
                 // Instanced node
                 if (node.attributes.len() > 0) {
-                    io::printfn("has instancing");
+                    // io::printfn("has instancing");
                     Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
                     Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
                     Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
                     command.instanceCount = translation_accessor.count;
+                    command.firstInstance = 2;
 
                     for (uint i = 0; i < translation_accessor.count; i++) {
                       Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
@@ -259,7 +260,7 @@ fn void main()
             }
         }
     }
-  
+
     Memory uniform = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &local_allocation,
@@ -374,11 +375,11 @@ fn void main()
     }
 
     // Create depth texture
-    descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!!;
+    descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
 
     // Shadowmap depth
     foreach (i, light: gltf.lights) {
-        shadow_maps.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!!;
+        shadow_maps.addDepthTexture(&device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
 
         // Upload light view matrixes
         Matrix4f light_view = camera.perspective.mul(matrix::look_at(<float>)(light.position, camera.target, {0.0, 1.0, 0.0})).transpose();
@@ -660,7 +661,7 @@ fn void main()
         vk::cmdSetDepthCompareOp(command_buffer, vk::COMPARE_OP_LESS_OR_EQUAL);
  
         vk::cmdSetLineWidth(command_buffer, 1.0);
-        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y });
+        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = win.width, .height = -win.height, .minDepth = 0.0, .maxDepth = 1.0, .y = win.height });
         vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = context.extent, .offset = { .x = 0, .y = 0 }});
 
         // Begin dynamic rendering
