@@ -2,6 +2,7 @@ import std::io;
 import std::math;
 import std::collections::list;
 import std::time;
+import std::thread;
 
 import vk;
 import stb;
@@ -11,6 +12,8 @@ import c3w;
 import helpers;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
+const MAX_FPS = 90;
+NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
 struct Vertex {
     Vec3f pos;
@@ -78,7 +81,7 @@ fn void main()
     defer win.free();
 
     // Vulkan context
-    DeviceContext context = helpers::createContext(win, debug: true)!!;
+    DeviceContext context = helpers::createContext(win, debug: false)!!;
     defer context.free();
 
     // Create camera
@@ -556,8 +559,12 @@ fn void main()
 
     Vec2f prev_mouse;
 
+    // 90 FPS
+
+
     while (running) {
-        if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
+        NanoDuration start_time = time.mark();
+        if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, start_time);
         //material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
 
         // Update joint animations buffer
@@ -705,9 +712,18 @@ fn void main()
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
         vk::endCommandBuffer(command_buffer)!!;
-         
+
+        NanoDuration time_delta = (start_time - time.mark());
+
+        if (time_delta < min_frame_time) {
+            std::thread::sleep_ns(min_frame_time - time_delta)!!;
+            time_delta = (start_time - time.mark());
+        }
+
+        // io::printfn("%s", time_delta);
+
         context.present_image(next_image, command_buffer)!!;
-    }
+    }   
     
     context.device.waitIdle();
 }
