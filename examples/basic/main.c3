@@ -212,15 +212,6 @@ fn void main()
                     .vertexOffset = 0,
                 };
 
-                // Instanced node
-                if (node.attributes.len() > 0) {
-                    // Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                    // // command.instanceCount = translation_accessor.count;
-                    // usz translation_offset = gltf.get_offset(node.attributes["TRANSLATION"] ?? 0);
-                    // usz rotation_offset = gltf.get_offset(node.attributes["ROTATION"] ?? 0);
-                    // usz scale_offset = gltf.get_offset(node.attributes["SCALE"] ?? 0);
-                }
-
                 indirect_commands.push(command);
                 instance_buffer.push(&data, size: InstanceData.sizeof);
             }

@@ -217,6 +217,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     $endswitch
 
     DeviceList devices = context.instance.getDevices()!!;
+    uint best_score = 0;
 
     foreach (entry: devices) {
         int queue_index = -1;
@@ -230,12 +231,18 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
         PhysicalDeviceProperties properties;
         vk::getPhysicalDeviceProperties(entry, &properties);
         assert(context.surface.checkSurfaceSupport((usz)queue_index, entry)!!);
-        
+ 
         if (queue_index >= 0 && supports_extensions && properties.vendorID != 0) {
-            io::printfn("Device selected %s", (ZString)properties.deviceName[0..]);
-            context.pdevice = entry;
-            context.graphics_queue.index = queue_index;
-            break;
+            uint score = 0;
+            if (properties.deviceType == 1) score += 100;
+            if (properties.deviceType == 2) score += 200;
+
+            io::printfn("Device found %s type %s", (ZString)properties.deviceName[0..], properties.deviceType);
+
+            if (score > best_score) {
+                context.pdevice = entry;
+                context.graphics_queue.index = queue_index;
+            }
         }
     }
 
