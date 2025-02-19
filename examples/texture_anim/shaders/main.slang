@@ -109,7 +109,6 @@ struct Vertex
     float2 tex_cord;
     float2 pad;
     float4 tangent;
-    float4 bitangent;
     uint4 skin_pos;
     float4 skin_weight;
 
@@ -226,6 +225,7 @@ FragmentData vertexMain(VertexInput input)
     }
 
     float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
+    // float4x4 inverse_matrix = mul(instance.inverse_node_matrix, skin_matrix);
 
     if (input.instanceID > 0) {
         node_matrix = mul(node_matrix, instance_data[instance.instance_offset + input.instanceID]);
@@ -233,12 +233,11 @@ FragmentData vertexMain(VertexInput input)
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
-    // float4x4 inverse_matrix = mul(instance.inverse_node_matrix, skin_matrix);
-
-    float4 normal = normalize(mul(instance.inverse_node_matrix, float4(vertex.normal.xyz, 1.0)));
-    float4 tangent = normalize(mul(instance.inverse_node_matrix, vertex.tangent));
-    float4 bitangent = normalize(mul(instance.inverse_node_matrix, vertex.bitangent));
-    float3x3 tbn = float3x3(tangent.xyz, bitangent.xyz, normal.xyz);
+ 
+    float3 normal = normalize(mul(float3x3(instance.inverse_node_matrix), vertex.normal.xyz));
+    float3 tangent = normalize(mul(float3x3(instance.node_matrix), vertex.tangent.xyz));
+    float3 bitangent = cross(normal, tangent) * vertex.tangent.w;
+    float3x3 tbn = float3x3(tangent, bitangent, normal);
 
     FragmentData output = {
         vertex.tex_cord,

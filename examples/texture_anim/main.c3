@@ -20,7 +20,6 @@ struct Vertex {
     Vec3f normal;
     Vec2f tex_cord;
     Vec4f tangent;
-    Vec4f bitangent;
     uint[4] skin_pos;
     Vec4f skin_weight;
 }
@@ -85,9 +84,9 @@ fn void main()
     defer context.free();
 
     // Create camera
-    camera = camera::new(eye: {0.0, 5.0, 10}, aspect: Vec2f{win.width, win.height}.x/win.height, min_zoom: 0.01, max_zoom: 1000);
+    camera = camera::new(eye: {0.0, 5.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/road.glb")!!;
+    gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
     assert(gltf.lights.len() > 0);
 
@@ -235,7 +234,6 @@ fn void main()
                             .normal = normal,
                             .tex_cord = tex_cord,
                             .tangent = tangent,
-                            .bitangent = Vec4f {normal.cross(tangent.xyz) * tangent.w, 1.0 },
                             .skin_pos = skin_pos,
                             .skin_weight = skin_weight
                         }
@@ -546,6 +544,7 @@ fn void main()
     }
 
     Clock time = clock::now();
+    Clock animation_time = clock::now();
 
     bool running = true;
     MouseParams last_params;
@@ -559,22 +558,20 @@ fn void main()
 
     Vec2f prev_mouse;
 
-    // 90 FPS
-
 
     while (running) {
         NanoDuration start_time = time.mark();
-        if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, start_time);
+        if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, animation_time.mark());
         //material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
 
-        // Update joint animations buffer
+        //Update joint animations buffer
         foreach (skin: gltf.skins) {
             foreach (joint_index, joint: skin.joints) {
                 Node joint_node = gltf.nodes[joint];
                 Matrix4f data = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
                 joint_buffer.upload(&data, size: Matrix4f.sizeof, offset: joint_index * Matrix4f.sizeof);
             }
-        }
+        }    
 
         EventMap[] event_map = win.getEvent();
 

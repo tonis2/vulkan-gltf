@@ -344,8 +344,8 @@ fn void Node.fromJson(&self, Object* json) {
     self.skin = -1;
     self.light = -1;
     self.rotation = {0,0,0,0};
-    self.scale = {1,1,1};
-    self.translation = {0,0,0};
+    self.scale = {1.0, 1.0, 1.0};
+    self.translation = {0, 0, 0};
     self.matrix = MATRIX4F_IDENTITY;
 
     String! name = json.get_string("name");
@@ -1447,10 +1447,11 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rot) {
     float z = rotation.k;
     float w = rotation.l;
 
+
     return Matrix4f {
-        (1 - 2*y*y - 2*z*z) * scale.x, 2*x*y - 2*z*w, 2*x*z + 2*y*w, translation.x,
-        2*x*y + 2*z*w, (1 - 2*x*x - 2*z*z) * scale.y, 2*y*z - 2*x*w, translation.y,
-        2*x*z - 2*y*w, 2*y*z + 2*x*w , (1 - 2*x*x - 2*y*y) * scale.z, translation.z,
+        1 - 2*y*y - 2*z*z * scale.x, 2*x*y - 2*z*w, 2*x*z + 2*y*w, translation.x,
+        2*x*y + 2*z*w, 1 - 2*x*x - 2*z*z * scale.y, 2*y*z - 2*x*w, translation.y,
+        2*x*z - 2*y*w, 2*y*z + 2*x*w , 1 - 2*x*x - 2*y*y * scale.z, translation.z,
         0.0, 0.0, 0.0, 1.0,
     };
 }
