@@ -1440,20 +1440,13 @@ fn uint Accessor.dataSize(Accessor* self) {
 // Returns matrix from node transform, scale, rotation
 fn Matrix4f Node.localMatrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
 
-fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rot) {
-    Quaternionf rotation = rot.normalize();
-    float x = rotation.i;
-    float y = rotation.j;
-    float z = rotation.k;
-    float w = rotation.l;
-
-
+fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
     return Matrix4f {
-        1 - 2*y*y - 2*z*z * scale.x, 2*x*y - 2*z*w, 2*x*z + 2*y*w, translation.x,
-        2*x*y + 2*z*w, 1 - 2*x*x - 2*z*z * scale.y, 2*y*z - 2*x*w, translation.y,
-        2*x*z - 2*y*w, 2*y*z + 2*x*w , 1 - 2*x*x - 2*y*y * scale.z, translation.z,
+        scale.x, 0, 0, translation.x,
+        0, scale.y, 0, translation.y,
+        0, 0, scale.z, translation.z,
         0.0, 0.0, 0.0, 1.0,
-    };
+    }.mul(rotation.to_matrixf());
 }
 
 fn void Node.mapValues(&self, usz scene_index, Gltf* data) @private {
