@@ -86,7 +86,7 @@ fn void main()
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    gltf = gltf::loadFile("assets/road.glb")!!;
     defer gltf.free();
     assert(gltf.lights.len() > 0);
 
@@ -101,7 +101,7 @@ fn void main()
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 100_000_000
+        .size = 40_000_000
     }.build()!!;
 
     // Allocation where data can be changed from CPU
@@ -110,7 +110,7 @@ fn void main()
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 40_000_000
+        .size = 30_000_000
     }.build()!!;
 
     defer {
@@ -141,41 +141,16 @@ fn void main()
         data_size: DrawData.sizeof * gltf.meshes.len()
     )!!;
 
-    foreach (node_index: scene_nodes) {
-        Node node = gltf.nodes[node_index];
-        bool skinned_node = node.hasSkin();
-
-        if (node.hasMesh()) {
-            Matrix4f node_matrix = node.globalMatrix().transpose();
-            Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
-            Mesh mesh = gltf.meshes[node.mesh];
-
-            foreach (prim_index, primitive: mesh.primitives) {
+    foreach (&mesh: gltf.meshes) {
+        foreach (prim_index, primitive: mesh.primitives) {
                 Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
                 Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
-                int material_index = (int)primitive.attributes["material"] ?? -1;
-
-                DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
-                    .indexCount = index_accessor.count,
-                    .firstInstance = 0,
-                    .instanceCount = 1,
-                    .firstIndex = (uint)indices.len(),
-                    .vertexOffset = (uint)vertices.len(),
-                };
-                
-                DrawData data = {
-                    .has_skin = (int)skinned_node,
-                    .material_index = material_index,
-                    .node_matrix = node_matrix,
-                    .inverse_node_matrix = inverse_node_matrix,
-                    .instance_offset = (uint)instance_matrices.len()
-                };
-
+                primitive.attributes["vertex_offset"] = (uint)vertices.len();
+                primitive.attributes["index_offset"] = (uint)indices.len(); 
+            
                 for (usz i; i < index_accessor.count; i++) {
                     indices.push(gltf.@castBuffer(index_accessor, i, ushort));
                 }
-
-                draw_buffer.push(&data, size: DrawData.sizeof);
 
                 for (usz i; i < pos_accessor.count; i++) {
                     Vec2f tex_cord = {|
@@ -238,7 +213,41 @@ fn void main()
                             .skin_weight = skin_weight
                         }
                     );
-                } 
+                }
+            }
+    }
+
+    foreach (node_index: scene_nodes) {
+        Node node = gltf.nodes[node_index];
+        bool skinned_node = node.hasSkin();
+
+        if (node.hasMesh()) {
+            Matrix4f node_matrix = node.globalMatrix().transpose();
+            Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
+            Mesh mesh = gltf.meshes[node.mesh];
+
+            foreach (prim_index, primitive: mesh.primitives) {
+                Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+                Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+                int material_index = (int)primitive.attributes["material"] ?? -1;
+
+                DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
+                    .indexCount = index_accessor.count,
+                    .firstInstance = 0,
+                    .instanceCount = 1,
+                    .firstIndex = (uint)primitive.attributes["index_offset"]!!,
+                    .vertexOffset = (uint)primitive.attributes["vertex_offset"]!!,
+                };
+                
+                DrawData data = {
+                    .has_skin = (int)skinned_node,
+                    .material_index = material_index,
+                    .node_matrix = node_matrix,
+                    .inverse_node_matrix = inverse_node_matrix,
+                    .instance_offset = (uint)instance_matrices.len()
+                };
+
+                draw_buffer.push(&data, size: DrawData.sizeof);
 
                 // Instanced node
                 if (node.attributes.len() > 0) {

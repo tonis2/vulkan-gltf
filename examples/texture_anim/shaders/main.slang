@@ -1,5 +1,7 @@
 // Shader written in Slang https://github.com/shader-slang/slang
 
+static float4 scattered_light = float4(float3(0.2), 1.0);
+
 struct Light
 {
     float4 position;
@@ -21,23 +23,20 @@ struct Light
         // Directional
         case 0:
         {
-            float3 lightDir = normalize(position.xyz - input.frag_pos);
             float3 eyeDirection = normalize(eye - input.frag_pos);
-            float4 scatteredLight = float4(float3(0.2), 1.0);
-            float3 reflectedVector = reflect(-lightDir.xyz, normal);
 
-            float diffuseFactor = max(dot(normal, lightDir), 0);
-            float specularFactor = pow(max(dot(reflectedVector, eyeDirection), 0.0), 0.5);
-            return (scatteredLight * color) + (diffuseFactor * color) + (specularFactor * color);
+            float3 reflectedVector = reflect(-L.xyz, normal);
+
+            float diffuseFactor = max(dot(normal, L), 0);
+            float specularFactor = pow(max(dot(reflectedVector, eyeDirection), 0.0), 0.02);
+            return (scattered_light * color) + (diffuseFactor * color) + (specularFactor * color);
         }
         case 1:
         {
-            float4 scatteredLight = float4(float3(0.2), 1.0);
             let lightSqrDist = dot(L, L);
             let lightDirVS = L * rsqrt(lightSqrDist);
-            
             float lambert = intensity * 0.002 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
-            return (scatteredLight * color) + lambert * color;
+            return (scattered_light * color) + lambert * color;
         }
         case 2:
         {
@@ -260,6 +259,7 @@ float4 fragmentMain(FragmentData input)
     {
         Material material = materials[input.material_index];
         float4 diffuse_texture = material.getBaseColor(input.tex_cord);
+        
         float3 light_factor = float3(0.0);
 
         if (diffuse_texture.a == 0.0)
