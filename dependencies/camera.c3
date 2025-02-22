@@ -49,3 +49,18 @@ fn void Camera.zoom(Camera* self, float value) {
     self.zoom_value += value;
     self.view.m23 += value;
 }
+
+
+fn CameraData Camera.data(Camera* self) {
+    return CameraData {
+        self.perspective.transpose(),
+        self.view.transpose(),
+        Vec4f{self.eye, 1.0}
+    };
+}
+
+struct CameraData {
+    Matrix4f perspective;
+    Matrix4f view;
+    Vec4f eye;
+}

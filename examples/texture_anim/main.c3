@@ -36,11 +36,6 @@ struct PushConstantData {
     uint light_index;
 }
 
-struct Uniform {
-    Matrix4f perspective;
-    Matrix4f view;
-    Vec4f eye;
-}
 
 // Used to send buffer device addresses to GPU
 struct AddressBuffer {
@@ -91,7 +86,7 @@ fn void main()
 
     if (gltf.lights.is_empty()) {
         gltf.lights.push(Light {
-            .position = {0, 10, 0},
+            .position = {0, 5.0, 10},
             .color = {1, 1, 1},
             .intensity = 54351,
             .type = DIRECTIONAL
@@ -281,12 +276,8 @@ fn void main()
     Memory uniform = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &local_allocation,
-        &&Uniform {
-            .perspective = camera.perspective.transpose(),
-            .view = camera.view.transpose(),
-            .eye = Vec4f {camera.eye, 0.0 },
-        },
-        data_size: Uniform.sizeof
+        &&camera.data(),
+        data_size: CameraData.sizeof
     )!!;
     
     Memory material_buffer = vk::new_buffer(
@@ -600,16 +591,16 @@ fn void main()
                 case event.is_pressed(LEFT_MOUSE): {
                     Vec2f mouse_pos = win.getMousePos();
                     camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
-                    uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+                    uniform.upload(&&camera.data(), size: CameraData.sizeof);
                     prev_mouse = mouse_pos;
                 }
                 case event.is_pressed(MOUSE_SCROLL_DOWN): {
                     camera.zoom(2);
-                    uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+                    uniform.upload(&&camera.data(), size: CameraData.sizeof);
                 }
                 case event.is_pressed(MOUSE_SCROLL_UP): {
                     camera.zoom(-2);
-                    uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
+                    uniform.upload(&&camera.data(), size: CameraData.sizeof);
                 }
                 case event.is_pressed(ESCAPE): {
                     running = false;
