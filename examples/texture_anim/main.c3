@@ -86,9 +86,17 @@ fn void main()
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/road.glb")!!;
+    gltf = gltf::loadFile("assets/helmet.glb")!!;
     defer gltf.free();
-    assert(gltf.lights.len() > 0);
+
+    if (gltf.lights.is_empty()) {
+        gltf.lights.push(Light {
+            .position = {0, 10, 0},
+            .color = {1, 1, 1},
+            .intensity = 54351,
+            .type = DIRECTIONAL
+        });
+    }
 
     Scene scene = gltf.scenes[0];
 
@@ -101,7 +109,7 @@ fn void main()
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 40_000_000
+        .size = 100_000_000
     }.build()!!;
 
     // Allocation where data can be changed from CPU
@@ -110,7 +118,7 @@ fn void main()
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 30_000_000
+        .size = 50_000_000
     }.build()!!;
 
     defer {
@@ -142,7 +150,7 @@ fn void main()
     )!!;
 
     foreach (&mesh: gltf.meshes) {
-        foreach (prim_index, primitive: mesh.primitives) {
+        foreach (prim_index, &primitive: mesh.primitives) {
                 Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
                 Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
                 primitive.attributes["vertex_offset"] = (uint)vertices.len();
@@ -223,20 +231,19 @@ fn void main()
 
         if (node.hasMesh()) {
             Matrix4f node_matrix = node.globalMatrix().transpose();
-            Matrix4f inverse_node_matrix = node_matrix.inverse()!!.transpose();
+            Matrix4f inverse_node_matrix = node_matrix.inverse()!!;
             Mesh mesh = gltf.meshes[node.mesh];
 
             foreach (prim_index, primitive: mesh.primitives) {
                 Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-                Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
                 int material_index = (int)primitive.attributes["material"] ?? -1;
 
                 DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
                     .indexCount = index_accessor.count,
                     .firstInstance = 0,
                     .instanceCount = 1,
-                    .firstIndex = (uint)primitive.attributes["index_offset"]!!,
-                    .vertexOffset = (uint)primitive.attributes["vertex_offset"]!!,
+                    .firstIndex = (uint)primitive.attributes["index_offset"] ?? 0,
+                    .vertexOffset = (uint)primitive.attributes["vertex_offset"] ?? 0,
                 };
                 
                 DrawData data = {
@@ -380,7 +387,11 @@ fn void main()
         }
 
         // Create vulkan texture image
-        descriptor_images.addImageTexture(image_data, &device_allocation, &local_allocation, context.graphics_queue)!!;
+        if (catch err = descriptor_images.addImageTexture(image_data, &device_allocation, &local_allocation, context.graphics_queue)) {
+            io::printfn("GPU allocator is too small for textures");
+            return;
+        };
+
         image_data.free();
     }
 
@@ -593,11 +604,11 @@ fn void main()
                     prev_mouse = mouse_pos;
                 }
                 case event.is_pressed(MOUSE_SCROLL_DOWN): {
-                    camera.zoom(5);
+                    camera.zoom(2);
                     uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
                 }
                 case event.is_pressed(MOUSE_SCROLL_UP): {
-                    camera.zoom(-5);
+                    camera.zoom(-2);
                     uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
                 }
                 case event.is_pressed(ESCAPE): {

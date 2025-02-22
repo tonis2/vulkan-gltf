@@ -1,6 +1,7 @@
 // Shader written in Slang https://github.com/shader-slang/slang
 
-static float4 scattered_light = float4(float3(0.2), 1.0);
+static float3 scattered_light = float3(0.2);
+static float PI = 3.14159265358979323846;
 
 struct Light
 {
@@ -16,36 +17,69 @@ struct Light
     float4 illuminate(Material material, FragmentData input, float3 eye)
     {
         float3 normal = material.getNormal(input.tex_cord, input.tbn);
+        float4 emissive = material.getEmissive(input.tex_cord);
+        float4 metallic_r = material.getMetallicRoughness(input.tex_cord);
+        float4 diffuse_texture = material.getBaseColor(input.tex_cord);
+
         float3 L = position.xyz - input.frag_pos;
 
         switch (type)
         {
-        // Directional
-        case 0:
-        {
-            float3 eyeDirection = normalize(eye - input.frag_pos);
+            // Directional
+            case 0:
+            case 1:
+            {
+                float3 light_dir = lerp(position.xyz, normalize(position.xyz - input.frag_pos.xyz), position.w);
+                float3 view_dir = normalize(eye - input.frag_pos.xyz);
+                float3 half_dir = normalize(view_dir + light_dir);
+                float3 reflect_dir = reflect(-view_dir, normal);
 
-            float3 reflectedVector = reflect(-L.xyz, normal);
+                // dots
+                float ndoth = max(dot(normal, half_dir), 0.0);
+                float ndotv = max(dot(normal, view_dir), 0.0);
+                float ndotl = max(dot(normal, light_dir), 0.0);
+                float hdotv = max(dot(half_dir, view_dir), 0.0);
 
-            float diffuseFactor = max(dot(normal, L), 0);
-            float specularFactor = pow(max(dot(reflectedVector, eyeDirection), 0.0), 0.02);
-            return (scattered_light * color) + (diffuseFactor * color) + (specularFactor * color);
-        }
-        case 1:
-        {
-            let lightSqrDist = dot(L, L);
-            let lightDirVS = L * rsqrt(lightSqrDist);
-            float lambert = intensity * 0.002 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
-            return (scattered_light * color) + lambert * color;
-        }
-        case 2:
-        {
-            return color;
-        }
+                float ambient_occlusion = metallic_r.r;
+                float metallic = metallic_r.b * material.metallicFactor;
+                float3 fresnel_r0 = lerp(float3(0.02), diffuse_texture.rgb, metallic);
+                float p_roughness = metallic_r.g * material.metallicFactor;
+                float roughness = p_roughness * p_roughness;
+                float roughness_sqr = roughness * roughness;
+                
+                float ndf = NdfGgx(ndoth, roughness_sqr);
+                float visible = SeparableVisible(ndotv, ndotl, roughness_sqr);
+
+                float3 fresnel = SchlickFresnel(fresnel_r0, hdotv);
+                float3 fresnel_dielectric = SchlickFresnel(float3(0.02), hdotv);
+                float3 k_specualr = fresnel;
+                float3 k_diffsue = (float3(1.0) - fresnel_dielectric) * (1.0 - metallic);
+                float3 direct_lighting = diffuse_texture.rgb * k_diffsue + ndf * k_specualr;
+
+                return float4(direct_lighting + emissive.rgb + scattered_light, 1.0);
+            }
+            case 2:
+            {
+                return color;
+            }
         }
         return color;
     }
 };
+
+float3 SchlickFresnel(float3 r0, float ndotv) {
+    return r0 + (float3(1.0) - r0) * pow(1 - ndotv, 5);
+}
+
+float NdfGgx(float ndoth, float a2) {
+    return a2 / (PI * pow(ndoth * ndoth * (a2 - 1) + 1, 2));
+}
+
+float SeparableVisible(float ndotv, float ndotl, float a2) {
+    float v = abs(ndotv) + sqrt((1 - a2) * ndotv * ndotv + a2);
+    float l = abs(ndotl) + sqrt((1 - a2) * ndotl * ndotl + a2);
+    return 1.0 / (v * l);
+}
 
 struct TextureInfo
 {
@@ -87,6 +121,26 @@ struct Material
         }
 
         return baseColorFactor;
+    }
+
+    float4 getMetallicRoughness(float2 tex_pos)
+    {
+        if (metallicRoughnessTexture.can_sample())
+        {
+            return image_samplers[metallicRoughnessTexture.sampler].Sample(tex_pos);
+        }
+
+        return float4(1.0);
+    }
+
+    float4 getEmissive(float2 tex_pos)
+    {
+        if (emissiveTexture.can_sample())
+        {
+            return image_samplers[emissiveTexture.sampler].Sample(tex_pos) * emissiveFactor;
+        }
+
+        return float4(1.0);
     }
 
     float3 getNormal(float2 tex_pos, float3x3 tbn)
@@ -234,7 +288,7 @@ FragmentData vertexMain(VertexInput input)
     float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
  
     float3 normal = normalize(mul(float3x3(instance.inverse_node_matrix), vertex.normal.xyz));
-    float3 tangent = normalize(mul(float3x3(instance.node_matrix), vertex.tangent.xyz));
+    float3 tangent = normalize(mul(float3x3(instance.inverse_node_matrix), vertex.tangent.xyz));
     float3 bitangent = cross(normal, tangent) * vertex.tangent.w;
     float3x3 tbn = float3x3(tangent, bitangent, normal);
 
@@ -259,7 +313,8 @@ float4 fragmentMain(FragmentData input)
     {
         Material material = materials[input.material_index];
         float4 diffuse_texture = material.getBaseColor(input.tex_cord);
-        
+        float3 normal = material.getNormal(input.tex_cord, input.tbn);    
+
         float3 light_factor = float3(0.0);
 
         if (diffuse_texture.a == 0.0)
@@ -335,3 +390,5 @@ ShadowData vertexShadow(VertexInput input)
         mul(light_view, frag_pos)
     };
 }
+
+
