@@ -21,9 +21,12 @@ struct Light
         float4 metallic_r = material.getMetallicRoughness(input.tex_cord);
         float4 diffuse = material.getBaseColor(input.tex_cord);
         float4 ambient_occlusion = material.getOcclusion(input.tex_cord);
-
+  
         float roughness = metallic_r.g;
         float metallic = metallic_r.b;
+        
+        float3 F0 = 0.04 * (1.0 - metallic) + diffuse.rgb * metallic;
+        float3 V = normalize(eye - input.sv_position.xyz);
 
         switch (type)
         {
@@ -31,29 +34,26 @@ struct Light
             case 0:
             case 1:
             {
-                float3 v = normalize(eye - input.sv_position.xyz);
-                float3 l = normalize(position.xyz - input.sv_position.xyz);
-                float3 h = normalize(v + l);
-                float3 r = normalize(reflect(eye - input.sv_position.xyz, normal));
+                float3 L = normalize(position.xyz - input.sv_position.xyz);
+                float3 H = normalize(V + L);
 
-                float NoV = abs(dot(normal, l));
-                float NoL = saturate(dot(normal, l));
-                float NoH = saturate(dot(normal, h));
-                float LoH = saturate(dot(l, h));
+                float distance    = length(position - input.sv_position);
+                float attenuation = 1.0 / (distance * distance);
+                float3 radiance     = color.rgb;
 
-                float3 specularColor = lerp(float3(0.4), diffuse.rgb, 0.0);
-
-                float3 ambient = 0.01 * color.rgb;
-                
-                float3 f0 = 0.04 * (1.0 - metallic) + diffuse.rgb * metallic;   
-                float D = D_GGX(roughness, NoH, h);
-
-                float V = V_SmithGGXCorrelated(roughness, NoV, NoL);
-                float3  F = F_Schlick(f0, LoH);
-                float3 Fr = (D * V) * F;
-                float3 Fd = diffuse.rgb * Fd_Burley(roughness, NoV, NoL, LoH);
-
-                return float4(ambient_occlusion.r * (ambient + emissive.rgb + F), diffuse.a);
+                float NDF = DistributionGGX(normal, H, roughness);        
+                float G   = GeometrySmith(normal, V, L, roughness);      
+                float3 F  = fresnelSchlick(max(dot(H, V), 0.0), F0);
+               
+                float3 kS = F;
+                float3 kD = float3(1.0) - kS;
+                kD *= 1.0 - metallic;
+                       
+                float3 numerator    = NDF * G * F;
+                float denominator = 4.0 * max(dot(normal, V), 0.0) * max(dot(normal, L), 0.0) + 0.0001;
+                float3 specular     = numerator / denominator; 
+                float NdotL = max(dot(normal, L), 0.0);      
+                return diffuse;
             }
             case 2:
             {
@@ -64,38 +64,43 @@ struct Light
     }
 };
 
-float D_GGX(float linearRoughness, float NoH, float3 h) {
-    // Walter et al. 2007, "Microfacet Models for Refraction through Rough Surfaces"
-    float oneMinusNoHSquared = 1.0 - NoH * NoH;
-    float a = NoH * linearRoughness;
-    float k = linearRoughness / (oneMinusNoHSquared + a * a);
-    float d = k * k * (1.0 / PI);
-    return d;
+float3 fresnelSchlick(float cosTheta, float3 F0)
+{
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+} 
+
+float DistributionGGX(float3 N, float3 H, float roughness)
+{
+    float a      = roughness*roughness;
+    float a2     = a*a;
+    float NdotH  = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH*NdotH;
+	
+    float num   = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+	
+    return num / denom;
 }
 
-float V_SmithGGXCorrelated(float linearRoughness, float NoV, float NoL) {
-    // Heitz 2014, "Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs"
-    float a2 = linearRoughness * linearRoughness;
-    float GGXV = NoL * sqrt((NoV - a2 * NoV) * NoV + a2);
-    float GGXL = NoV * sqrt((NoL - a2 * NoL) * NoL + a2);
-    return 0.5 / (GGXV + GGXL);
-}
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+    float r = (roughness + 1.0);
+    float k = (r*r) / 8.0;
 
-float3 F_Schlick(const float3 f0, float VoH) {
-    // Schlick 1994, "An Inexpensive BRDF Model for Physically-Based Rendering"
-    return f0 + (float3(1.0) - f0) * pow(1.0 - VoH, 5);
+    float num   = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
+	
+    return num / denom;
 }
-
-float F_Schlick(float f0, float f90, float VoH) {
-    return f0 + (f90 - f0) * pow(1.0 - VoH, 5);
-}
-
-float Fd_Burley(float linearRoughness, float NoV, float NoL, float LoH) {
-    // Burley 2012, "Physically-Based Shading at Disney"
-    float f90 = 0.5 + 2.0 * linearRoughness * LoH * LoH;
-    float lightScatter = F_Schlick(1.0, f90, NoL);
-    float viewScatter  = F_Schlick(1.0, f90, NoV);
-    return lightScatter * viewScatter * (1.0 / PI);
+float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2  = GeometrySchlickGGX(NdotV, roughness);
+    float ggx1  = GeometrySchlickGGX(NdotL, roughness);
+	
+    return ggx1 * ggx2;
 }
 
 struct TextureInfo

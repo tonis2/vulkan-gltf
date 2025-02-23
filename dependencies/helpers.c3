@@ -112,12 +112,10 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
         .debug = debug
     };
 
-    ZStringList validations;
     ZStringList extensions;
     ZStringList device_extensions;
     //"VK_EXT_dynamic_rendering_unused_attachments"
-    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering"});
-    validations.add_array({"VK_LAYER_KHRONOS_validation"});
+    device_extensions.add_array({"VK_KHR_swapchain", "VK_KHR_push_descriptor", "VK_EXT_extended_dynamic_state3", "VK_KHR_dynamic_rendering", "VK_KHR_shader_non_semantic_info"});
     extensions.add_array({"VK_KHR_surface", "VK_EXT_debug_utils"});
 
     if (env::OS_TYPE == MACOS) {
@@ -149,19 +147,29 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     })
     .setFlags(env::os_is_darwin() ? vk::INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0)
     .setEnabledExtensionNames(extensions.array_view());
-
+  
     DebugUtilsMessengerCreateInfoEXT debug_info = DebugUtilsMessengerCreateInfoEXT {
         .sType = vk::STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-        .messageSeverity = vk::DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+        .messageSeverity = vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT,
         .messageType = vk::DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-        .pfnUserCallback = (PFN_vkDebugUtilsMessengerCallbackEXT)&vk::debugCallback
+        .pfnUserCallback = (PFN_vkDebugUtilsMessengerCallbackEXT)&debugCallback
     };
 
     // Debug enabled
     if (debug) {
-      vk::checkValidationLayersSupport(validations)!!;
-      instanceInfo.enabledLayerCount = (uint)validations.len();
-      instanceInfo.ppEnabledLayerNames = (char*)validations.entries;
+        ValidationFeatureEnableEXT[] enables = {vk::VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT, vk::VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT};
+        String[] validations = {"VK_LAYER_KHRONOS_validation"};
+
+        ValidationFeaturesEXT features = {
+            .sType = vk::STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
+            .enabledValidationFeatureCount = enables.len,
+            .pEnabledValidationFeatures = enables.ptr,
+        };
+
+        vk::checkValidationLayersSupport(validations)!!;
+        instanceInfo.pNext = &features;
+        instanceInfo.enabledLayerCount = (uint)validations.len;
+        instanceInfo.ppEnabledLayerNames = (char*)validations.ptr;
     }
 
     vk::createInstance(&instanceInfo, null, &context.instance)!!;
@@ -689,4 +697,25 @@ fn void DynamicBuffer.free(&self) {
     mem::free(self.data);
     self.size = 0;
     self.used_size = 0;
+}
+
+
+fn bool debugCallback(
+    vk::DebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    vk::DebugUtilsMessageTypeFlagsEXT messageType,
+    vk::DebugUtilsMessengerCallbackDataEXT* data,
+    void* userData
+) {
+    if (messageSeverity >= vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+       io::printfn("ERROR: %s \n", (ZString)data.pMessage);
+    } else if (messageSeverity >= vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+       io::printfn("WARNING: %s \n", (ZString)data.pMessage);
+    } else if (messageSeverity >= vk::DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+       io::printfn("INFO: %s \n", (ZString)data.pMessage);
+    } else if (messageSeverity >= vk::DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+       io::printfn("VERBOSE: %s \n", (ZString)data.pMessage);
+    } else {
+       io::printfn("unknown: %s \n", (ZString)data.pMessage);
+    }
+    return false;
 }
