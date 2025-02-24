@@ -79,14 +79,14 @@ fn void main()
     defer context.free();
 
     // Create camera
-    camera = camera::new(eye: {0.0, 5.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
+    camera = camera::new(eye: {0.0, 2.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/helmet.glb")!!;
+    gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
 
     if (gltf.lights.is_empty()) {
         gltf.lights.push(Light {
-            .position = {0, 5.0, 10},
+            .position = {2, 12.0, 5},
             .color = {1, 1, 1},
             .intensity = 54351,
             .type = DIRECTIONAL

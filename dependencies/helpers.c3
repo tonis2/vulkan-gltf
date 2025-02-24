@@ -158,12 +158,15 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
     // Debug enabled
     if (debug) {
         ValidationFeatureEnableEXT[] enables = {vk::VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT, vk::VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT};
+        ValidationFeatureDisableEXT[] disables = {};
         String[] validations = {"VK_LAYER_KHRONOS_validation"};
 
         ValidationFeaturesEXT features = {
             .sType = vk::STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
             .enabledValidationFeatureCount = enables.len,
             .pEnabledValidationFeatures = enables.ptr,
+            .disabledValidationFeatureCount = disables.len,
+            .pDisabledValidationFeatures = disables.ptr
         };
 
         vk::checkValidationLayersSupport(validations)!!;
@@ -714,8 +717,6 @@ fn bool debugCallback(
        io::printfn("INFO: %s \n", (ZString)data.pMessage);
     } else if (messageSeverity >= vk::DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
        io::printfn("VERBOSE: %s \n", (ZString)data.pMessage);
-    } else {
-       io::printfn("unknown: %s \n", (ZString)data.pMessage);
     }
     return false;
 }
