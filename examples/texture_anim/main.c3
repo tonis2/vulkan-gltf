@@ -81,7 +81,7 @@ fn void main()
     // Create camera
     camera = camera::new(eye: {0.0, 2.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    gltf = gltf::loadFile("assets/helmet.glb")!!;
     defer gltf.free();
 
     if (gltf.lights.is_empty()) {

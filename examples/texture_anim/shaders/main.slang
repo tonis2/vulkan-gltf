@@ -18,50 +18,70 @@ struct Light
     {
         float3 eye = uniform.eye.xyz;
         Optional<float3> normal = material.getNormal(input.tex_cord, input.tbn);
-        float4 emissive = material.getEmissive(input.tex_cord);
-        float4 metallic_r = material.getMetallicRoughness(input.tex_cord);
+
+ 
         float4 albedo = material.getBaseColor(input.tex_cord);
-        float4 ambient_occlusion = material.getOcclusion(input.tex_cord);
-  
+        
+        float4 metallic_r = material.getMetallicRoughness(input.tex_cord);
         float roughness = metallic_r.g;
         float metallic = metallic_r.b;
         
-        float3 F0 = 0.04 * (1.0 - metallic) + albedo.rgb * metallic;
+        float3 F0 = lerp(float3(0.4), albedo.rgb, metallic);
         float3 V = normalize(eye - input.world_pos.xyz);
         float3 L = normalize(position.xyz - input.world_pos.xyz);
         float3 H = normalize(V + L);
 
-        switch (type)
-        {
-      
-            // Directional
-            case 0:
-            case 1:
-            {
-                float3 ambient = float3(0.2) * albedo.rgb;
-                if (normal.hasValue){
-                     float specular = pow(max(dot(normal.value, H), 0.0), 25);
-                     float diffuse = max(dot(normal.value, L), 0.0);
-                     return (albedo.rgb * diffuse + specular) + emissive.rgb + ambient;
-                } else {
-                    return albedo.rgb;
-                };
-            }
-            case 2:
-            {
-                return albedo.rgb;
-            }
+        if (normal.hasValue) {
+            float3 R = reflect(-V, normal.value);
+            float NdotV = max(dot(normal.value, V), 0.00001);
+            float NdotL = saturate(dot(normal.value, L));
+            float NdotH = saturate(dot(normal.value, H));
+            float VdotH = saturate(dot(H, V));
+
+            // float3 fresnel = fresnelSchlick(VdotH, F0);
+            // float3 k_D = float3(1.0) - fresnel;
+            // k_D *= 1.0 - metallic;
+            float3 specular = specularColor(normal.value, H, roughness);
+
+            // float3 diffuse = albedo.rgb / PI * k_D;
+            // float3 l_contrib = color.rgb * 10 / d2;
+            //   switch (type)
+            //     {
+            //         // Directional
+            //         case 0:
+            //         case 1:
+            //         {
+            //             float3 ambient = float3(0.2) * albedo.rgb;
+            //             float specular = pow(max(dot(normal.value, H), 0.0), 25);
+            //             
+            //             return (albedo.rgb * diffuse + specular) + emissive.rgb + ambient;
+            //         }
+            //         case 2:
+            //         {
+            //             return albedo.rgb;
+            //         }
+            //     }
+
+            return albedo.rgb * NdotL + specular;
         }
+
+      
         return albedo.rgb;
     }
 };
+
+float3 specularColor(float3 normal, float3 H, float roughness) {
+    float3 specular = pow(saturate(dot(normal, H)), 25);
+    return specular;
+}
 
 float3 fresnelSchlick(float cosTheta, float3 F0)
 {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 } 
 
-float DistributionGGX(float3 N, float3 H, float roughness)
+
+float distributionGGX(float3 N, float3 H, float roughness)
 {
     float a      = roughness*roughness;
     float a2     = a*a;
@@ -75,24 +95,8 @@ float DistributionGGX(float3 N, float3 H, float roughness)
     return num / denom;
 }
 
-float GeometrySchlickGGX(float NdotV, float roughness)
-{
-    float r = (roughness + 1.0);
-    float k = (r*r) / 8.0;
-
-    float num   = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-	
-    return num / denom;
-}
-float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
-{
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float ggx2  = GeometrySchlickGGX(NdotV, roughness);
-    float ggx1  = GeometrySchlickGGX(NdotL, roughness);
-	
-    return ggx1 * ggx2;
+float v_smithschlick(float nl, float nv, float a) {
+	return 1.0 / ((nl * (1.0 - a) + a) * (nv * (1.0 - a) + a));
 }
 
 struct TextureInfo
@@ -155,7 +159,7 @@ struct Material
             return image_samplers[metallicRoughnessTexture.sampler].Sample(tex_pos) * roughnessFactor;
         }
 
-        return float4(1.0);
+        return float4(0.0);
     }
 
     float4 getEmissive(float2 tex_pos)
@@ -334,27 +338,29 @@ FragmentData vertexMain(VertexInput input)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
-
+    Optional<Material> material;
     float4 color = float4(0.0, 0.0, 0.0, 0.0);
+
+    if (input.material_index >= 0) material = materials[input.material_index];
+
+    if (material.hasValue) {
+        float4 albedo = material.value.getBaseColor(input.tex_cord);
+        if (albedo.a == 0.0) discard;
+
+        float4 emissive = material.value.getEmissive(input.tex_cord);
+        float4 ambient_occlusion = material.value.getOcclusion(input.tex_cord);
+        float3 ambient = float3(0.2) * albedo.rgb;
+
+        color += emissive + float4(ambient, 1.0);
+    }
+
     // Calculate lights
     for (int i = 0; i < light_count; i++)
     {
         Light light = lights[i];
 
-        float3 light_color;
-        if (input.material_index >= 0)
-        {
-            Material material = materials[input.material_index];
-            float4 diffuse_texture = material.getBaseColor(input.tex_cord);
-            // float3 normal = material.getNormal(input.tex_cord, input.tbn);    
-
-            if (diffuse_texture.a == 0.0)
-                discard;
-
-            // Diffuse light
-            light_color = light.illuminate(material, input);     
-        } else {
-            light_color = float3(0.2, 0.2, 0.2);
+        if (material.hasValue) {
+            light.color.rgb = light.illuminate(material.value, input);
         }
     
         // Calculate shadow
@@ -363,11 +369,11 @@ float4 fragmentMain(FragmentData input)
         shadow_pos = shadow_pos / shadow_pos.w;
         float3 shadow_cords = float3(shadow_pos.xy * float2(0.5, -0.5) + 0.5, shadow_pos.z);
         float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
+
         // Fix artifacts
         const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
-        float shadowFactor = shadow_cords.z < occluderDepth.x + 0.0001 || outOfView ? 1.0 : 0.3;
-
-        color += float4(light_color * shadowFactor, 1.0) ;
+        float shadowFactor = shadow_cords.z < occluderDepth.x + 0.0001 || outOfView ? 1.0 : 0.4;
+        color += float4(light.color.rgb * shadowFactor, 1.0) ;
     }
 
     return color;
