@@ -17,9 +17,7 @@ struct Light
     float3 illuminate(Material material, FragmentData input)
     {
         float3 eye = uniform.eye.xyz;
-        Optional<float3> normal = material.getNormal(input.tex_cord, input.tbn);
-
- 
+        Optional<float3> normal = material.getNormal(input.tex_cord, input.tbn); 
         float4 albedo = material.getBaseColor(input.tex_cord);
         
         float4 metallic_r = material.getMetallicRoughness(input.tex_cord);
@@ -38,31 +36,9 @@ struct Light
             float NdotH = saturate(dot(normal.value, H));
             float VdotH = saturate(dot(H, V));
 
-            // float3 fresnel = fresnelSchlick(VdotH, F0);
-            // float3 k_D = float3(1.0) - fresnel;
-            // k_D *= 1.0 - metallic;
-            float3 specular = specularColor(normal.value, H, roughness);
+            float3 cook_torrence = DGF(normal.value, H, V, F0, roughness) / 4 * (V * normal.value) * (L * normal.value);
 
-            // float3 diffuse = albedo.rgb / PI * k_D;
-            // float3 l_contrib = color.rgb * 10 / d2;
-            //   switch (type)
-            //     {
-            //         // Directional
-            //         case 0:
-            //         case 1:
-            //         {
-            //             float3 ambient = float3(0.2) * albedo.rgb;
-            //             float specular = pow(max(dot(normal.value, H), 0.0), 25);
-            //             
-            //             return (albedo.rgb * diffuse + specular) + emissive.rgb + ambient;
-            //         }
-            //         case 2:
-            //         {
-            //             return albedo.rgb;
-            //         }
-            //     }
-
-            return albedo.rgb * NdotL + specular;
+            return albedo.rgb + cook_torrence;
         }
 
       
@@ -70,34 +46,19 @@ struct Light
     }
 };
 
-float3 specularColor(float3 normal, float3 H, float roughness) {
-    float3 specular = pow(saturate(dot(normal, H)), 25);
-    return specular;
-}
 
-float3 fresnelSchlick(float cosTheta, float3 F0)
+float3 DGF(float3 N, float3 H, float3 V, float3 F0, float roughness)
 {
-    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-} 
+    float a = pow(roughness, 4);
+    float3 distributionGGX =  a / (PI * pow((pow((N * H), 2) * (a - 1) + 1), 2));
+    float3 fresnel = F0 + (1.0 - F0) * pow((1 - V * H), 5.0);
 
+    float k = a / 4;
+    float3 G_shlick_beckman = N * V / ( (N * V) * (1 - k) + k);
 
-float distributionGGX(float3 N, float3 H, float roughness)
-{
-    float a      = roughness*roughness;
-    float a2     = a*a;
-    float NdotH  = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH*NdotH;
-	
-    float num   = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-	
-    return num / denom;
+    return distributionGGX * fresnel * G_shlick_beckman;
 }
 
-float v_smithschlick(float nl, float nv, float a) {
-	return 1.0 / ((nl * (1.0 - a) + a) * (nv * (1.0 - a) + a));
-}
 
 struct TextureInfo
 {
