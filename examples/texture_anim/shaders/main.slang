@@ -42,19 +42,19 @@ struct Light
             float denominator = max(4.0 * NdotL * NdotV, 0.00001);
 
             float3 cook_torrence_specular = D * F * G / denominator;
-
             float3 diffuse = (1.0 - F) * ((1.0 - metallic) * albedo.rgb) / PI;
 
             float3 light_intensity = float3(0.0);
             switch (type) {
                 case 0: {
-                    // Point
-                    light_intensity = (color.rgb + (albedo.rgb * 0.2)) * (intensity * 0.0002);
+                    float distance    = length(position - input.world_pos);
+                    float attenuation = 1.0 / pow(distance, 10);
+                    light_intensity = (color.rgb + (albedo.rgb * 0.2)) * (intensity * attenuation);
                     break;
                 }
                 case 1: {
                     // Directional
-                    light_intensity = (color.rgb + (albedo.rgb * 0.2)) * (intensity * 0.0002);
+                    light_intensity = (color.rgb + (albedo.rgb * 0.2)) * (intensity * 0.0003);
                     break;
                 }
                 case 2: {
