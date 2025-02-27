@@ -29,7 +29,6 @@ struct DrawData {
     int has_skin;
     uint instance_offset;
     Matrix4f node_matrix;
-    Matrix4f inverse_node_matrix;
 }
 
 struct PushConstantData {
@@ -81,9 +80,10 @@ fn void main()
     // Create camera
     camera = camera::new(eye: {0.0, 2.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/helmet.glb")!!;
+    gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
 
+    
     if (gltf.lights.is_empty()) {
         gltf.lights.push(Light {
             .position = {2, 12.0, 5},
@@ -104,7 +104,7 @@ fn void main()
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 100_000_000
+        .size = 150_000_000
     }.build()!!;
 
     // Allocation where data can be changed from CPU
@@ -226,7 +226,6 @@ fn void main()
 
         if (node.hasMesh()) {
             Matrix4f node_matrix = node.globalMatrix().transpose();
-            Matrix4f inverse_node_matrix = node_matrix.inverse()!!;
             Mesh mesh = gltf.meshes[node.mesh];
 
             foreach (prim_index, primitive: mesh.primitives) {
@@ -245,7 +244,6 @@ fn void main()
                     .has_skin = (int)skinned_node,
                     .material_index = material_index,
                     .node_matrix = node_matrix,
-                    .inverse_node_matrix = inverse_node_matrix,
                     .instance_offset = (uint)instance_matrices.len()
                 };
 

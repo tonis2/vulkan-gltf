@@ -1,7 +1,7 @@
 // Shader written in Slang https://github.com/shader-slang/slang
 
 static float PI = 3.14159265358979323846;
-static float4 scattered_light = float4(float3(0.2), 1.0);
+static float ambient_constant = 0.4;
 
 struct Light
 {
@@ -30,35 +30,62 @@ struct Light
         float3 H = normalize(V + L);
 
         if (normal.hasValue) {
-            float3 R = reflect(-V, normal.value);
+            // float3 R = reflect(-V, normal.value);
             float NdotV = max(dot(normal.value, V), 0.00001);
             float NdotL = saturate(dot(normal.value, L));
             float NdotH = saturate(dot(normal.value, H));
             float VdotH = saturate(dot(H, V));
 
-            float3 cook_torrence = DGF(normal.value, H, V, F0, roughness) / 4 * (V * normal.value) * (L * normal.value);
+            float3 F = freshnel(F0, NdotV, NdotH);
+            float D = distributionGGX(NdotH, roughness);
+            float G = geomSmith(NdotV, roughness) * geomSmith(NdotL, roughness);
+            float denominator = max(4.0 * NdotL * NdotV, 0.001);
 
-            return albedo.rgb + cook_torrence;
+            float3 cook_torrence_specular = D * F * G / denominator;
+
+            float3 diffuse = (1.0 - F) * (1.0 - metallic) * albedo.rgb / PI;
+
+            float3 light_intensity = float3(0.0);
+            switch (type) {
+                case 0: {
+                    // Point
+                    light_intensity = (color.rgb + (albedo.rgb * 0.2)) * (intensity * 0.0002);
+                    break;
+                }
+                case 1: {
+                    // Directional
+                    light_intensity = (color.rgb + (albedo.rgb * 0.2)) * (intensity * 0.0002);
+                    break;
+                }
+                case 2: {
+
+                }
+            }
+
+            // float3 specular = pow(NdotH, 25);
+         
+            return (diffuse + cook_torrence_specular) * light_intensity * NdotL;
         }
 
-      
         return albedo.rgb;
     }
 };
 
-
-float3 DGF(float3 N, float3 H, float3 V, float3 F0, float roughness)
-{
-    float a = pow(roughness, 4);
-    float3 distributionGGX =  a / (PI * pow((pow((N * H), 2) * (a - 1) + 1), 2));
-    float3 fresnel = F0 + (1.0 - F0) * pow((1 - V * H), 5.0);
-
-    float k = a / 4;
-    float3 G_shlick_beckman = N * V / ( (N * V) * (1 - k) + k);
-
-    return distributionGGX * fresnel * G_shlick_beckman;
+float geomSmith(float Ndot, float alpha) {
+    float k = pow(alpha + 1.0, 2) / 8.0;
+	float d = Ndot * (1-k) + k;
+	return Ndot / d;
 }
 
+float distributionGGX(float NdotH, float alpha) {
+	float alpha4 = pow(alpha, 4);
+	float d = NdotH * NdotH * (alpha4 - 1.0) + 1.0;
+	return alpha4 / (PI * d * d);
+}
+
+float3 freshnel(float3 F0, float dotV, float dotH) {
+    return F0 + (1.0 - F0) * pow((1 - dotV * dotH), 5.0);
+}
 
 struct TextureInfo
 {
@@ -188,7 +215,6 @@ struct DrawCommand
     int has_skin;
     uint instance_offset;
     float4x4 node_matrix;
-    float4x4 inverse_node_matrix;
 }
 
 struct Uniform
@@ -310,7 +336,7 @@ float4 fragmentMain(FragmentData input)
 
         float4 emissive = material.value.getEmissive(input.tex_cord);
         float4 ambient_occlusion = material.value.getOcclusion(input.tex_cord);
-        float3 ambient = float3(0.2) * albedo.rgb;
+        float3 ambient = albedo.rgb * float3(ambient_constant);
 
         color += emissive + float4(ambient, 1.0);
     }
@@ -323,7 +349,7 @@ float4 fragmentMain(FragmentData input)
         if (material.hasValue) {
             light.color.rgb = light.illuminate(material.value, input);
         }
-    
+        
         // Calculate shadow
         float4x4 light_view = light_matrices[i];
         float4 shadow_pos = mul(light_view, input.world_pos);
