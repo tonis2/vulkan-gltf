@@ -1,6 +1,7 @@
 // Shader written in Slang https://github.com/shader-slang/slang
 
-static float4 scattered_light = float4(float3(0.2), 1.0);
+static float PI = 3.14159265358979323846;
+static float ambient_constant = 0.4;
 
 struct Light
 {
@@ -13,39 +14,78 @@ struct Light
     float outer_angle;
     float3 pad;
 
-    float4 illuminate(Material material, FragmentData input, float3 eye)
+    float3 illuminate(Material material, FragmentData input)
     {
-        float3 normal = material.getNormal(input.tex_cord, input.tbn);
-        float3 L = position.xyz - input.frag_pos;
+        float3 eye = uniform.eye.xyz;
+        Optional<float3> normal = material.getNormal(input.tex_cord, input.tbn); 
+        float4 albedo = material.getBaseColor(input.tex_cord);
+        
+        float4 metallic_r = material.getMetallicRoughness(input.tex_cord);
+        float roughness = metallic_r.g;
+        float metallic = metallic_r.b;
+        
+        float3 F0 = lerp(float3(0.4), albedo.rgb, metallic);
+        float3 V = normalize(eye - input.world_pos.xyz);
+        float3 L = normalize(position.xyz - input.world_pos.xyz);
+        float3 H = normalize(V + L);
 
-        switch (type)
-        {
-        // Directional
-        case 0:
-        {
-            float3 eyeDirection = normalize(eye - input.frag_pos);
+        if (normal.hasValue) {
+            // float3 R = reflect(-V, normal.value);
+            float NdotV = max(dot(normal.value, V), 0.00001);
+            float NdotL = saturate(dot(normal.value, L));
+            float NdotH = saturate(dot(normal.value, H));
+            float VdotH = saturate(dot(H, V));
 
-            float3 reflectedVector = reflect(-L.xyz, normal);
+            float3 F = freshnel(F0, NdotV, NdotH);
+            float D = distributionGGX(NdotH, roughness);
+            float G = geomSmith(NdotV, roughness) * geomSmith(NdotL, roughness);
+            float denominator = max(4.0 * NdotL * NdotV, 0.001);
 
-            float diffuseFactor = max(dot(normal, L), 0);
-            float specularFactor = pow(max(dot(reflectedVector, eyeDirection), 0.0), 0.02);
-            return (scattered_light * color) + (diffuseFactor * color) + (specularFactor * color);
+            float3 cook_torrence_specular = D * F * G / denominator;
+
+            float3 diffuse = (1.0 - F) * (1.0 - metallic) * albedo.rgb / PI;
+
+            float3 light_intensity = float3(0.0);
+            switch (type) {
+                case 0: {
+                    // Point
+                    light_intensity = (color.rgb + (albedo.rgb * 0.2)) * (intensity * 0.0002);
+                    break;
+                }
+                case 1: {
+                    // Directional
+                    light_intensity = (color.rgb + (albedo.rgb * 0.2)) * (intensity * 0.0002);
+                    break;
+                }
+                case 2: {
+
+                }
+            }
+
+            // float3 specular = pow(NdotH, 25);
+         
+            return (diffuse + cook_torrence_specular) * light_intensity * NdotL;
         }
-        case 1:
-        {
-            let lightSqrDist = dot(L, L);
-            let lightDirVS = L * rsqrt(lightSqrDist);
-            float lambert = intensity * 0.002 * max(dot(lightDirVS, normal), 0.0) / lightSqrDist;
-            return (scattered_light * color) + lambert * color;
-        }
-        case 2:
-        {
-            return color;
-        }
-        }
-        return color;
+
+        return albedo.rgb;
     }
 };
+
+float geomSmith(float Ndot, float alpha) {
+    float k = pow(alpha + 1.0, 2) / 8.0;
+	float d = Ndot * (1-k) + k;
+	return Ndot / d;
+}
+
+float distributionGGX(float NdotH, float alpha) {
+	float alpha4 = pow(alpha, 4);
+	float d = NdotH * NdotH * (alpha4 - 1.0) + 1.0;
+	return alpha4 / (PI * d * d);
+}
+
+float3 freshnel(float3 F0, float dotV, float dotH) {
+    return F0 + (1.0 - F0) * pow((1 - dotV * dotH), 5.0);
+}
 
 struct TextureInfo
 {
@@ -89,14 +129,45 @@ struct Material
         return baseColorFactor;
     }
 
-    float3 getNormal(float2 tex_pos, float3x3 tbn)
+
+    float4 getOcclusion(float2 tex_pos)
+    {
+        if (occlusionTexture.can_sample())
+        {
+            return image_samplers[occlusionTexture.sampler].Sample(tex_pos);
+        }
+
+        return float4(0.0);
+    }
+
+    float4 getMetallicRoughness(float2 tex_pos)
+    {
+        if (metallicRoughnessTexture.can_sample())
+        {
+            return image_samplers[metallicRoughnessTexture.sampler].Sample(tex_pos) * roughnessFactor;
+        }
+
+        return float4(0.0);
+    }
+
+    float4 getEmissive(float2 tex_pos)
+    {
+        if (emissiveTexture.can_sample())
+        {
+            return image_samplers[emissiveTexture.sampler].Sample(tex_pos) * emissiveFactor * emissiveStrength;
+        }
+
+        return float4(0.0);
+    }
+
+    Optional<float3> getNormal(float2 tex_pos, float3x3 tbn)
     {
         if (normalTexture.can_sample())
         {
             float4 normal_texture = image_samplers[normalTexture.sampler].Sample(tex_pos);
             return mul(tbn, normalize(normal_texture.xyz * 2.0 - 1.0));
         }
-        return float3(1.0);
+        return none;
     }
 };
 
@@ -144,7 +215,6 @@ struct DrawCommand
     int has_skin;
     uint instance_offset;
     float4x4 node_matrix;
-    float4x4 inverse_node_matrix;
 }
 
 struct Uniform
@@ -190,7 +260,7 @@ struct FragmentData
     int material_index;
     float3x3 tbn;
     float3 normal;
-    float3 frag_pos;
+    float4 world_pos;
     float4 sv_position : SV_Position;
 };
 
@@ -230,21 +300,21 @@ FragmentData vertexMain(VertexInput input)
         node_matrix = mul(node_matrix, instance_data[instance.instance_offset + input.instanceID]);
     }
 
-    float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
-    float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
- 
-    float3 normal = normalize(mul(float3x3(instance.inverse_node_matrix), vertex.normal.xyz));
+    float4 world_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
+    float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), world_pos);
+
+    float3 normal = normalize(mul(float3x3(instance.node_matrix), vertex.normal.xyz));
     float3 tangent = normalize(mul(float3x3(instance.node_matrix), vertex.tangent.xyz));
     float3 bitangent = cross(normal, tangent) * vertex.tangent.w;
-    float3x3 tbn = float3x3(tangent, bitangent, normal);
+    float3x3 tbn = transpose(float3x3(tangent, bitangent, normal));
 
     FragmentData output = {
         vertex.tex_cord,
         instance.material_index,
         tbn,
         normal.xyz,
-        frag_pos.xyz,
-        vertex_pos
+        world_pos,
+        vertex_pos / vertex_pos.w
     };
 
     return output;
@@ -255,44 +325,45 @@ FragmentData vertexMain(VertexInput input)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
-    if (input.material_index >= 0)
-    {
-        Material material = materials[input.material_index];
-        float4 diffuse_texture = material.getBaseColor(input.tex_cord);
-        
-        float3 light_factor = float3(0.0);
+    Optional<Material> material;
+    float4 color = float4(0.0, 0.0, 0.0, 0.0);
 
-        if (diffuse_texture.a == 0.0)
-            discard;
+    if (input.material_index >= 0) material = materials[input.material_index];
 
-        // Calculate lights
-        for (int i = 0; i < light_count; i++)
-        {
-            Light light = lights[i];
+    if (material.hasValue) {
+        float4 albedo = material.value.getBaseColor(input.tex_cord);
+        if (albedo.a == 0.0) discard;
 
-            // Diffuse light
-            float4 color = light.illuminate(material, input, uniform.eye.xyz);
+        float4 emissive = material.value.getEmissive(input.tex_cord);
+        float4 ambient_occlusion = material.value.getOcclusion(input.tex_cord);
+        float3 ambient = albedo.rgb * float3(ambient_constant);
 
-            // Calculate shadow
-            float4x4 light_view = light_matrices[i];
-            float4 shadow_pos = mul(light_view, float4(input.frag_pos, 1.0));
-            shadow_pos = shadow_pos / shadow_pos.w;
-            float3 shadow_cords = float3(
-                shadow_pos.xy * float2(0.5, -0.5) + 0.5,
-                shadow_pos.z);
-
-            float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
-            // Fix artifacts
-            const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
-            float shadowFactor = shadow_cords.z < occluderDepth.x + 0.0005 || outOfView ? 1.0 : 0.3;
-
-            light_factor += (color.rgb) * shadowFactor;
-        }
-
-        return diffuse_texture * float4(light_factor, 1.0);
+        color += emissive + float4(ambient, 1.0);
     }
 
-    return float4(0.5, 0.5, 0.5, 1.0);
+    // Calculate lights
+    for (int i = 0; i < light_count; i++)
+    {
+        Light light = lights[i];
+
+        if (material.hasValue) {
+            light.color.rgb = light.illuminate(material.value, input);
+        }
+        
+        // Calculate shadow
+        float4x4 light_view = light_matrices[i];
+        float4 shadow_pos = mul(light_view, input.world_pos);
+        shadow_pos = shadow_pos / shadow_pos.w;
+        float3 shadow_cords = float3(shadow_pos.xy * float2(0.5, -0.5) + 0.5, shadow_pos.z);
+        float4 occluderDepth = shadow_samplers[i].Sample(shadow_cords.xy);
+
+        // Fix artifacts
+        const bool outOfView = (shadow_cords.x < 0.001f || shadow_cords.x > 0.999f || shadow_cords.y < 0.001f || shadow_cords.y > 0.999f);
+        float shadowFactor = shadow_cords.z < occluderDepth.x + 0.0001 || outOfView ? 1.0 : 0.4;
+        color += float4(light.color.rgb * shadowFactor, 1.0) ;
+    }
+
+    return color;
 }
 
 struct ShadowData
@@ -335,3 +406,5 @@ ShadowData vertexShadow(VertexInput input)
         mul(light_view, frag_pos)
     };
 }
+
+
