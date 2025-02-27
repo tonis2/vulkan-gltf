@@ -39,11 +39,11 @@ struct Light
             float3 F = freshnel(F0, NdotV, NdotH);
             float D = distributionGGX(NdotH, roughness);
             float G = geomSmith(NdotV, roughness) * geomSmith(NdotL, roughness);
-            float denominator = max(4.0 * NdotL * NdotV, 0.001);
+            float denominator = max(4.0 * NdotL * NdotV, 0.00001);
 
             float3 cook_torrence_specular = D * F * G / denominator;
 
-            float3 diffuse = (1.0 - F) * (1.0 - metallic) * albedo.rgb / PI;
+            float3 diffuse = (1.0 - F) * ((1.0 - metallic) * albedo.rgb) / PI;
 
             float3 light_intensity = float3(0.0);
             switch (type) {

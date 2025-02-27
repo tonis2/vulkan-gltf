@@ -567,7 +567,6 @@ fn void main()
 
     Vec2f prev_mouse;
 
-
     while (running) {
         NanoDuration start_time = time.mark();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, animation_time.mark());
