@@ -401,9 +401,14 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false, uint device
     return context;
 }
 
-fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allocation* allocator, vk::Allocation* stage_allocator, DeviceQueue queue) {
-    vk::Device device = allocator.device;
-    vk::PhysicalDevice pdevice = allocator.pdevice; 
+fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceContext* context) {
+    vk::Device device = context.device;
+    vk::PhysicalDevice pdevice = context.pdevice;
+
+    DeviceQueue graphics_queue = context.graphics_queue;
+
+    vk::Allocation* local_allocation = &context.local_allocation;
+    vk::Allocation* device_allocation = &context.device_allocation;
 
     Format image_format = vk::FORMAT_R8G8B8A8_UNORM;
     DescriptorImageInfo texture = { .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
@@ -420,7 +425,7 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
         .setFormat(image_format)
         .build(device)!;
 
-    vk::create_image_buffer(texture_image, allocator)!;
+    vk::create_image_buffer(texture_image, device_allocation)!;
 
     texture.sampler = vk::samplerCreateInfo()
             .setMagFilter(vk::FILTER_NEAREST)
@@ -457,7 +462,7 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
 
     Memory stage_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
-        stage_allocator,
+        local_allocation,
         image_data.pixels,
         (usz)image_data.width * image_data.height * 4
     )!;
@@ -500,7 +505,7 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, vk::Allo
         }
     };
 
-    device.@single_time_command(queue: queue; CommandBuffer command_buffer) {
+    device.@single_time_command(queue: graphics_queue; CommandBuffer command_buffer) {
         
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers({ transfer_barrier }));
@@ -690,7 +695,7 @@ fn void PipelineLayer.free(&self, Device device) {
     self.sets.free();
 }
 
-fn void! create_cube_map(String path, DeviceContext* context) {
+fn vk::Image! DescriptorImages.add_cube_map(&self, String path, DeviceContext* context) {
     vk::Device device = context.device;
     vk::PhysicalDevice pdevice = context.pdevice;
 
@@ -837,6 +842,9 @@ fn void! create_cube_map(String path, DeviceContext* context) {
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
         .setImageMemoryBarriers(&finalize_barriers));
     }!;
+
+    self.push(cube_texture);
+    return cube_image;
 }
 
 

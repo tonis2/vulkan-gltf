@@ -48,13 +48,11 @@ struct AddressBuffer {
     uint light_count;
 }
 
-
 AnimationChannels animaton_data;
 DescriptorImages descriptor_images;
 DescriptorImages shadow_maps;
 
 char[*] shader = $embed("./shaders/main.spv");
-
 
 fn void main()
 {
@@ -360,13 +358,16 @@ fn void main()
         }
 
         // Create vulkan texture image
-        if (catch err = descriptor_images.addImageTexture(image_data, &context.device_allocation, &context.local_allocation, context.graphics_queue)) {
+        if (catch err = descriptor_images.addImageTexture(image_data, &context)) {
             io::printfn("GPU allocator is too small for textures");
             return;
         };
 
         image_data.free();
     }
+
+    //Cube map
+    descriptor_images.add_cube_map("assets/cube_map.hdr", &context)!!;
 
     // Create depth texture
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
@@ -406,10 +407,15 @@ fn void main()
             vk::writeDescriptorSet()
             .setDstBinding(2)
             .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-            .setImageInfo(shadow_maps.array_view())
+            .setImageInfo(shadow_maps.array_view()),
+            vk::writeDescriptorSet()
+            .setDstBinding(3)
+            .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+            .setImageInfo({descriptor_images.last()!!}),
         },
         ShaderStageFlags[]{
             vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
+            vk::SHADER_STAGE_FRAGMENT_BIT,
             vk::SHADER_STAGE_FRAGMENT_BIT,
             vk::SHADER_STAGE_FRAGMENT_BIT
         },
@@ -531,9 +537,32 @@ fn void main()
     .setNext(&p_rendering_info)
     .build(context.device)!!;
 
+    Pipeline cube_pipeline = vk::graphicsPipelineCreateInfo()
+    .setStages({
+        vk::pipelineShaderStageCreateInfo()
+        .setStage(vk::SHADER_STAGE_VERTEX_BIT)
+        .setMod(shader_module)
+        .setName("vertexCube"),
+        vk::pipelineShaderStageCreateInfo()
+        .setStage(vk::SHADER_STAGE_FRAGMENT_BIT)
+        .setMod(shader_module)
+        .setName("fragmentCube")
+    })
+    .setLayout(pipeline_layout.layout)
+    .setInputAssemblyState(&&vk::pipelineInputAssemblyStateCreateInfo().setTopology(vk::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+    .setVertexInputState(&&vk::pipelineVertexInputStateCreateInfo().setVertexAttributeDescriptionCount(0))
+    .setDynamicState(&dynamic_state)
+    .setRasterizationState(&rasterisation_state)
+    .setMultisampleState(&multi_sample_state)
+    .setColorBlendState(&color_blend_state)
+    .setViewportState(&view_port_state)
+    .setNext(&p_rendering_info)
+    .build(context.device)!!;
+
     defer {
         pipeline.free(context.device);
         shadow_pipeline.free(context.device);
+        cube_pipeline.free(context.device);
     }
 
     Clock time = clock::now();
@@ -663,10 +692,12 @@ fn void main()
         // Begin dynamic rendering
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
-        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+
+
 
         // Draw shadowmap
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);
+        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         foreach (uint light_index, light: gltf.lights) {
             RenderingAttachmentInfo shadow_depth_target = vk::renderingAttachmentInfo()
@@ -697,6 +728,12 @@ fn void main()
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
         vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)gltf.meshes.len(), DrawIndexedIndirectCommand.sizeof);
+
+        // Draw cubemap
+        // vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline);
+        // vk::cmdBindIndexBuffer(command_buffer, cube_buffer.buffer, 768, vk::INDEX_TYPE_UINT16);
+        // vk::cmdDrawIndexed(command_buffer, 36, 1, 0, 0, 0);
+
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

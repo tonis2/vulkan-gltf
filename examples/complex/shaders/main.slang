@@ -253,6 +253,9 @@ uniform Sampler2D image_samplers[];
 [vk_binding(2)]
 uniform Sampler2D shadow_samplers[];
 
+[vk_binding(3)]
+uniform SamplerCube cube_texture;
+
 // Output of the fragment shader
 struct FragmentData
 {
@@ -407,4 +410,36 @@ ShadowData vertexShadow(VertexInput input)
     };
 }
 
+struct VertexOutPut
+{
+    float3 outUVW;
+    float4 sv_position : SV_Position;
+};
 
+
+[shader("vertex")]
+VertexOutPut vertexCube(uint32_t vertID: SV_VertexID)
+{
+    Vertex vertex = vertices[vertID];
+
+    float4x4 view = float4x4(
+        uniform.view._m00, uniform.view._m01, uniform.view._m02, 0,
+        uniform.view._m10, uniform.view._m11, uniform.view._m12, 0,
+        uniform.view._m20, uniform.view._m21, uniform.view._m22, 0,
+        0, 0, 0, 1,
+    );
+    
+    float4 pos = mul(mul(uniform.perspective, view), float4(vertex.position.xyz, 1.0));    
+    VertexOutPut output = {
+        vertex.position.xyz,
+        pos.xyww
+    };
+    return output;
+}
+
+// Fragment Shader
+[shader("fragment")]
+float4 fragmentCube(float3 uvw) : SV_Target
+{
+    return cube_texture.Sample(uvw);
+}
