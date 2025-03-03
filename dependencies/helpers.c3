@@ -41,6 +41,9 @@ struct DeviceContext {
     SurfaceKHR surface;
     bool debug;
 
+    vk::Allocation device_allocation;
+    vk::Allocation local_allocation;
+
     SemaphoreList wait_semaphores;
     SemaphoreList signal_semaphores;
     FenceList frame_fences;
@@ -69,6 +72,9 @@ fn void DeviceContext.free(self) {
     self.wait_semaphores.release(self.device);
     self.signal_semaphores.release(self.device);
     self.frame_fences.release(self.device);
+
+    self.device_allocation.free();
+    self.local_allocation.free();
 
     self.device.free();
     self.instance.free();
@@ -107,7 +113,7 @@ fn void! DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
     self.frame = (self.frame + 1) % 2;
 }
 
-fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
+fn DeviceContext! createContext(c3w::Window win, bool debug = false, uint device_size = 150_000_000) {
     DeviceContext context = {
         .debug = debug
     };
@@ -373,6 +379,24 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false) {
         context.signal_semaphores.push(vk::semaphoreCreateInfo().build(context.device))!;
         context.frame_fences.push(vk::fenceCreateInfo().setFlags(vk::FENCE_CREATE_SIGNALED_BIT).build(context.device))!;
     }
+
+    // Create allocator of 150MB - DEVICE_ONLY memory
+    context.device_allocation = vk::Allocation {
+        .device = context.device,
+        .pdevice = context.pdevice,
+        .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
+        .size = device_size
+    }.build()!!;
+
+    // Allocation where data can be changed from CPU
+    context.local_allocation = vk::Allocation {
+        .device = context.device,
+        .pdevice = context.pdevice,
+        .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
+        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
+        .size = 50_000_000
+    }.build()!!;
 
     return context;
 }
@@ -666,40 +690,153 @@ fn void PipelineLayer.free(&self, Device device) {
     self.sets.free();
 }
 
-struct DynamicBuffer {
-    usz size;
-    usz used_size;
-    usz page_size;
-    char* data;
-}
+fn void! create_cube_map(String path, DeviceContext* context) {
+    vk::Device device = context.device;
+    vk::PhysicalDevice pdevice = context.pdevice;
 
-fn DynamicBuffer DynamicBuffer.new(usz size = 256) @operator(construct) {
-    return DynamicBuffer {
-        .size = size,
-        .used_size = 0,
-        .data = mem::new_array(char, size)
+    DeviceQueue graphics_queue = context.graphics_queue;
+
+    vk::Allocation* local_allocation = &context.local_allocation;
+    vk::Allocation* device_allocation = &context.device_allocation;
+
+    stb::Image cube_map_image = stb::loadImage(path, stb::Channel.STBI_RGB_ALPHA)!;
+    defer cube_map_image.free();
+    
+    uint cube_map_width = cube_map_image.width / 6;
+    vk::Format cube_format = vk::FORMAT_R8G8B8A8_UNORM;
+
+    DescriptorImageInfo cube_texture = {
+        .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     };
-}
 
-fn usz DynamicBuffer.push(&self, void* data, usz size) {
-    if (self.used_size + size > self.size) {
-        // need to increase mem size
-        usz new_size = self.size + size;
-        self.data = mem::realloc(self.data, new_size);
-        self.size = new_size;
-        mem::copy(self.data + self.used_size, data, size);
-        self.used_size += size;
-    } else {
-        mem::copy(self.data + self.used_size, data, size);
-        self.used_size += size;
-    }
-    return self.used_size - size;
-}
+    vk::Image cube_image = vk::imageCreateInfo()
+            .setImageType(vk::IMAGE_TYPE_2D)
+            .setExtent({.width = cube_map_width, .height = cube_map_width, .depth = 1 })
+            .setMipLevels(1)
+            .setFlags(vk::IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
+            .setArrayLayers(6)
+            .setSamples(vk::SAMPLE_COUNT_1_BIT)
+            .setUsage(vk::IMAGE_USAGE_TRANSFER_DST_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
+            .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
+            .setTiling(vk::IMAGE_TILING_OPTIMAL)
+            .setFormat(cube_format)
+            .build(device)!;
 
-fn void DynamicBuffer.free(&self) {
-    mem::free(self.data);
-    self.size = 0;
-    self.used_size = 0;
+    vk::create_image_buffer(cube_image, device_allocation)!;
+
+    cube_texture.sampler = vk::samplerCreateInfo()
+        .setMagFilter(vk::FILTER_LINEAR)
+        .setMinFilter(vk::FILTER_LINEAR)
+        .setAddressModeU(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+        .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+        .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+        .setMipLodBias(0.0)
+        .setMinLod(0.0)
+        .setMaxLod(1.0)
+        .setMaxAnisotropy(1.0)
+        .setAnisotropyEnable(vk::FALSE)
+        .setBorderColor(vk::BORDER_COLOR_FLOAT_OPAQUE_WHITE)
+        .build(device)!;
+
+    cube_texture.imageView = vk::imageViewCreateInfo()
+        .setViewType(vk::IMAGE_VIEW_TYPE_CUBE)
+        .setFormat(cube_format)
+        .setSubresourceRange({
+        .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+        .baseMipLevel = 0,
+        .baseArrayLayer = 0,
+        .layerCount = 6,
+        .levelCount = 1,
+    })
+    .setImage(cube_image)
+    .build(device)!;
+
+    Memory stage_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+        local_allocation,
+        cube_map_image.pixels,
+        (usz)cube_map_image.width * cube_map_image.height * 4
+    )!;
+
+    defer stage_buffer.free();
+
+    context.device.@single_time_command(queue: graphics_queue; CommandBuffer command_buffer) {
+        BufferImageCopy2[6] bufferCopyRegions;
+        ImageMemoryBarrier2[6] transfer_barriers;
+        ImageMemoryBarrier2[6] finalize_barriers;
+
+        CopyBufferToImageInfo2 bufferCopyData = {
+            .sType = vk::STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
+            .dstImage = cube_image,
+            .srcBuffer = stage_buffer.buffer,
+            .dstImageLayout = vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .regionCount = bufferCopyRegions.len,
+            .pRegions = &bufferCopyRegions
+        };
+
+        for (uint i; i < bufferCopyRegions.len; i++) {
+            transfer_barriers[i] = {
+                .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .srcStageMask = vk::PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                .dstStageMask = vk::PIPELINE_STAGE_TRANSFER_BIT,
+                .srcAccessMask = 0,
+                .dstAccessMask = vk::ACCESS_2_TRANSFER_WRITE_BIT,
+                .image = cube_image,
+                .oldLayout = vk::IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .subresourceRange = {
+                    .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = i,
+                    .layerCount = 1,
+            }};
+
+            finalize_barriers[i] = {
+                .sType = vk::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .srcStageMask = vk::PIPELINE_STAGE_TRANSFER_BIT,
+                .dstStageMask = vk::PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                .srcAccessMask = vk::ACCESS_2_TRANSFER_WRITE_BIT,
+                .dstAccessMask = vk::ACCESS_2_SHADER_READ_BIT,
+                .image = cube_image,
+                .oldLayout = vk::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .newLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .subresourceRange = {
+                    .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = i,
+                    .layerCount = 1,
+                } 
+            };
+
+            bufferCopyRegions[i] = BufferImageCopy2 {
+                .sType = vk::STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+                .bufferOffset = (usz)cube_map_width * 4 * i,
+                .bufferRowLength = 0,
+                .bufferImageHeight = 0,
+                .imageSubresource = {
+                    .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel = 0,
+                    .baseArrayLayer = i,
+                    .layerCount = 1,
+                },
+                .imageOffset = { 0, 0, 0},
+                .imageExtent = { .width = cube_map_image.width, .height = cube_map_image.height, .depth = 1 }
+            };
+        }
+
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
+        .setImageMemoryBarriers(&transfer_barriers));
+
+        vk::cmdCopyBufferToImage2(
+            command_buffer,
+            &bufferCopyData
+        );
+
+        vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo()
+        .setImageMemoryBarriers(&finalize_barriers));
+    }!;
 }
 
 

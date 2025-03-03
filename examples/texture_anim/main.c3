@@ -35,7 +35,6 @@ struct PushConstantData {
     uint light_index;
 }
 
-
 // Used to send buffer device addresses to GPU
 struct AddressBuffer {
     vk::DeviceAddress mesh_buffer;
@@ -49,16 +48,13 @@ struct AddressBuffer {
     uint light_count;
 }
 
-Gltf gltf;
-AnimationChannels animaton_data;
 
+AnimationChannels animaton_data;
 DescriptorImages descriptor_images;
 DescriptorImages shadow_maps;
 
-
 char[*] shader = $embed("./shaders/main.spv");
 
-camera::Camera camera;
 
 fn void main()
 {
@@ -78,11 +74,13 @@ fn void main()
     defer context.free();
 
     // Create camera
-    camera = camera::new(eye: {0.0, 2.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
+    camera::Camera camera = camera::new(eye: {0.0, 2.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/road.glb")!!;
     defer gltf.free();
 
+    Gltf cube = gltf::loadFile("assets/cube.glb")!!;
+    defer cube.free();
     
     if (gltf.lights.is_empty()) {
         gltf.lights.push(Light {
@@ -98,29 +96,6 @@ fn void main()
     if (!gltf.animations.is_empty()) animaton_data = gltf.load_animations({0});
     defer animaton_data.release();
 
-    // Create allocator of 50MB - DEVICE_ONLY memory
-    vk::Allocation device_allocation = vk::Allocation {
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 150_000_000
-    }.build()!!;
-
-    // Allocation where data can be changed from CPU
-    vk::Allocation local_allocation = vk::Allocation {
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 50_000_000
-    }.build()!!;
-
-    defer {
-        device_allocation.free();
-        local_allocation.free();
-    }
-
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
     defer scene_nodes.free();
 
@@ -132,14 +107,14 @@ fn void main()
 
     Memory indirect_commands_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &local_allocation,
+        &context.local_allocation,
         null,
         data_size: gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof,
     )!!;
 
     Memory draw_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
+        &context.local_allocation,
         null,
         data_size: DrawData.sizeof * gltf.meshes.len()
     )!!;
@@ -273,23 +248,32 @@ fn void main()
 
     Memory uniform = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
+        &context.local_allocation,
         &&camera.data(),
         data_size: CameraData.sizeof
     )!!;
     
     Memory material_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &device_allocation,
+        &context.device_allocation,
         gltf.materials.entries,
         gltf.materials.byte_size(),
-        stage_allocator: &local_allocation,
+        stage_allocator: &context.local_allocation,
+        queue: &context.graphics_queue
+    )!!;
+
+    Memory cube_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
+        &context.device_allocation,
+        cube.buffers[0].data,
+        cube.buffers[0].size,
+        stage_allocator: &context.local_allocation,
         queue: &context.graphics_queue
     )!!;
 
     Memory light_matrix_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
+        &context.local_allocation,
         null,
         data_size: gltf.lights.len() * Matrix4f.sizeof
     )!!;
@@ -299,35 +283,35 @@ fn void main()
 
     Memory joint_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
+        &context.local_allocation,
         null,
         data_size: joint_buffer_size * Matrix4f.sizeof
     )!!;
 
     Memory light_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &device_allocation,
+        &context.device_allocation,
         gltf.lights.entries,
         data_size: gltf.lights.byte_size(),
-        stage_allocator: &local_allocation,
+        stage_allocator: &context.local_allocation,
         queue: &context.graphics_queue
     )!!;
 
     Memory vertex_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &device_allocation,
+        &context.device_allocation,
         vertices.entries,
         data_size: vertices.byte_size(),
-        stage_allocator: &local_allocation,
+        stage_allocator: &context.local_allocation,
         queue: &context.graphics_queue
     )!!;
 
     Memory index_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &device_allocation,
+        &context.device_allocation,
         indices.entries,
         data_size: indices.byte_size(),
-        stage_allocator: &local_allocation,
+        stage_allocator: &context.local_allocation,
         queue: &context.graphics_queue
     )!!;
 
@@ -336,16 +320,16 @@ fn void main()
 
     Memory instance_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &device_allocation,
+        &context.device_allocation,
         instance_matrices.entries,
         data_size: instance_matrices.len() * Matrix4f.sizeof,
-        stage_allocator: &local_allocation,
+        stage_allocator: &context.local_allocation,
         queue: &context.graphics_queue
     )!!;
 
     Memory addresses = vk::new_buffer(
         vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        &local_allocation,
+        &context.local_allocation,
         &&AddressBuffer {
             vertex_buffer.address,
             draw_buffer.address,
@@ -376,7 +360,7 @@ fn void main()
         }
 
         // Create vulkan texture image
-        if (catch err = descriptor_images.addImageTexture(image_data, &device_allocation, &local_allocation, context.graphics_queue)) {
+        if (catch err = descriptor_images.addImageTexture(image_data, &context.device_allocation, &context.local_allocation, context.graphics_queue)) {
             io::printfn("GPU allocator is too small for textures");
             return;
         };
@@ -385,11 +369,11 @@ fn void main()
     }
 
     // Create depth texture
-    descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
+    descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
 
     // Shadowmap depth
     foreach (i, light: gltf.lights) {
-        shadow_maps.addDepthTexture(&device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
+        shadow_maps.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
 
         // Upload light view matrixes
         Matrix4f light_view = camera.perspective.mul(matrix::look_at(<float>)(light.position, camera.target, {0.0, 1.0, 0.0})).transpose();

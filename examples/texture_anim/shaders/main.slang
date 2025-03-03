@@ -182,31 +182,31 @@ struct Vertex
     uint4 skin_pos;
     float4 skin_weight;
 
-    float2 transformed_tex_pos(Material material)
-    {
-        TextureInfo texture_info = material.baseColorTexture;
+    // float2 transformed_tex_pos(Material material)
+    // {
+    //     TextureInfo texture_info = material.baseColorTexture;
 
-        float3x3 translation_matrix = {
-            texture_info.scale.x,
-            0,
-            texture_info.offset.x,
-            0,
-            texture_info.scale.y,
-            texture_info.offset.y,
-            0,
-            0,
-            1,
-        };
+    //     float3x3 translation_matrix = {
+    //         texture_info.scale.x,
+    //         0,
+    //         texture_info.offset.x,
+    //         0,
+    //         texture_info.scale.y,
+    //         texture_info.offset.y,
+    //         0,
+    //         0,
+    //         1,
+    //     };
 
-        float3x3 rotation = float3x3(
-            cos(texture_info.rotation), sin(texture_info.rotation), 0,
-            -sin(texture_info.rotation), cos(texture_info.rotation), 0,
-            0, 0, 1);
+    //     float3x3 rotation = float3x3(
+    //         cos(texture_info.rotation), sin(texture_info.rotation), 0,
+    //         -sin(texture_info.rotation), cos(texture_info.rotation), 0,
+    //         0, 0, 1);
 
-        // translation_matrix = mul(mul(translation_matrix, rotation), scale);
+    //     // translation_matrix = mul(mul(translation_matrix, rotation), scale);
 
-        return mul(translation_matrix, float3(tex_cord, 1.0)).xy;
-    }
+    //     return mul(translation_matrix, float3(tex_cord, 1.0)).xy;
+    // }
 };
 
 struct DrawCommand
