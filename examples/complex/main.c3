@@ -17,6 +17,7 @@ NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
 struct PushConstantData {
     uint light_index;
+    uint draw_offset;
 }
 
 // Used to send buffer device addresses to GPU
@@ -91,24 +92,34 @@ fn void main()
 
         if (node.hasMesh()) {
             Matrix4f node_matrix = node.globalMatrix().transpose();
-            game.add_draw_cmd(&game.meshes[node.mesh], skinned: has_skin, node_matrix: node_matrix, group: "scene");
+            uint instance_offset = (uint)game.instance_matrices.len();
+            uint instanceCount = 1;
+            uint firstInstance = 0;
             
             // Instanced node
-            // if (node.attributes.len() > 0) {
-            //     // io::printfn("has instancing");
-            //     Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-            //     Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
-            //     Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
-            //     command.instanceCount = translation_accessor.count;
-            //     command.firstInstance = 2;
+            if (node.attributes.len() > 0) {
+                // io::printfn("has instancing");
+                Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
+                Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
+                instanceCount = translation_accessor.count;
+                firstInstance = 2;
 
-            //     for (uint i = 0; i < translation_accessor.count; i++) {
-            //         Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
-            //         Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
-            //         Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
-            //         instance_matrices.push(gltf::to_matrix(translation, scale, rotation).transpose());
-            //     }
-            // }
+                for (uint i = 0; i < translation_accessor.count; i++) {
+                    Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
+                    Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
+                    Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
+                    game.instance_matrices.push(gltf::to_matrix(translation, scale, rotation).transpose());
+                }
+            }
+
+            game.add_draw_cmd(&game.meshes[node.mesh], 
+                              skinned: has_skin, 
+                              node_matrix: node_matrix,
+                              instance_offset: instance_offset,
+                              firstInstance: firstInstance,
+                              instanceCount: instanceCount,
+                              group: "scene");
         }
     }
 
@@ -199,11 +210,11 @@ fn void main()
         image_data.free();
     }
 
-    //Cube map
-    descriptor_images.add_cube_map("assets/cube_map.hdr", &context)!!;
-
     // Create depth texture
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
+
+    //Cube map
+    descriptor_images.add_cube_map("assets/cube_map.hdr", &context)!!;
 
     // Shadowmap depth
     foreach (i, light: gltf.lights) {
@@ -502,7 +513,7 @@ fn void main()
         });
 
         RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
-        .setImageView(descriptor_images.last()!!.imageView)
+        .setImageView(descriptor_images[descriptor_images.len() - 2].imageView)
         .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
         .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
         .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
@@ -564,10 +575,17 @@ fn void main()
         vk::cmdBeginRendering(command_buffer, &rendering_info);
         vk::cmdDrawIndexedIndirect(command_buffer, game.draw_buffer.buffer, scene_group.offset, scene_group.size, DrawData.sizeof);
 
+
+        PushConstantData constant_data = {
+            .light_index = 0,
+            .draw_offset = cube_map_group.offset / DrawData.sizeof,
+        };
+
+        vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+
         // Draw cubemap
-        // vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline);
-        // vk::cmdBindIndexBuffer(command_buffer, cube_buffer.buffer, 768, vk::INDEX_TYPE_UINT16);
-        // vk::cmdDrawIndexed(command_buffer, 36, 1, 0, 0, 0);
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline);
+        vk::cmdDrawIndexedIndirect(command_buffer, game.draw_buffer.buffer, cube_map_group.offset, cube_map_group.size, DrawData.sizeof);
 
         vk::cmdEndRendering(command_buffer);
       

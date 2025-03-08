@@ -969,11 +969,17 @@ fn void! GameData.build_buffers(&self) {
     )!;
 }
 
-fn void GameData.add_draw_cmd(&self, MeshData* mesh, bool skinned = false, Matrix4f node_matrix, uint instance_offset = 0, String group = "default") {
+fn void GameData.add_draw_cmd(&self, MeshData* mesh, 
+                             bool skinned = false, 
+                             Matrix4f node_matrix, 
+                             uint instance_offset = 0, 
+                             uint firstInstance = 0, 
+                             uint instanceCount = 1,
+                             String group = "default") {
     DrawData data = {
         .indexCount = mesh.indexCount,
-        .firstInstance = 0,
-        .instanceCount = 1,
+        .firstInstance = firstInstance,
+        .instanceCount = instanceCount,
         .firstIndex = (uint)mesh.firstIndex,
         .vertexOffset = (uint)mesh.vertexOffset,
         .has_skin = (int)skinned,
@@ -1009,10 +1015,9 @@ fn MeshData* GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
             Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
 
             //What to do with material ?
-            int material_index = (int)primitive.attributes["material"] ?? -1;
 
             data.indexCount += index_accessor.count;
-            data.materialIndex = material_index;
+            data.materialIndex = (int)primitive.attributes["material"] ?? -1;
 
             for (usz i; i < index_accessor.count; i++) {
                 self.indices.push(gltf.@castBuffer(index_accessor, i, ushort));
@@ -1083,13 +1088,4 @@ fn MeshData* GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
 
         self.meshes.push(data);
         return self.meshes.get_ref(self.meshes.len() - 1);
-}
-
-fn void GameData.add_draw(&data, Gltf gltf) {
-    // DrawData data = {
-    //     .has_skin = (int)skinned_node,
-    //     .material_index = material_index,
-    //     .node_matrix = node_matrix,
-    //     .instance_offset = (uint)instance_matrices.len()
-    // };
 }
