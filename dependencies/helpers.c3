@@ -883,16 +883,19 @@ struct DrawData {
     Matrix4f node_matrix;
 }
 
+struct DrawGroup {
+    uint offset;
+    uint size;
+}
+
 struct GameData {
     List(<Vertex>) vertices;
     List(<ushort>) indices;
-    List(<DrawIndexedIndirectCommand>) draw_commands;
-    List(<DrawData>) draw_data;
     List(<Matrix4f>) instance_matrices;
     List(<MeshData>) meshes;
+    HashMap(<String, DrawGroup>) draw_group;
 
     DeviceContext* context;
-    uint draw_cmd_count;
 
     Memory indirect_commands_buffer;
     Memory instance_buffer;
@@ -909,15 +912,15 @@ struct MeshData {
     uint vertexOffset;
     int materialIndex;
     uint index;
+    uint draw_index;
 }
 
 fn void GameData.free(&self) {
     self.vertices.free();
     self.indices.free();
-    self.draw_commands.free();
-    self.draw_data.free();
     self.instance_matrices.free();
     self.meshes.free();
+    self.draw_group.free();
 }
 
 fn GameData GameData.new(uint max_draws = 500, DeviceContext* context) @operator(construct) {
@@ -967,7 +970,7 @@ fn void! GameData.build_buffers(&self) {
     )!;
 }
 
-fn void GameData.add_draw_cmd(&self, MeshData mesh, bool skinned = false, Matrix4f node_matrix, uint instance_offset = 0) {
+fn void GameData.add_draw_cmd(&self, MeshData* mesh, bool skinned = false, Matrix4f node_matrix, uint instance_offset = 0, String group = "default") {
     DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
         .indexCount = mesh.indexCount,
         .firstInstance = 0,
@@ -983,12 +986,23 @@ fn void GameData.add_draw_cmd(&self, MeshData mesh, bool skinned = false, Matrix
         .instance_offset = instance_offset
     };
 
+    DrawGroup*! draw_group = self.draw_group.get_ref(group);
+
+    if (try draw_group) {
+        draw_group.size += 1;
+    } else {
+        self.draw_group[group] = DrawGroup {
+            .offset = (uint)self.indirect_commands_buffer.used_size,
+            .size = 1,
+        };
+    }
+
     self.indirect_commands_buffer.push(&command, size: DrawIndexedIndirectCommand.sizeof);
     self.draw_buffer.push(&data, size: DrawData.sizeof);
-    self.draw_cmd_count += 1;
+    mesh.draw_index = (uint)self.draw_buffer.used_size / DrawData.sizeof;
 }
 
-fn MeshData GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
+fn MeshData* GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
         MeshData data = {
             .firstIndex = (uint)self.indices.len(),
             .vertexOffset = (uint)self.vertices.len(),
@@ -1073,7 +1087,7 @@ fn MeshData GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
         }
 
         self.meshes.push(data);
-        return data;
+        return self.meshes.get_ref(self.meshes.len() - 1);
 }
 
 fn void GameData.add_draw(&data, Gltf gltf) {

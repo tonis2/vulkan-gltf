@@ -61,8 +61,8 @@ fn void main()
     Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
 
-    Gltf cube = gltf::loadFile("assets/cube.glb")!!;
-    defer cube.free();
+    Gltf cube_data = gltf::loadFile("assets/cube.glb")!!;
+    defer cube_data.free();
     
     if (gltf.lights.is_empty()) {
         gltf.lights.push(Light {
@@ -85,18 +85,13 @@ fn void main()
     defer game.free();
 
     foreach (mesh: gltf.meshes) game.add_mesh(mesh, gltf);
-
-    MeshData cube_data = game.add_mesh(cube.meshes[0], cube);
-
     foreach (node_index: scene_nodes) {
         Node node = gltf.nodes[node_index];
         bool has_skin = node.hasSkin();
 
         if (node.hasMesh()) {
             Matrix4f node_matrix = node.globalMatrix().transpose();
-            MeshData mesh = game.meshes[node.mesh];
-
-            game.add_draw_cmd(mesh, skinned: has_skin, node_matrix: node_matrix);
+            game.add_draw_cmd(&game.meshes[node.mesh], skinned: has_skin, node_matrix: node_matrix, group: "scene");
             
             // Instanced node
             // if (node.attributes.len() > 0) {
@@ -117,6 +112,8 @@ fn void main()
         }
     }
 
+    MeshData* cube_mesh = game.add_mesh(cube_data.meshes[0], cube_data);
+    game.add_draw_cmd(cube_mesh, node_matrix: MATRIX4F_IDENTITY.rotate_x(camera::radians(90)), group: "cube_map");
     game.build_buffers()!!;
 
     Memory uniform = vk::new_buffer(
@@ -416,6 +413,9 @@ fn void main()
 
     Vec2f prev_mouse;
 
+    DrawGroup scene_group = game.draw_group["scene"]!!;
+    DrawGroup cube_map_group = game.draw_group["cube_map"]!!;
+
     while (running) {
         NanoDuration start_time = time.mark();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, animation_time.mark());
@@ -552,7 +552,7 @@ fn void main()
 
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            vk::cmdDrawIndexedIndirect(command_buffer, game.indirect_commands_buffer.buffer, 0, (uint)game.draw_cmd_count, DrawIndexedIndirectCommand.sizeof);
+            vk::cmdDrawIndexedIndirect(command_buffer, game.indirect_commands_buffer.buffer, scene_group.offset, scene_group.size, DrawIndexedIndirectCommand.sizeof);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -562,7 +562,7 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        vk::cmdDrawIndexedIndirect(command_buffer, game.indirect_commands_buffer.buffer, 0, (uint)game.draw_cmd_count, DrawIndexedIndirectCommand.sizeof);
+        vk::cmdDrawIndexedIndirect(command_buffer, game.indirect_commands_buffer.buffer, scene_group.offset, scene_group.size, DrawIndexedIndirectCommand.sizeof);
 
         // Draw cubemap
         // vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline);
