@@ -552,7 +552,7 @@ fn void main()
 
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            vk::cmdDrawIndexedIndirect(command_buffer, game.indirect_commands_buffer.buffer, scene_group.offset, scene_group.size, DrawIndexedIndirectCommand.sizeof);
+            vk::cmdDrawIndexedIndirect(command_buffer, game.draw_buffer.buffer, scene_group.offset, scene_group.size, DrawData.sizeof);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -562,7 +562,7 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        vk::cmdDrawIndexedIndirect(command_buffer, game.indirect_commands_buffer.buffer, scene_group.offset, scene_group.size, DrawIndexedIndirectCommand.sizeof);
+        vk::cmdDrawIndexedIndirect(command_buffer, game.draw_buffer.buffer, scene_group.offset, scene_group.size, DrawData.sizeof);
 
         // Draw cubemap
         // vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline);

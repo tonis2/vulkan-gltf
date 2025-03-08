@@ -877,6 +877,12 @@ struct Vertex {
 }
 
 struct DrawData {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+
     int material_index;
     int has_skin;
     uint instance_offset;
@@ -889,15 +895,14 @@ struct DrawGroup {
 }
 
 struct GameData {
+    DeviceContext* context;
+
     List(<Vertex>) vertices;
     List(<ushort>) indices;
     List(<Matrix4f>) instance_matrices;
     List(<MeshData>) meshes;
     HashMap(<String, DrawGroup>) draw_group;
 
-    DeviceContext* context;
-
-    Memory indirect_commands_buffer;
     Memory instance_buffer;
     Memory draw_buffer;
     Memory vertex_buffer;
@@ -931,12 +936,6 @@ fn GameData GameData.new(uint max_draws = 500, DeviceContext* context) @operator
             &context.local_allocation,
             null,
             data_size: max_draws * DrawData.sizeof
-        )!!,
-        .indirect_commands_buffer = vk::new_buffer(
-            vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-            &context.local_allocation,
-            null,
-            data_size: max_draws * DrawIndexedIndirectCommand.sizeof,
         )!!
     };
 }
@@ -971,15 +970,12 @@ fn void! GameData.build_buffers(&self) {
 }
 
 fn void GameData.add_draw_cmd(&self, MeshData* mesh, bool skinned = false, Matrix4f node_matrix, uint instance_offset = 0, String group = "default") {
-    DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
+    DrawData data = {
         .indexCount = mesh.indexCount,
         .firstInstance = 0,
         .instanceCount = 1,
         .firstIndex = (uint)mesh.firstIndex,
         .vertexOffset = (uint)mesh.vertexOffset,
-    };
-
-    DrawData data = {
         .has_skin = (int)skinned,
         .material_index = mesh.materialIndex,
         .node_matrix = node_matrix,
@@ -992,12 +988,11 @@ fn void GameData.add_draw_cmd(&self, MeshData* mesh, bool skinned = false, Matri
         draw_group.size += 1;
     } else {
         self.draw_group[group] = DrawGroup {
-            .offset = (uint)self.indirect_commands_buffer.used_size,
+            .offset = (uint)self.draw_buffer.used_size,
             .size = 1,
         };
     }
 
-    self.indirect_commands_buffer.push(&command, size: DrawIndexedIndirectCommand.sizeof);
     self.draw_buffer.push(&data, size: DrawData.sizeof);
     mesh.draw_index = (uint)self.draw_buffer.used_size / DrawData.sizeof;
 }

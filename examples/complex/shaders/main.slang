@@ -210,7 +210,13 @@ struct Vertex
 };
 
 struct DrawCommand
-{
+{   
+    uint indexCount;
+    uint firstInstance;
+    uint instanceCount;
+    uint firstIndex;
+    uint vertexOffset;
+
     int material_index;
     int has_skin;
     uint instance_offset;
