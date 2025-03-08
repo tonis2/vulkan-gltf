@@ -297,8 +297,7 @@ FragmentData vertexMain(VertexInput input)
     }
 
     float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
-    // float4x4 inverse_matrix = mul(instance.inverse_node_matrix, skin_matrix);
-
+    
     if (input.instanceID > 0) {
         node_matrix = mul(node_matrix, instance_data[instance.instance_offset + input.instanceID]);
     }
