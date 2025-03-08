@@ -9,6 +9,7 @@ import std::io;
 import std::collections::list;
 import std::collections::map;
 import std::encoding::json;
+import gltf;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -864,4 +865,230 @@ fn bool debugCallback(
        io::printfn("VERBOSE: %s \n", (ZString)data.pMessage);
     }
     return false;
+}
+
+struct Vertex {
+    Vec3f pos;
+    Vec3f normal;
+    Vec2f tex_cord;
+    Vec4f tangent;
+    uint[4] skin_pos;
+    Vec4f skin_weight;
+}
+
+struct DrawData {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+
+    int material_index;
+    int has_skin;
+    uint instance_offset;
+    Matrix4f node_matrix;
+}
+
+struct DrawGroup {
+    uint offset;
+    uint size;
+}
+
+struct GameData {
+    DeviceContext* context;
+
+    List(<Vertex>) vertices;
+    List(<ushort>) indices;
+    List(<Matrix4f>) instance_matrices;
+    List(<MeshData>) meshes;
+    HashMap(<String, DrawGroup>) draw_group;
+
+    Memory instance_buffer;
+    Memory draw_buffer;
+    Memory vertex_buffer;
+    Memory index_buffer;
+}
+
+struct MeshData {
+    uint indexCount;
+    uint firstInstance;
+    uint instanceCount;
+    uint firstIndex;
+    uint vertexOffset;
+    int materialIndex;
+    uint index;
+    uint draw_index;
+}
+
+fn void GameData.free(&self) {
+    self.vertices.free();
+    self.indices.free();
+    self.instance_matrices.free();
+    self.meshes.free();
+    self.draw_group.free();
+}
+
+fn GameData GameData.new(uint max_draws = 500, DeviceContext* context) @operator(construct) {
+    return GameData {
+        .context = context,
+        .draw_buffer = vk::new_buffer(
+            vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            &context.local_allocation,
+            null,
+            data_size: max_draws * DrawData.sizeof
+        )!!
+    };
+}
+
+fn void! GameData.build_buffers(&self) {
+    self.vertex_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+        &self.context.device_allocation,
+        self.vertices.entries,
+        data_size: self.vertices.byte_size(),
+        stage_allocator: &self.context.local_allocation,
+        queue: &self.context.graphics_queue
+    )!;
+
+    self.index_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+        &self.context.device_allocation,
+        self.indices.entries,
+        data_size: self.indices.byte_size(),
+        stage_allocator: &self.context.local_allocation,
+        queue: &self.context.graphics_queue
+    )!;
+
+    self.instance_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+        &self.context.device_allocation,
+        self.instance_matrices.entries,
+        data_size: self.instance_matrices.len() * Matrix4f.sizeof,
+        stage_allocator: &self.context.local_allocation,
+        queue: &self.context.graphics_queue
+    )!;
+
+    self.vertices.free();
+    self.indices.free();
+}
+
+fn void GameData.add_draw_cmd(&self, MeshData* mesh, 
+                             bool skinned = false, 
+                             Matrix4f node_matrix, 
+                             uint instance_offset = 0, 
+                             uint firstInstance = 0, 
+                             uint instanceCount = 1,
+                             String group = "default") {
+    DrawData data = {
+        .indexCount = mesh.indexCount,
+        .firstInstance = firstInstance,
+        .instanceCount = instanceCount,
+        .firstIndex = (uint)mesh.firstIndex,
+        .vertexOffset = (uint)mesh.vertexOffset,
+        .has_skin = (int)skinned,
+        .material_index = mesh.materialIndex,
+        .node_matrix = node_matrix,
+        .instance_offset = instance_offset
+    };
+
+    DrawGroup*! draw_group = self.draw_group.get_ref(group);
+
+    if (try draw_group) {
+        draw_group.size += 1;
+    } else {
+        self.draw_group[group] = DrawGroup {
+            .offset = (uint)self.draw_buffer.used_size,
+            .size = 1,
+        };
+    }
+
+    self.draw_buffer.push(&data, size: DrawData.sizeof);
+    mesh.draw_index = (uint)self.draw_buffer.used_size / DrawData.sizeof;
+}
+
+fn MeshData* GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
+        MeshData data = {
+            .firstIndex = (uint)self.indices.len(),
+            .vertexOffset = (uint)self.vertices.len(),
+            .index = (uint)self.meshes.len() - 1
+        };
+
+        foreach (prim_index, &primitive: mesh.primitives) {
+            Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+            Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+
+            //What to do with material ?
+
+            data.indexCount += index_accessor.count;
+            data.materialIndex = (int)primitive.attributes["material"] ?? -1;
+
+            for (usz i; i < index_accessor.count; i++) {
+                self.indices.push(gltf.@castBuffer(index_accessor, i, ushort));
+            }
+
+            for (usz i; i < pos_accessor.count; i++) {
+                Vec2f tex_cord = {|
+                    usz! attribute = primitive.attributes["TEXCOORD_0"];
+                    if (catch err = attribute) return Vec2f {0,0};
+
+                    Accessor accessor = gltf.accessors[attribute];
+                    return gltf.@castBuffer(accessor, i, Vec2f);
+                |};
+
+                Vec3f normal = {|
+                    usz! attribute = primitive.attributes["NORMAL"];
+                    if (catch err = attribute) return Vec3f {0,0,0};
+
+                    Accessor accessor = gltf.accessors[attribute];
+                    return gltf.@castBuffer(accessor, i, Vec3f);
+                |};
+
+                Vec4f tangent = {|
+                    usz! attribute = primitive.attributes["TANGENT"];
+                    if (catch err = attribute) return Vec4f {0,0,0,0};
+                    Accessor accessor = gltf.accessors[attribute];
+                    return gltf.@castBuffer(accessor, i, Vec4f);
+                |};
+
+                uint[4] skin_pos = {|
+                    usz! attribute = primitive.attributes["JOINTS_0"];
+                    if (catch err = attribute) return uint[4] {0,0,0,0};
+                    Accessor accessor = gltf.accessors[attribute];
+
+                    if (accessor.data_type == DataType.USHORT) {
+                        short[4] array = gltf.@castBuffer(accessor, i, short[4]);
+                        return uint[4]{array[0], array[1], array[2], array[3]};
+                    };
+
+                    if (accessor.data_type == DataType.CHAR) {
+                        char[4] array = gltf.@castBuffer(accessor, i, char[4]);
+                        return uint[4]{array[0], array[1], array[2], array[3]};
+                    };
+
+                    return uint[4] {0,0,0,0};
+                |};
+
+                Vec4f skin_weight = {|
+                    usz! attribute = primitive.attributes["WEIGHTS_0"];
+                    if (catch err = attribute) return Vec4f {0,0,0,0};
+
+                    Accessor accessor = gltf.accessors[attribute];
+                    return gltf.@castBuffer(accessor, i, Vec4f);
+                |};
+
+                Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
+
+                self.vertices.push({
+                    .pos = position,
+                    .normal = normal,
+                    .tex_cord = tex_cord,
+                    .tangent = tangent,
+                    .skin_pos = skin_pos,
+                    .skin_weight = skin_weight
+                });
+            }
+        }
+
+        self.meshes.push(data);
+        return self.meshes.get_ref(self.meshes.len() - 1);
 }

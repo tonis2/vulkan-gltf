@@ -210,7 +210,13 @@ struct Vertex
 };
 
 struct DrawCommand
-{
+{   
+    uint indexCount;
+    uint firstInstance;
+    uint instanceCount;
+    uint firstIndex;
+    uint vertexOffset;
+
     int material_index;
     int has_skin;
     uint instance_offset;
@@ -227,6 +233,7 @@ struct Uniform
 struct PushData
 {
     uint light_index;
+    uint draw_offset;
 };
 
 [vk_push_constant]
@@ -277,7 +284,7 @@ struct VertexInput
 [shader("vertex")]
 FragmentData vertexMain(VertexInput input)
 {
-    DrawCommand instance = draw_data[input.drawID];
+    DrawCommand instance = draw_data[input.drawID + push_constant.draw_offset];
     Vertex vertex = vertices[input.vertID];
 
     float4x4 skin_matrix = {
@@ -297,8 +304,7 @@ FragmentData vertexMain(VertexInput input)
     }
 
     float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
-    // float4x4 inverse_matrix = mul(instance.inverse_node_matrix, skin_matrix);
-
+    
     if (input.instanceID > 0) {
         node_matrix = mul(node_matrix, instance_data[instance.instance_offset + input.instanceID]);
     }
@@ -418,9 +424,10 @@ struct VertexOutPut
 
 
 [shader("vertex")]
-VertexOutPut vertexCube(uint32_t vertID: SV_VertexID)
+VertexOutPut vertexCube(VertexInput input)
 {
-    Vertex vertex = vertices[vertID];
+    Vertex vertex = vertices[input.vertID];
+    DrawCommand instance = draw_data[input.drawID + push_constant.draw_offset];
 
     float4x4 view = float4x4(
         uniform.view._m00, uniform.view._m01, uniform.view._m02, 0,
@@ -429,7 +436,7 @@ VertexOutPut vertexCube(uint32_t vertID: SV_VertexID)
         0, 0, 0, 1,
     );
     
-    float4 pos = mul(mul(uniform.perspective, view), float4(vertex.position.xyz, 1.0));    
+    float4 pos = mul(mul(mul(uniform.perspective, view), instance.node_matrix), float4(vertex.position.xyz, 1.0));    
     VertexOutPut output = {
         vertex.position.xyz,
         pos.xyww

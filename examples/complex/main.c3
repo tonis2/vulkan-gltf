@@ -15,24 +15,9 @@ const MAX_FRAMES_IN_FLIGHT = 2;
 const MAX_FPS = 90;
 NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
-struct Vertex {
-    Vec3f pos;
-    Vec3f normal;
-    Vec2f tex_cord;
-    Vec4f tangent;
-    uint[4] skin_pos;
-    Vec4f skin_weight;
-}
-
-struct DrawData {
-    int material_index;
-    int has_skin;
-    uint instance_offset;
-    Matrix4f node_matrix;
-}
-
 struct PushConstantData {
     uint light_index;
+    uint draw_offset;
 }
 
 // Used to send buffer device addresses to GPU
@@ -77,8 +62,8 @@ fn void main()
     Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
 
-    Gltf cube = gltf::loadFile("assets/cube.glb")!!;
-    defer cube.free();
+    Gltf cube_data = gltf::loadFile("assets/cube.glb")!!;
+    defer cube_data.free();
     
     if (gltf.lights.is_empty()) {
         gltf.lights.push(Light {
@@ -97,152 +82,52 @@ fn void main()
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
     defer scene_nodes.free();
 
-    List(<Vertex>) vertices;
-    List(<ushort>) indices;
+    GameData game = GameData.new(context: &context);
+    defer game.free();
 
-    List(<Matrix4f>) instance_matrices;
-    defer instance_matrices.free();
-
-    Memory indirect_commands_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &context.local_allocation,
-        null,
-        data_size: gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof,
-    )!!;
-
-    Memory draw_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &context.local_allocation,
-        null,
-        data_size: DrawData.sizeof * gltf.meshes.len()
-    )!!;
-
-    foreach (&mesh: gltf.meshes) {
-        foreach (prim_index, &primitive: mesh.primitives) {
-                Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-                Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
-                primitive.attributes["vertex_offset"] = (uint)vertices.len();
-                primitive.attributes["index_offset"] = (uint)indices.len(); 
-            
-                for (usz i; i < index_accessor.count; i++) {
-                    indices.push(gltf.@castBuffer(index_accessor, i, ushort));
-                }
-
-                for (usz i; i < pos_accessor.count; i++) {
-                    Vec2f tex_cord = {|
-                        usz! attribute = primitive.attributes["TEXCOORD_0"];
-                        if (catch err = attribute) return Vec2f {0,0};
-
-                        Accessor accessor = gltf.accessors[attribute];
-                        return gltf.@castBuffer(accessor, i, Vec2f);
-                    |};
-
-                    Vec3f normal = {|
-                        usz! attribute = primitive.attributes["NORMAL"];
-                        if (catch err = attribute) return Vec3f {0,0,0};
-
-                        Accessor accessor = gltf.accessors[attribute];
-                        return gltf.@castBuffer(accessor, i, Vec3f);
-                    |};
-
-                    Vec4f tangent = {|
-                        usz! attribute = primitive.attributes["TANGENT"];
-                        if (catch err = attribute) return Vec4f {0,0,0,0};
-                        Accessor accessor = gltf.accessors[attribute];
-                        return gltf.@castBuffer(accessor, i, Vec4f);
-                    |};
-
-                    uint[4] skin_pos = {|
-                        usz! attribute = primitive.attributes["JOINTS_0"];
-                        if (catch err = attribute) return uint[4] {0,0,0,0};
-                        Accessor accessor = gltf.accessors[attribute];
-
-                        if (accessor.data_type == DataType.USHORT) {
-                            short[4] array = gltf.@castBuffer(accessor, i, short[4]);
-                            return uint[4]{array[0], array[1], array[2], array[3]};
-                        };
-
-                        if (accessor.data_type == DataType.CHAR) {
-                            char[4] array = gltf.@castBuffer(accessor, i, char[4]);
-                            return uint[4]{array[0], array[1], array[2], array[3]};
-                        };
-
-                        return uint[4] {0,0,0,0};
-                    |};
-
-                    Vec4f skin_weight = {|
-                        usz! attribute = primitive.attributes["WEIGHTS_0"];
-                        if (catch err = attribute) return Vec4f {0,0,0,0};
-
-                        Accessor accessor = gltf.accessors[attribute];
-                        return gltf.@castBuffer(accessor, i, Vec4f);
-                    |};
-
-                    Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
-
-                    vertices.push({
-                            .pos = position,
-                            .normal = normal,
-                            .tex_cord = tex_cord,
-                            .tangent = tangent,
-                            .skin_pos = skin_pos,
-                            .skin_weight = skin_weight
-                        }
-                    );
-                }
-            }
-    }
-
+    foreach (mesh: gltf.meshes) game.add_mesh(mesh, gltf);
     foreach (node_index: scene_nodes) {
         Node node = gltf.nodes[node_index];
-        bool skinned_node = node.hasSkin();
+        bool has_skin = node.hasSkin();
 
         if (node.hasMesh()) {
             Matrix4f node_matrix = node.globalMatrix().transpose();
-            Mesh mesh = gltf.meshes[node.mesh];
+            uint instance_offset = (uint)game.instance_matrices.len();
+            uint instanceCount = 1;
+            uint firstInstance = 0;
+            
+            // Instanced node
+            if (node.attributes.len() > 0) {
+                // io::printfn("has instancing");
+                Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
+                Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
+                instanceCount = translation_accessor.count;
+                firstInstance = 2;
 
-            foreach (prim_index, primitive: mesh.primitives) {
-                Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-                int material_index = (int)primitive.attributes["material"] ?? -1;
-
-                DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
-                    .indexCount = index_accessor.count,
-                    .firstInstance = 0,
-                    .instanceCount = 1,
-                    .firstIndex = (uint)primitive.attributes["index_offset"] ?? 0,
-                    .vertexOffset = (uint)primitive.attributes["vertex_offset"] ?? 0,
-                };
-                
-                DrawData data = {
-                    .has_skin = (int)skinned_node,
-                    .material_index = material_index,
-                    .node_matrix = node_matrix,
-                    .instance_offset = (uint)instance_matrices.len()
-                };
-
-                draw_buffer.push(&data, size: DrawData.sizeof);
-
-                // Instanced node
-                if (node.attributes.len() > 0) {
-                    // io::printfn("has instancing");
-                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                    Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
-                    Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
-                    command.instanceCount = translation_accessor.count;
-                    command.firstInstance = 2;
-
-                    for (uint i = 0; i < translation_accessor.count; i++) {
-                      Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
-                      Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
-                      Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
-                      instance_matrices.push(gltf::to_matrix(translation, scale, rotation).transpose());
-                    }
+                for (uint i = 0; i < translation_accessor.count; i++) {
+                    Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
+                    Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
+                    Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
+                    game.instance_matrices.push(gltf::to_matrix(translation, scale, rotation).transpose());
                 }
-
-                indirect_commands_buffer.push(&command, size: DrawIndexedIndirectCommand.sizeof);
             }
+
+            game.add_draw_cmd(
+                &game.meshes[node.mesh], 
+                skinned: has_skin, 
+                node_matrix: node_matrix,
+                instance_offset: instance_offset,
+                firstInstance: firstInstance,
+                instanceCount: instanceCount,
+                group: "scene"
+            );
         }
     }
+
+    MeshData* cube_mesh = game.add_mesh(cube_data.meshes[0], cube_data);
+    game.add_draw_cmd(cube_mesh, node_matrix: MATRIX4F_IDENTITY.rotate_x(camera::radians(90)), group: "cube_map");
+    game.build_buffers()!!;
 
     Memory uniform = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -256,15 +141,6 @@ fn void main()
         &context.device_allocation,
         gltf.materials.entries,
         gltf.materials.byte_size(),
-        stage_allocator: &context.local_allocation,
-        queue: &context.graphics_queue
-    )!!;
-
-    Memory cube_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
-        &context.device_allocation,
-        cube.buffers[0].data,
-        cube.buffers[0].size,
         stage_allocator: &context.local_allocation,
         queue: &context.graphics_queue
     )!!;
@@ -295,43 +171,13 @@ fn void main()
         queue: &context.graphics_queue
     )!!;
 
-    Memory vertex_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &context.device_allocation,
-        vertices.entries,
-        data_size: vertices.byte_size(),
-        stage_allocator: &context.local_allocation,
-        queue: &context.graphics_queue
-    )!!;
-
-    Memory index_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &context.device_allocation,
-        indices.entries,
-        data_size: indices.byte_size(),
-        stage_allocator: &context.local_allocation,
-        queue: &context.graphics_queue
-    )!!;
-
-    vertices.free();
-    indices.free();
-
-    Memory instance_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &context.device_allocation,
-        instance_matrices.entries,
-        data_size: instance_matrices.len() * Matrix4f.sizeof,
-        stage_allocator: &context.local_allocation,
-        queue: &context.graphics_queue
-    )!!;
-
     Memory addresses = vk::new_buffer(
         vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         &context.local_allocation,
         &&AddressBuffer {
-            vertex_buffer.address,
-            draw_buffer.address,
-            instance_buffer.address,
+            game.vertex_buffer.address,
+            game.draw_buffer.address,
+            game.instance_buffer.address,
             light_buffer.address,
             material_buffer.address,
             joint_buffer.address,
@@ -366,11 +212,11 @@ fn void main()
         image_data.free();
     }
 
-    //Cube map
-    descriptor_images.add_cube_map("assets/cube_map.hdr", &context)!!;
-
     // Create depth texture
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
+
+    //Cube map
+    descriptor_images.add_cube_map("assets/cube_map.hdr", &context)!!;
 
     // Shadowmap depth
     foreach (i, light: gltf.lights) {
@@ -565,7 +411,7 @@ fn void main()
         cube_pipeline.free(context.device);
     }
 
-    Clock time = clock::now();
+    Clock render_time = clock::now();
     Clock animation_time = clock::now();
 
     bool running = true;
@@ -580,8 +426,11 @@ fn void main()
 
     Vec2f prev_mouse;
 
+    DrawGroup scene_group = game.draw_group["scene"]!!;
+    DrawGroup cube_map_group = game.draw_group["cube_map"]!!;
+
     while (running) {
-        NanoDuration start_time = time.mark();
+        NanoDuration start_time = render_time.mark();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, animation_time.mark());
         //material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
 
@@ -666,7 +515,7 @@ fn void main()
         });
 
         RenderingAttachmentInfo main_depth_target = vk::renderingAttachmentInfo()
-        .setImageView(descriptor_images.last()!!.imageView)
+        .setImageView(descriptor_images[descriptor_images.len() - 2].imageView)
         .setImageLayout(vk::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
         .setStoreOp(vk::ATTACHMENT_STORE_OP_STORE)
         .setLoadOp(vk::ATTACHMENT_LOAD_OP_CLEAR)
@@ -694,10 +543,9 @@ fn void main()
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
 
 
-
         // Draw shadowmap
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);
-        vk::cmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, game.index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         foreach (uint light_index, light: gltf.lights) {
             RenderingAttachmentInfo shadow_depth_target = vk::renderingAttachmentInfo()
@@ -717,7 +565,7 @@ fn void main()
 
             vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
             vk::cmdBeginRendering(command_buffer, &rendering_info);
-            vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)gltf.meshes.len(), DrawIndexedIndirectCommand.sizeof);
+            vk::cmdDrawIndexedIndirect(command_buffer, game.draw_buffer.buffer, scene_group.offset, scene_group.size, DrawData.sizeof);
             vk::cmdEndRendering(command_buffer);
         }
 
@@ -727,23 +575,30 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)gltf.meshes.len(), DrawIndexedIndirectCommand.sizeof);
+        vk::cmdDrawIndexedIndirect(command_buffer, game.draw_buffer.buffer, scene_group.offset, scene_group.size, DrawData.sizeof);
+
+
+        PushConstantData constant_data = {
+            .light_index = 0,
+            .draw_offset = cube_map_group.offset / DrawData.sizeof,
+        };
+
+        vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
 
         // Draw cubemap
-        // vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline);
-        // vk::cmdBindIndexBuffer(command_buffer, cube_buffer.buffer, 768, vk::INDEX_TYPE_UINT16);
-        // vk::cmdDrawIndexed(command_buffer, 36, 1, 0, 0, 0);
+        vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, cube_pipeline);
+        vk::cmdDrawIndexedIndirect(command_buffer, game.draw_buffer.buffer, cube_map_group.offset, cube_map_group.size, DrawData.sizeof);
 
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
         vk::endCommandBuffer(command_buffer)!!;
 
-        NanoDuration time_delta = (start_time - time.mark());
+        NanoDuration time_delta = (start_time - render_time.mark());
 
         if (time_delta < min_frame_time) {
             std::thread::sleep_ns(min_frame_time - time_delta)!!;
-            time_delta = (start_time - time.mark());
+            time_delta = (start_time - render_time.mark());
         }
 
         // io::printfn("%s", time_delta);
