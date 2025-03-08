@@ -967,6 +967,9 @@ fn void! GameData.build_buffers(&self) {
         stage_allocator: &self.context.local_allocation,
         queue: &self.context.graphics_queue
     )!;
+
+    self.vertices.free();
+    self.indices.free();
 }
 
 fn void GameData.add_draw_cmd(&self, MeshData* mesh, 

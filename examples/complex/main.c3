@@ -113,13 +113,15 @@ fn void main()
                 }
             }
 
-            game.add_draw_cmd(&game.meshes[node.mesh], 
-                              skinned: has_skin, 
-                              node_matrix: node_matrix,
-                              instance_offset: instance_offset,
-                              firstInstance: firstInstance,
-                              instanceCount: instanceCount,
-                              group: "scene");
+            game.add_draw_cmd(
+                &game.meshes[node.mesh], 
+                skinned: has_skin, 
+                node_matrix: node_matrix,
+                instance_offset: instance_offset,
+                firstInstance: firstInstance,
+                instanceCount: instanceCount,
+                group: "scene"
+            );
         }
     }
 
@@ -409,7 +411,7 @@ fn void main()
         cube_pipeline.free(context.device);
     }
 
-    Clock time = clock::now();
+    Clock render_time = clock::now();
     Clock animation_time = clock::now();
 
     bool running = true;
@@ -428,7 +430,7 @@ fn void main()
     DrawGroup cube_map_group = game.draw_group["cube_map"]!!;
 
     while (running) {
-        NanoDuration start_time = time.mark();
+        NanoDuration start_time = render_time.mark();
         if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, animation_time.mark());
         //material_buffer.upload(gltf.materials.entries, gltf.materials.byte_size());
 
@@ -592,11 +594,11 @@ fn void main()
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
         vk::endCommandBuffer(command_buffer)!!;
 
-        NanoDuration time_delta = (start_time - time.mark());
+        NanoDuration time_delta = (start_time - render_time.mark());
 
         if (time_delta < min_frame_time) {
             std::thread::sleep_ns(min_frame_time - time_delta)!!;
-            time_delta = (start_time - time.mark());
+            time_delta = (start_time - render_time.mark());
         }
 
         // io::printfn("%s", time_delta);
