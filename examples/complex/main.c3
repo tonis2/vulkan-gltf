@@ -59,7 +59,7 @@ fn void main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 2.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/road.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
     defer gltf.free();
 
     Gltf cube_data = gltf::loadFile("assets/cube.glb")!!;
