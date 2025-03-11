@@ -53,13 +53,13 @@ fn void main()
     defer win.free();
 
     // Vulkan context
-    DeviceContext context = helpers::createContext(win, debug: false)!!;
+    DeviceContext context = helpers::createContext(win)!!;
     defer context.free();
 
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 2.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/road.glb")!!;
     defer gltf.free();
 
     Gltf cube_data = gltf::loadFile("assets/cube.glb")!!;
@@ -127,6 +127,7 @@ fn void main()
 
     MeshData* cube_mesh = game.add_mesh(cube_data.meshes[0], cube_data);
     game.add_draw_cmd(cube_mesh, node_matrix: MATRIX4F_IDENTITY.rotate_x(camera::radians(90)), group: "cube_map");
+
     game.build_buffers()!!;
 
     Memory uniform = vk::new_buffer(
@@ -216,7 +217,7 @@ fn void main()
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
 
     //Cube map
-    descriptor_images.add_cube_map("assets/cube_map.hdr", &context)!!;
+    descriptor_images.add_cube_map("assets/ice_lake.png", &context)!!;
 
     // Shadowmap depth
     foreach (i, light: gltf.lights) {
@@ -541,7 +542,6 @@ fn void main()
         // Begin dynamic rendering
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
-
 
         // Draw shadowmap
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);

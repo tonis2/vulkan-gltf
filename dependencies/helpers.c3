@@ -40,7 +40,6 @@ struct DeviceContext {
     Extent2D extent;
     DebugUtilsMessengerEXT debug_messenger;
     SurfaceKHR surface;
-    bool debug;
 
     vk::Allocation device_allocation;
     vk::Allocation local_allocation;
@@ -59,7 +58,9 @@ struct PipelineLayer {
 
 fn void DeviceContext.free(self) {
     self.device.waitIdle();
-    if (self.debug) self.debug_messenger.free(self.instance);
+    $if $feature(DEBUG):
+        self.debug_messenger.free(self.instance);
+    $endif
 
     foreach (view : self.swapchain_views) view.free(self.device);
     self.swapchain.free(self.device);
@@ -114,11 +115,8 @@ fn void! DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
     self.frame = (self.frame + 1) % 2;
 }
 
-fn DeviceContext! createContext(c3w::Window win, bool debug = false, uint device_size = 150_000_000) {
-    DeviceContext context = {
-        .debug = debug
-    };
-
+fn DeviceContext! createContext(c3w::Window win, uint device_size = 150_000_000) {
+    DeviceContext context;
     ZStringList extensions;
     ZStringList device_extensions;
     //"VK_EXT_dynamic_rendering_unused_attachments"
@@ -163,7 +161,7 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false, uint device
     };
 
     // Debug enabled
-    if (debug) {
+    $if $feature(DEBUG):
         ValidationFeatureEnableEXT[] enables = {vk::VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT, vk::VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT};
         ValidationFeatureDisableEXT[] disables = {};
         String[] validations = {"VK_LAYER_KHRONOS_validation"};
@@ -180,17 +178,17 @@ fn DeviceContext! createContext(c3w::Window win, bool debug = false, uint device
         instanceInfo.pNext = &features;
         instanceInfo.enabledLayerCount = (uint)validations.len;
         instanceInfo.ppEnabledLayerNames = (char*)validations.ptr;
-    }
+    $endif
 
     vk::createInstance(&instanceInfo, null, &context.instance)!!;
     vk::loadExtensions(context.instance);
 
-    if (debug) {
+    $if $feature(DEBUG):
         context.debug_messenger = debug_info.build(context.instance)!!;
-    }
+    $endif
 
     // Create surface
-      $switch(env::OS_TYPE)
+    $switch(env::OS_TYPE)
         $case MACOS: {
             MetalSurfaceCreateInfoEXT createInfo = {
                 .sType = vk::STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
@@ -708,19 +706,23 @@ fn vk::Image! DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
     stb::Image cube_map_image = stb::loadImage(path, stb::Channel.STBI_RGB_ALPHA)!;
     defer cube_map_image.free();
     
-    uint cube_map_width = cube_map_image.width / 6;
+    // uint cube_map_height = cube_map_image.height / 6;
     vk::Format cube_format = vk::FORMAT_R8G8B8A8_UNORM;
 
     DescriptorImageInfo cube_texture = {
         .imageLayout = vk::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     };
 
+    const uint LAYER_COUNT = 6;
+
+    uint cube_map_width = cube_map_image.width / LAYER_COUNT;
+
     vk::Image cube_image = vk::imageCreateInfo()
             .setImageType(vk::IMAGE_TYPE_2D)
             .setExtent({.width = cube_map_width, .height = cube_map_width, .depth = 1 })
             .setMipLevels(1)
             .setFlags(vk::IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
-            .setArrayLayers(6)
+            .setArrayLayers(LAYER_COUNT)
             .setSamples(vk::SAMPLE_COUNT_1_BIT)
             .setUsage(vk::IMAGE_USAGE_TRANSFER_DST_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
             .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
@@ -737,6 +739,7 @@ fn vk::Image! DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
         .setAddressModeV(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
         .setAddressModeW(vk::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
         .setMipLodBias(0.0)
+        .setCompareOp(vk::COMPARE_OP_NEVER)
         .setMinLod(0.0)
         .setMaxLod(1.0)
         .setMaxAnisotropy(1.0)
@@ -748,12 +751,13 @@ fn vk::Image! DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
         .setViewType(vk::IMAGE_VIEW_TYPE_CUBE)
         .setFormat(cube_format)
         .setSubresourceRange({
-        .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
-        .baseMipLevel = 0,
-        .baseArrayLayer = 0,
-        .layerCount = 6,
-        .levelCount = 1,
-    })
+            .aspectMask = vk::IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = LAYER_COUNT,
+            .levelCount = 1,
+        }
+    )
     .setImage(cube_image)
     .build(device)!;
 
@@ -767,9 +771,9 @@ fn vk::Image! DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
     defer stage_buffer.free();
 
     context.device.@single_time_command(queue: graphics_queue; CommandBuffer command_buffer) {
-        BufferImageCopy2[6] bufferCopyRegions;
-        ImageMemoryBarrier2[6] transfer_barriers;
-        ImageMemoryBarrier2[6] finalize_barriers;
+        BufferImageCopy2[LAYER_COUNT] bufferCopyRegions;
+        ImageMemoryBarrier2[LAYER_COUNT] transfer_barriers;
+        ImageMemoryBarrier2[LAYER_COUNT] finalize_barriers;
 
         CopyBufferToImageInfo2 bufferCopyData = {
             .sType = vk::STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
@@ -818,7 +822,7 @@ fn vk::Image! DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
 
             bufferCopyRegions[i] = BufferImageCopy2 {
                 .sType = vk::STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
-                .bufferOffset = (usz)cube_map_width * 4 * i,
+                .bufferOffset = (long)cube_map_width * 4 * i,
                 .bufferRowLength = 0,
                 .bufferImageHeight = 0,
                 .imageSubresource = {
@@ -932,7 +936,7 @@ fn GameData GameData.new(uint max_draws = 500, DeviceContext* context) @operator
     return GameData {
         .context = context,
         .draw_buffer = vk::new_buffer(
-            vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
             &context.local_allocation,
             null,
             data_size: max_draws * DrawData.sizeof

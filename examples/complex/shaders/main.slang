@@ -3,6 +3,60 @@
 static float PI = 3.14159265358979323846;
 static float ambient_constant = 0.4;
 
+struct DrawCommand
+{   
+    uint indexCount;
+    uint firstInstance;
+    uint instanceCount;
+    uint firstIndex;
+    uint vertexOffset;
+
+    int material_index;
+    int has_skin;
+    uint instance_offset;
+    float4x4 node_matrix;
+}
+
+struct Uniform
+{
+    float4x4 perspective;
+    float4x4 view;
+    float4 eye;
+}
+
+struct PushData
+{
+    uint light_index;
+    uint draw_offset;
+};
+
+[vk_push_constant]
+const PushData push_constant;
+
+[vk_binding(0)]
+cbuffer Buffers
+{
+    Vertex *vertices;
+    DrawCommand *draw_data;
+    float4x4 *instance_data;
+    Light *lights;
+    Material *materials;
+    float4x4 *joints;
+    float4x4 *light_matrices;
+    Uniform *uniform;
+    uint light_count;
+}
+
+
+[vk_binding(1)]
+uniform Sampler2D image_samplers[];
+
+[vk_binding(2)]
+uniform Sampler2D shadow_samplers[];
+
+[vk_binding(3)]
+uniform SamplerCube cube_texture;
+
 struct Light
 {
     float4 position;
@@ -209,60 +263,6 @@ struct Vertex
     // }
 };
 
-struct DrawCommand
-{   
-    uint indexCount;
-    uint firstInstance;
-    uint instanceCount;
-    uint firstIndex;
-    uint vertexOffset;
-
-    int material_index;
-    int has_skin;
-    uint instance_offset;
-    float4x4 node_matrix;
-}
-
-struct Uniform
-{
-    float4x4 perspective;
-    float4x4 view;
-    float4 eye;
-}
-
-struct PushData
-{
-    uint light_index;
-    uint draw_offset;
-};
-
-[vk_push_constant]
-const PushData push_constant;
-
-[vk_binding(0)]
-cbuffer Buffers
-{
-    Vertex *vertices;
-    DrawCommand *draw_data;
-    float4x4 *instance_data;
-    Light *lights;
-    Material *materials;
-    float4x4 *joints;
-    float4x4 *light_matrices;
-    Uniform *uniform;
-    uint light_count;
-}
-
-
-[vk_binding(1)]
-uniform Sampler2D image_samplers[];
-
-[vk_binding(2)]
-uniform Sampler2D shadow_samplers[];
-
-[vk_binding(3)]
-uniform SamplerCube cube_texture;
-
 // Output of the fragment shader
 struct FragmentData
 {
@@ -435,7 +435,7 @@ VertexOutPut vertexCube(VertexInput input)
         uniform.view._m20, uniform.view._m21, uniform.view._m22, 0,
         0, 0, 0, 1,
     );
-    
+    // vertex.position.xy *= -1.0;
     float4 pos = mul(mul(mul(uniform.perspective, view), instance.node_matrix), float4(vertex.position.xyz, 1.0));    
     VertexOutPut output = {
         vertex.position.xyz,
