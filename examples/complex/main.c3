@@ -59,7 +59,7 @@ fn void main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 2.0, 10}, aspect: Vec2f{win.width, win.height}.x / win.height, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/road.glb")!!;
     defer gltf.free();
 
     Gltf cube_data = gltf::loadFile("assets/cube.glb")!!;
@@ -82,7 +82,7 @@ fn void main()
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
     defer scene_nodes.free();
 
-    GameData game = GameData.new(context: &context);
+    GameData game = helpers::create_game(context: &context);
     defer game.free();
 
     foreach (mesh: gltf.meshes) game.add_mesh(mesh, gltf);
@@ -103,7 +103,7 @@ fn void main()
                 Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
                 Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
                 instanceCount = translation_accessor.count;
-                firstInstance = 2;
+                firstInstance = 1;
 
                 for (uint i = 0; i < translation_accessor.count; i++) {
                     Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);

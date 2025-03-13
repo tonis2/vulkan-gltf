@@ -718,17 +718,17 @@ fn vk::Image! DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
     uint cube_map_width = cube_map_image.width / LAYER_COUNT;
 
     vk::Image cube_image = vk::imageCreateInfo()
-            .setImageType(vk::IMAGE_TYPE_2D)
-            .setExtent({.width = cube_map_width, .height = cube_map_width, .depth = 1 })
-            .setMipLevels(1)
-            .setFlags(vk::IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
-            .setArrayLayers(LAYER_COUNT)
-            .setSamples(vk::SAMPLE_COUNT_1_BIT)
-            .setUsage(vk::IMAGE_USAGE_TRANSFER_DST_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
-            .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
-            .setTiling(vk::IMAGE_TILING_OPTIMAL)
-            .setFormat(cube_format)
-            .build(device)!;
+        .setImageType(vk::IMAGE_TYPE_2D)
+        .setExtent({.width = cube_map_width, .height = cube_map_width, .depth = 1 })
+        .setMipLevels(1)
+        .setFlags(vk::IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
+        .setArrayLayers(LAYER_COUNT)
+        .setSamples(vk::SAMPLE_COUNT_1_BIT)
+        .setUsage(vk::IMAGE_USAGE_TRANSFER_DST_BIT | vk::IMAGE_USAGE_SAMPLED_BIT)
+        .setInitialLayout(vk::IMAGE_LAYOUT_UNDEFINED)
+        .setTiling(vk::IMAGE_TILING_OPTIMAL)
+        .setFormat(cube_format)
+        .build(device)!;
 
     vk::create_image_buffer(cube_image, device_allocation)!;
 
@@ -932,7 +932,7 @@ fn void GameData.free(&self) {
     self.draw_group.free();
 }
 
-fn GameData GameData.new(uint max_draws = 500, DeviceContext* context) @operator(construct) {
+fn GameData create_game(uint max_draws = 500, DeviceContext* context) {
     return GameData {
         .context = context,
         .draw_buffer = vk::new_buffer(
