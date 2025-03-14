@@ -6,92 +6,111 @@ import std::collections::list;
 import std::collections::map;
 import std::encoding::json;
 
-def ComponentMap = HashMap(<String, Component>);
+def ComponentMap = HashMap(<String, uint>);
 
 bitstruct Entity : ulong {
-    uint index : 0..31;
-    uint entries : 32..63;
+    uint id : 0..31;
+    uint bitmask : 32..63;
 }
 
 struct BufferView {
-    uint offset;
+    usz offset;
     uint size;
     uint stride;
-    any value;
 }
-
-struct Component {
-    DynamicBuffer data;
-    uint index;
-}
-
-fn Component create_component(uint index, uint size = 256) {
-    return Component {
-        .index = index,
-        .data = DynamicBuffer {
-            .size = size,
-            .used_size = 0,
-            .data = mem::new_array(char, size)
-        }
-    };
-}
-
-// fn void Component.free(&self) {
-//     self.data.free();
-// }
 
 struct EntityManager {
     ComponentMap keys;
-    // List(<EntityMap>) entities;
-    // List(<BufferView>) views;
+    DynamicBuffer buffer;
+    List(<BufferView>) views;
+    List(<Entity>) entities;
 }
 
 fn void EntityManager.free(&self) {
-    @pool() {
-        foreach (key : self.keys.tcopy_keys()) self.keys[key]!!.data.free();
-    };
+    self.buffer.free();
     self.keys.free();
+    self.views.free();
+    self.entities.free();
 }
 
-macro bool Entity.@has(self, $type, EntityManager manager) {
-    uint! key = manager.keys[$typeof($type).nameof].index;
+macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
+    foreach (entity: self.entities) {
+        bool is_valid = true;
+        $for (var $i = 0; $i < $vacount; $i++);
+            is_valid = entity.has_name($typeof($vaarg[$i]).nameof, self);
+        $endfor
 
-    if (try key) {
-        uint mask = 1 << key;
-        return self.entries & mask == mask;
+        if (is_valid) @callback(entity);
     }
-
-    return false;
-}
-
-macro void EntityManager.@query(self, ...) {
-    $for (var $i = 0; $i < $vacount; $i++);
-	$endfor
-
-    return self.entities;
 }
 
 macro Entity EntityManager.@create_entity(&self, ...) {
     uint! key;
     String type_name;
-    Entity entity;
+    Entity entity = {
+        .id = (uint)self.views.len()
+    };
 
-    // Create type index or add type index to entity bitmask
+    uint size = 0;
+    uint offset = (uint)self.buffer.used_size;
+
+    // Loop over entity data
     $for (var $i = 0; $i < $vacount; $i++);
         type_name = $typeof($vaarg[$i]).nameof;
-        key = self.keys[type_name].index;
+        key = self.keys[type_name];
+        size += $typeof($vaarg[$i]).sizeof;
+
+        // Push data of the entity to buffer
+        self.buffer.push(&&$vaarg[$i], $typeof($vaarg[$i]).sizeof);
+
         if (try key) {
-            entity.entries |= 1 << key;
+            // If data in data-map, only add type to entity bitmask
+            entity.bitmask |= 1 << key;
         }
         else {
+            // If data not in data-map, create new entry and add type to entity bitmask
             uint key_index = (uint)self.keys.len() + 1;
-            self.keys[type_name] = create_component(key_index);
-            self.keys[type_name]!!.data.push(&&$vaarg[$i], $typeof($vaarg[$i]).sizeof);
-            entity.entries |= 1 << key_index;
+            self.keys[type_name] = key_index;
+            entity.bitmask |= 1 << key_index;
         }
 	$endfor
+
+    self.views.push(BufferView {
+        .offset = offset,
+        .size = size,
+    });
+
+    self.entities.push(entity);
     
     return entity;
+}
+
+macro bool Entity.@has_type(self, $type, EntityManager manager) {
+    uint! key = manager.keys[$typeof($type).nameof];
+
+    if (try key) {
+        uint mask = 1 << key;
+        return self.bitmask & mask == mask;
+    }
+
+    return false;
+}
+
+fn bool Entity.has_name(self, String name, EntityManager manager) {
+    uint! key = manager.keys[name];
+
+    if (try key) {
+        uint mask = 1 << key;
+        return self.bitmask & mask == mask;
+    }
+
+    return false;
+}
+
+macro Entity.@get_data(self, #type, EntityManager manager, uint offset = 0) {
+    BufferView view = manager.views[self.id];
+    uint buffer_offset = (uint)view.offset + offset;
+    return bitcast(*(char[#type.sizeof]*)manager.buffer.data[buffer_offset..(buffer_offset + #type.sizeof)], #type);
 }
 
 struct DynamicBuffer {
@@ -143,7 +162,10 @@ fn void main() {
     defer manager.free();
 
     Entity player = manager.@create_entity(
-        Position{},
+        Position {
+            .translation = {1.0, 1.0, 1.0},
+            .scale = {1.0, 1.0, 1.0}
+        },
         Velocity{},
         Render{}
     );
@@ -152,9 +174,13 @@ fn void main() {
         Position{},
     );
 
-    io::printfn("%s", player.@has(Position{}, manager));
-    io::printfn("%s", player2.@has(Render{}, manager));
+    io::printfn("%s", player.@has_type(Position{}, manager));
+    io::printfn("%s", player2.@has_type(Render{}, manager));
 
+    manager.@query(Position{}, Velocity{}, Render{}; Entity entity) {
+        Position position = entity.@get_data(Position, manager);
+        io::printfn("%s", position.translation);
+    };
 
     // foreach (entity: manager.@query(Position{}, Velocity{}, Render{})) {
 
