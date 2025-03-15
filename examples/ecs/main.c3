@@ -9,24 +9,21 @@ import camera;
 import gltf;
 import c3w;
 import helpers;
+import ecs;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
 struct InstanceData {
+    uint indexCount;
+    uint firstInstance;
+    uint instanceCount;
+    uint firstIndex;
+    uint vertexOffset;
     int material_index;
-    int has_skin;
+
     Matrix4f node_matrix;
-
     vk::DeviceAddress positions;
-    vk::DeviceAddress normals;
     vk::DeviceAddress tex_cords;
-    vk::DeviceAddress skin_pos;
-    vk::DeviceAddress weights;
-
-    vk::DeviceAddress translate;
-    vk::DeviceAddress rotate;
-    vk::DeviceAddress scale;
-
 }
 
 struct Uniform {
@@ -37,23 +34,35 @@ struct Uniform {
 
 // Used to send buffer device addresses to GPU
 struct AddressBuffer {
-    vk::DeviceAddress materials;
-    vk::DeviceAddress joints;
     vk::DeviceAddress instance_buffer;
     vk::DeviceAddress uniform_buffer;
 }
 
-Gltf gltf;
-AnimationChannels animaton_data;
-
 DescriptorImages descriptor_images;
-
-List(<DrawIndexedIndirectCommand>) indirect_commands;
 
 Vec2f window_size = {800, 600};
 char[*] shader = $embed("./shaders/shader.spv");
 
 camera::Camera camera;
+
+struct Position @tag("MEM_TYPE", 0) {
+    Vec3f scale;
+    Vec3f translation;
+    Quaternionf rotation;
+}
+
+struct Render @tag("MEM_TYPE", 1) {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+
+    int material_index;
+    int has_skin;
+    uint instance_offset;
+    Matrix4f node_matrix;
+}
 
 fn void main()
 {
@@ -75,41 +84,20 @@ fn void main()
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    gltf = gltf::loadFile("assets/scene_test.glb")!!;
-    defer gltf.free();
-    Scene scene = gltf.scenes[0];
+    EntityManager manager;
+    defer manager.free();
 
-    defer indirect_commands.free();
-
-    if (!gltf.animations.is_empty()) animaton_data = gltf.load_animations({0});
-    defer animaton_data.release();
-
-    // Create allocator of 50MB - DEVICE_ONLY memory
-    vk::Allocation device_allocation = vk::Allocation {
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 50_000_000
-    }.build()!!;
-
-    // Allocation where data can be changed from CPU
-    vk::Allocation local_allocation = vk::Allocation {
-        .device = context.device,
-        .pdevice = context.pdevice,
-        .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
-        .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 20_000_000
-    }.build()!!;
-
-    defer {
-        device_allocation.free();
-        local_allocation.free();
-    }
+    Entity player = manager.@create_entity(
+        Position {
+            .translation = {1.0, 1.0, 1.0},
+            .scale = {1.0, 1.0, 1.0}
+        },
+        Render{}
+    );
   
     Memory uniform = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
+        &context.local_allocation,
         &&Uniform {
             .perspective = camera.perspective.transpose(),
             .view = camera.view.transpose(),
@@ -117,136 +105,25 @@ fn void main()
         },
         data_size: Uniform.sizeof
     )!!;
-    
-    Memory material_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
-        gltf.materials.entries,
-        gltf.materials.byte_size()
-    )!!;
-
-    uint joint_buffer_size = 0;
-    foreach (skin_index, skin: gltf.skins) joint_buffer_size += (uint)skin.joints.len();
-
-    Memory joint_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
-        null,
-        data_size: joint_buffer_size * Matrix4f.sizeof
-    )!!;
 
     Memory instance_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &local_allocation,
+        &context.local_allocation,
         null,
-        data_size: InstanceData.sizeof * gltf.meshes.len()
-    )!!;
-
-    Memory mesh_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &device_allocation,
-        gltf.buffers[0].data,
-        data_size: gltf.buffers[0].size,
-        stage_allocator: &local_allocation,
-        queue: &context.graphics_queue
-    )!!;
-
-    Memory indirect_commands_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &device_allocation,
-        null,
-        data_size: gltf.meshes.len() * DrawIndexedIndirectCommand.sizeof,
+        data_size: InstanceData.sizeof * 100
     )!!;
 
     Memory addresses = vk::new_buffer(
         vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        &local_allocation,
+        &context.local_allocation,
         &&AddressBuffer {
-            material_buffer.address,
-            joint_buffer.address,
             instance_buffer.address,
             uniform.address
         },
         data_size: AddressBuffer.sizeof
     )!!;
 
-    List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
-    defer scene_nodes.free();
-
-    foreach (node_index: scene_nodes) {
-        Node node = gltf.nodes[node_index];
-        bool skinned_node = node.hasSkin();
-
-        if (node.hasMesh()) {
-            Matrix4f node_matrix = node.globalMatrix().transpose();
-            Mesh mesh = gltf.meshes[node.mesh];
-
-            foreach (prim_index, primitive: mesh.primitives) {
-                Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
-                int material_index = (int)primitive.attributes["material"] ?? -1;
-
-                usz pos_offset = gltf.get_offset(primitive.attributes["POSITION"]!!);
-                usz index_offset = gltf.get_offset(primitive.attributes["indices"]!!);
-                usz normal_offset = gltf.get_offset(primitive.attributes["NORMAL"] ?? 0);
-                usz tex_offset = gltf.get_offset(primitive.attributes["TEXCOORD_0"] ?? 0);
-                usz skinpos_offset = gltf.get_offset(primitive.attributes["JOINTS_0"] ?? 0);
-                usz weights_offset = gltf.get_offset(primitive.attributes["WEIGHTS_0"] ?? 0);
-
-                InstanceData data = {
-                    .has_skin = (int)skinned_node,
-                    .material_index = material_index,
-                    .node_matrix = node_matrix,
-
-                    .positions = mesh_buffer.address + (uint)pos_offset,
-                    .normals = mesh_buffer.address + (uint)normal_offset,
-                    .tex_cords = mesh_buffer.address + (uint)tex_offset,
-                    .skin_pos = mesh_buffer.address + (uint)skinpos_offset,
-                    .weights = mesh_buffer.address + (uint)weights_offset,
-                };
-
-                DrawIndexedIndirectCommand command = DrawIndexedIndirectCommand {
-                    .indexCount = index_accessor.count,
-                    .firstInstance = 0,
-                    .instanceCount = 1,
-                    .firstIndex = (uint)index_offset / index_accessor.stride(),
-                    .vertexOffset = 0,
-                };
-
-                indirect_commands.push(command);
-                instance_buffer.push(&data, size: InstanceData.sizeof);
-            }
-        }
-    }
-    
-    indirect_commands_buffer.upload_from_stage(indirect_commands.entries, indirect_commands.byte_size(), &local_allocation, context.graphics_queue)!!;
-
-    // Create GLTF texture images
-    foreach (image : gltf.images) {
-        stb::Image image_data;
-        switch (image.type) {
-            case ENCODED_BASE64: {
-                image_data = stb::loadFromBuffer(image.data, image.data.len, stb::Channel.STBI_RGB_ALPHA)!!;
-            };
-            case ENCODED_BIN: {
-                gltf::BufferView buffer_view = gltf.bufferViews[image.view];
-                image_data = stb::loadFromBuffer(gltf.buffers[buffer_view.buffer].data[buffer_view.offset..], (uint)buffer_view.byteLength, stb::Channel.STBI_RGB_ALPHA)!!;
-            };
-            case EXTERNAL_BIN: image_data = stb::loadImage(image.uri, stb::Channel.STBI_RGB_ALPHA)!!;
-            default: {}
-        }
-
-        // Create vulkan texture image
-        descriptor_images.addImageTexture(image_data, &device_allocation, &local_allocation, context.graphics_queue)!!;
-        image_data.free();
-    }
-
-    // Create depth texture
-    descriptor_images.addDepthTexture(&device_allocation, context.graphics_queue, window_size, context.depth_format)!!;
-    
-    defer {
-        foreach (texture: descriptor_images) texture.free(context.device);
-        descriptor_images.free();
-    }
+    descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
 
     PipelineLayer pipeline_layout = helpers::createPipelineLayout(
         {
@@ -380,17 +257,6 @@ fn void main()
     Vec2f prev_mouse;
 
     while (running) {
-        if (!animaton_data.is_empty()) animaton_data.run_animation(&gltf, time.mark());
-
-        // Update joint animations buffer
-        foreach (skin: gltf.skins) {
-            foreach (joint_index, joint: skin.joints) {
-                Node joint_node = gltf.nodes[joint];
-                Matrix4f data = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
-                joint_buffer.upload(&data, size: Matrix4f.sizeof, offset: joint_index * Matrix4f.sizeof);
-            }
-        }
-
         EventMap[] event_map = win.getEvent();
 
         foreach (event: event_map) {
@@ -480,7 +346,6 @@ fn void main()
         // Begin dynamic rendering
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
-        vk::cmdBindIndexBuffer(command_buffer, mesh_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
  
@@ -488,7 +353,7 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+        // vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

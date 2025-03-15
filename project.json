@@ -14,7 +14,8 @@
 			"type": "prepare",
 			"exec": [
 				"slangc examples/basic/shaders/shader.slang -force-glsl-scalar-layout -fvk-use-entrypoint-name -target spirv -emit-spirv-directly -o examples/basic/shaders/shader.spv",
-				"slangc examples/complex/shaders/main.slang -force-glsl-scalar-layout -fvk-use-entrypoint-name -target spirv -emit-spirv-directly -o examples/complex/shaders/main.spv"
+				"slangc examples/complex/shaders/main.slang -force-glsl-scalar-layout -fvk-use-entrypoint-name -target spirv -emit-spirv-directly -o examples/complex/shaders/main.spv",
+				"slangc examples/ecs/shaders/shader.slang -force-glsl-scalar-layout -fvk-use-entrypoint-name -target spirv -emit-spirv-directly -o examples/ecs/shaders/shader.spv"
 			]
 		},
 		"complex": {
@@ -27,7 +28,11 @@
 		},
 		"ecs": {	
 			"type": "executable",
-			"sources": ["dependencies/ecs.c3"]
+			"sources": ["examples/ecs/main.c3", "./dependencies/ecs.c3"]
+		},
+		"ecs2": {	
+			"type": "executable",
+			"sources": ["./dependencies/ecs.c3"]
 		}
 	},
 	"output": "./build"
