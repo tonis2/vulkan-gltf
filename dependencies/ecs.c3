@@ -7,12 +7,14 @@ import std::collections::map;
 import std::encoding::json;
 import std::core::builtin;
 
-// interface Allocator
-// {
-//     fn usz push(void* data, usz size);
-//     fn void update(void* data, usz size, usz offset);
-//     fn void free();
-// }
+interface Allocator
+{
+    fn void push(void* data, usz size);
+    fn char* data();
+    fn void upload(void* data, usz size, usz offset);
+    fn usz usedSize();
+    fn void free();
+}
 
 struct Component {
     uint id;
@@ -37,11 +39,11 @@ macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
 struct EntityManager {
     ComponentMap keys;
     BufferMap views;
-    List(<Buffer>) buffers;
+    List(<Allocator>) buffers;
     List(<Entity>) entities;
 }
 
-fn EntityManager create_manager(Buffer[] buffers) {
+fn EntityManager create_manager(Allocator[] buffers) {
     EntityManager manager;
     foreach (buffer: buffers) manager.buffers.push(buffer);
     return manager;
@@ -107,7 +109,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
         self.views[BufferID {
             .component = component!!.id,
             .entity = entity.id,
-        }] = (uint)self.buffers[buffer_index].used_size;
+        }] = (uint)self.buffers[buffer_index].usedSize();
         
         self.buffers[buffer_index].push(&&$vaarg[$i], $typeof($vaarg[$i]).sizeof);
 	$endfor
@@ -145,10 +147,10 @@ macro Entity.@get(self, #type, EntityManager manager) {
         .entity = self.id,
     };
 
-    Buffer buffer = manager.buffers[component.buffer];
+    Allocator buffer = manager.buffers[component.buffer];
     uint type_offset = manager.views[index]!!;
 
-    return bitcast(*(char[#type.sizeof]*)buffer.data[type_offset..(type_offset + #type.sizeof)], #type);
+    return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
 }
 
 macro Entity.@set(self, #data, EntityManager manager) {
@@ -158,97 +160,100 @@ macro Entity.@set(self, #data, EntityManager manager) {
         .entity = self.id,
     };
 
-    Buffer buffer = manager.buffers[component.buffer];
+    Allocator buffer = manager.buffers[component.buffer];
     uint type_offset = manager.views[index]!!;
 
 
-    return buffer.update(&&#data, $typeof(#data).sizeof, type_offset);
+    return buffer.upload(&&#data, $typeof(#data).sizeof, type_offset);
 }
 
-struct Buffer {
+struct Buffer (Allocator) {
     usz size;
     usz used_size;
     usz page_size;
-    char* data;
+    char* mapped;
 }
 
-fn usz Buffer.push(&self, void* data, usz size) {
+fn void Buffer.push(&self, void* data, usz size) @dynamic {
     if (self.used_size + size > self.size) {
         usz new_size = self.size + size;
-        self.data = mem::realloc(self.data, new_size);
+        self.mapped = mem::realloc(self.mapped, new_size);
         self.size = new_size;
-        mem::copy(self.data + self.used_size, data, size);
+        mem::copy(self.mapped + self.used_size, data, size);
         self.used_size += size;
     } else {
-        mem::copy(self.data + self.used_size, data, size);
+        mem::copy(self.mapped + self.used_size, data, size);
         self.used_size += size;
     }
-    return self.used_size - size;
 }
 
-fn void Buffer.update(&self, void* data, usz size, usz offset) {
-    mem::copy(self.data + offset, data, size);
+fn void Buffer.upload(&self, void* data, usz size, usz offset) @dynamic {
+    mem::copy(self.mapped + offset, data, size);
 }
 
-fn void Buffer.free(&self) {
-    mem::free(self.data);
+fn char* Buffer.data(&self) @dynamic => self.mapped;
+fn usz Buffer.usedSize(&self) @dynamic => self.used_size;
+
+fn void Buffer.free(&self) @dynamic {
+    mem::free(self.mapped);
     self.size = 0;
     self.used_size = 0;
 }
 
-struct Position  {
-    Vec3f scale;
-    Vec3f translation;
-    Quaternionf rotation;
-}
+// struct Position  {
+//     Vec3f scale;
+//     Vec3f translation;
+//     Quaternionf rotation;
+// }
 
-struct Render {
-    uint draw_id;
-}
+// struct Render {
+//     uint draw_id;
+// }
 
-struct Velocity @tag("BUFFER", 0) {
-    float x;
-    float y;
-    float z;
-}
+// struct Velocity @tag("BUFFER", 0) {
+//     float x;
+//     float y;
+//     float z;
+// }
 
-fn void main() {
-    EntityManager manager = create_manager({
-        Buffer{},
-        Buffer{}
-    });
-
-    defer manager.free();
-
-    Entity player = manager.@create_entity(
-        Position {
-            .translation = {1.0, 1.0, 1.0},
-            .scale = {1.0, 1.0, 1.0}
-        },
-        Velocity{ 1.0, 2.0, 3.0 },
-        Render{}
-    );
-
-    Entity player2 = manager.@create_entity(
-        Position{},
-    );
-
-    manager.@query(Position{}, Velocity{}, Render{}; Entity entity) {
+// fn void main() {
     
-        Velocity velocity = entity.@get(Velocity, manager);
+//     EntityManager manager = create_manager({
+//         &&Buffer{},
+//         &&Buffer{}
+//     });
 
-        io::printfn("velocity %s %s", velocity.x, velocity.y);
+//     defer manager.free();
 
-        entity.@set(Position {
-            .translation = {5.0, 5.0, 5.0},
-            .scale = {5.0, 5.0, 5.0}
-        }, manager);
+//     Entity player = manager.@create_entity(
+//         Position {
+//             .translation = {1.0, 1.0, 1.0},
+//             .scale = {1.0, 1.0, 1.0}
+//         },
+//         Velocity{ 1.0, 2.0, 3.0 },
+//         Render{}
+//     );
 
-        Position position = entity.@get(Position, manager);
+//     Entity player2 = manager.@create_entity(
+//         Position{},
+//     );
 
-        io::printfn("pos %s", position.translation);
-    };
-}
+//     manager.@query(Position{}, Velocity{}, Render{}; Entity entity) {
+    
+//         Velocity velocity = entity.@get(Velocity, manager);
+
+//         io::printfn("velocity %s %s", velocity.x, velocity.y);
+
+//         entity.@set(Position {
+//             .translation = {5.0, 5.0, 5.0},
+//             .scale = {5.0, 5.0, 5.0}
+//         }, manager);
+
+//         Position position = entity.@get(Position, manager);
+
+//         io::printfn("pos %s", position.translation);
+//     };
+// }
 
 
 

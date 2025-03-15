@@ -45,13 +45,13 @@ char[*] shader = $embed("./shaders/shader.spv");
 
 camera::Camera camera;
 
-struct Position @tag("MEM_TYPE", 0) {
+struct Position {
     Vec3f scale;
     Vec3f translation;
     Quaternionf rotation;
 }
 
-struct Render @tag("MEM_TYPE", 1) {
+struct Render @tag("BUFFER", 1) {
     uint indexCount;
     uint instanceCount;
     uint firstIndex;
@@ -84,7 +84,19 @@ fn void main()
     // Create camera
     camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    EntityManager manager;
+
+   Memory local_memory = vk::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &context.local_allocation,
+        null,
+        data_size: 45_000_000
+    )!!;
+
+    EntityManager manager = ecs::create_manager({
+        &&ecs::Buffer{},
+        (ecs::Allocator)&local_memory
+    });
+
     defer manager.free();
 
     Entity player = manager.@create_entity(
@@ -94,6 +106,15 @@ fn void main()
         },
         Render{}
     );
+
+    player.@set(Position {
+        .translation = {5.0, 5.0, 5.0},
+        .scale = {5.0, 5.0, 5.0}
+    }, manager);
+
+    Position position = player.@get(Position, manager);
+
+    io::printfn("%s", position.translation);
   
     Memory uniform = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
