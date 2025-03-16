@@ -279,20 +279,20 @@ fn void main()
 
         foreach (event: event_map) {
             switch {
-                // case event.is_pressed(LEFT_MOUSE): {
-                //     Vec2f mouse_pos = win.getMousePos();
-                //     camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
-                //     scene.@set(camera.data(), manager);
-                //     prev_mouse = mouse_pos;
-                // }
-                // case event.is_pressed(MOUSE_SCROLL_DOWN): {
-                //     camera.zoom(-5);
-                //     scene.@set(camera.data(), manager);
-                // }
-                // case event.is_pressed(MOUSE_SCROLL_UP): {
-                //     camera.zoom(5);
-                //     scene.@set(camera.data(), manager);
-                // }
+                case event.is_pressed(LEFT_MOUSE): {
+                    Vec2f mouse_pos = win.getMousePos();
+                    camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
+                    scene.@set(camera.data(), manager);
+                    prev_mouse = mouse_pos;
+                }
+                case event.is_pressed(MOUSE_SCROLL_DOWN): {
+                    camera.zoom(-5);
+                    scene.@set(camera.data(), manager);
+                }
+                case event.is_pressed(MOUSE_SCROLL_UP): {
+                    camera.zoom(5);
+                    scene.@set(camera.data(), manager);
+                }
                 case event.is_pressed(ESCAPE): {
                     running = false;
                 }
