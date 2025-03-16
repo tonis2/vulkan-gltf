@@ -86,7 +86,7 @@
                     "material": 0
                 }
             ],
-            "name": "LOD3spShape"
+            "name": "Duck"
         }
     ],
     "accessors": [
@@ -166,7 +166,7 @@
                 0.0,
                 0.0
             ],
-            "name": "blinn3-fx"
+            "name": "duck-material"
         }
     ],
     "textures": [

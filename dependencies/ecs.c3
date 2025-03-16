@@ -50,10 +50,13 @@ fn EntityManager create_manager(Allocator[] buffers) {
 }
 
 fn void EntityManager.free(&self) {
+    // foreach (buffer: self.buffers) {
+    //     buffer.free();
+    // };
+    self.buffers.free();
     self.keys.free();
     self.views.free();
     self.entities.free();
-    foreach (buffer: self.buffers) buffer.free();
 }
 
 macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
@@ -82,15 +85,14 @@ macro Entity EntityManager.@create_entity(&self, ...) {
         component = self.keys[type_name];
 
         size += $typeof($vaarg[$i]).sizeof;
-       
-        // Push data of the entity to buffer
+
         if (try component) {
-            // If data in data-map, only add type to entity bitmask
+            // If component already exists, add mark component in entitys bitmask
             entity.bitmask |= 1 << component.id;
             buffer_index = component.buffer;
         }
         else {
-            // If data not in data-map, create new entry and add type to entity bitmask
+            // If component not created before, add it to component map and then to entiy's bitmask
             uint key_index = (uint)self.keys.len();
             entity.bitmask |= 1 << key_index;
 
@@ -106,6 +108,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
             self.keys[type_name] = component!!;
         }
 
+        // Create a buffer view mapping and push data to buffer
         self.views[BufferID {
             .component = component!!.id,
             .entity = entity.id,
@@ -153,7 +156,7 @@ macro Entity.@get(self, #type, EntityManager manager) {
     return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
 }
 
-macro Entity.@set(self, #data, EntityManager manager) {
+macro Entity.@set(self, #data, EntityManager manager, usz offset = 0) {
     Component component = manager.keys[$typeof(#data).nameof]!!;
     BufferID index = {
         .component = component.id,
@@ -163,8 +166,20 @@ macro Entity.@set(self, #data, EntityManager manager) {
     Allocator buffer = manager.buffers[component.buffer];
     uint type_offset = manager.views[index]!!;
 
+    return buffer.upload(&&#data, $typeof(#data).sizeof, type_offset + offset);
+}
 
-    return buffer.upload(&&#data, $typeof(#data).sizeof, type_offset);
+macro Entity.@set_value(self, #type, #data, EntityManager manager, usz offset = 0) {
+    Component component = manager.keys[#type.nameof]!!;
+    BufferID index = {
+        .component = component.id,
+        .entity = self.id,
+    };
+
+    Allocator buffer = manager.buffers[component.buffer];
+    uint type_offset = manager.views[index]!!;
+
+    return buffer.upload(&&#data, $typeof(#data).sizeof, type_offset + offset);
 }
 
 struct Buffer (Allocator) {

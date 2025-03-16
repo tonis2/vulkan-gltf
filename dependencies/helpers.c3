@@ -903,14 +903,16 @@ struct GameData {
 
     List(<Vertex>) vertices;
     List(<ushort>) indices;
-    List(<Matrix4f>) instance_matrices;
     List(<MeshData>) meshes;
-    HashMap(<String, DrawGroup>) draw_group;
 
-    Memory instance_buffer;
-    Memory draw_buffer;
     Memory vertex_buffer;
     Memory index_buffer;
+}
+
+fn GameData createGame(DeviceContext* context) {
+    return GameData {
+        .context = context,
+    };
 }
 
 struct MeshData {
@@ -925,26 +927,11 @@ struct MeshData {
 }
 
 fn void GameData.free(&self) {
-    self.vertices.free();
-    self.indices.free();
-    self.instance_matrices.free();
     self.meshes.free();
-    self.draw_group.free();
-}
-
-fn GameData create_game(uint max_draws = 500, DeviceContext* context) {
-    return GameData {
-        .context = context,
-        .draw_buffer = vk::new_buffer(
-            vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-            &context.local_allocation,
-            null,
-            data_size: max_draws * DrawData.sizeof
-        )!!
-    };
 }
 
 fn void! GameData.build_buffers(&self) {
+
     self.vertex_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &self.context.device_allocation,
@@ -963,54 +950,45 @@ fn void! GameData.build_buffers(&self) {
         queue: &self.context.graphics_queue
     )!;
 
-    self.instance_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
-        &self.context.device_allocation,
-        self.instance_matrices.entries,
-        data_size: self.instance_matrices.len() * Matrix4f.sizeof,
-        stage_allocator: &self.context.local_allocation,
-        queue: &self.context.graphics_queue
-    )!;
-
     self.vertices.free();
     self.indices.free();
 }
 
-fn void GameData.add_draw_cmd(&self, MeshData* mesh, 
-                             bool skinned = false, 
-                             Matrix4f node_matrix, 
-                             uint instance_offset = 0, 
-                             uint firstInstance = 0, 
-                             uint instanceCount = 1,
-                             String group = "default") {
-    DrawData data = {
-        .indexCount = mesh.indexCount,
-        .firstInstance = firstInstance,
-        .instanceCount = instanceCount,
-        .firstIndex = (uint)mesh.firstIndex,
-        .vertexOffset = (uint)mesh.vertexOffset,
-        .has_skin = (int)skinned,
-        .material_index = mesh.materialIndex,
-        .node_matrix = node_matrix,
-        .instance_offset = instance_offset
-    };
+// fn void GameData.add_draw_cmd(&self, MeshData* mesh, 
+//                              bool skinned = false, 
+//                              Matrix4f node_matrix, 
+//                              uint instance_offset = 0, 
+//                              uint firstInstance = 0, 
+//                              uint instanceCount = 1,
+//                              String group = "default") {
+//     DrawData data = {
+//         .indexCount = mesh.indexCount,
+//         .firstInstance = firstInstance,
+//         .instanceCount = instanceCount,
+//         .firstIndex = (uint)mesh.firstIndex,
+//         .vertexOffset = (uint)mesh.vertexOffset,
+//         .has_skin = (int)skinned,
+//         .material_index = mesh.materialIndex,
+//         .node_matrix = node_matrix,
+//         .instance_offset = instance_offset
+//     };
 
-    DrawGroup*! draw_group = self.draw_group.get_ref(group);
+//     DrawGroup*! draw_group = self.draw_group.get_ref(group);
 
-    if (try draw_group) {
-        draw_group.size += 1;
-    } else {
-        self.draw_group[group] = DrawGroup {
-            .offset = (uint)self.draw_buffer.used_size,
-            .size = 1,
-        };
-    }
+//     if (try draw_group) {
+//         draw_group.size += 1;
+//     } else {
+//         self.draw_group[group] = DrawGroup {
+//             .offset = (uint)self.draw_buffer.used_size,
+//             .size = 1,
+//         };
+//     }
 
-    self.draw_buffer.push(&data, size: DrawData.sizeof);
-    mesh.draw_index = (uint)self.draw_buffer.used_size / DrawData.sizeof;
-}
+//     self.draw_buffer.push(&data, size: DrawData.sizeof);
+//     mesh.draw_index = (uint)self.draw_buffer.used_size / DrawData.sizeof;
+// }
 
-fn MeshData* GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
+fn MeshData GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
         MeshData data = {
             .firstIndex = (uint)self.indices.len(),
             .vertexOffset = (uint)self.vertices.len(),
@@ -1094,5 +1072,5 @@ fn MeshData* GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
         }
 
         self.meshes.push(data);
-        return self.meshes.get_ref(self.meshes.len() - 1);
+        return data;
 }

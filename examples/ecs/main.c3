@@ -13,38 +13,6 @@ import ecs;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-struct InstanceData {
-    uint indexCount;
-    uint firstInstance;
-    uint instanceCount;
-    uint firstIndex;
-    uint vertexOffset;
-    int material_index;
-
-    Matrix4f node_matrix;
-    vk::DeviceAddress positions;
-    vk::DeviceAddress tex_cords;
-}
-
-struct Uniform {
-    Matrix4f perspective;
-    Matrix4f view;
-    Vec4f eye;
-}
-
-// Used to send buffer device addresses to GPU
-struct AddressBuffer {
-    vk::DeviceAddress instance_buffer;
-    vk::DeviceAddress uniform_buffer;
-}
-
-DescriptorImages descriptor_images;
-
-Vec2f window_size = {800, 600};
-char[*] shader = $embed("./shaders/shader.spv");
-
-camera::Camera camera;
-
 struct Position {
     Vec3f scale;
     Vec3f translation;
@@ -64,6 +32,30 @@ struct Render @tag("BUFFER", 1) {
     Matrix4f node_matrix;
 }
 
+
+fn Render createRender(MeshData mesh) {
+    return Render {
+        .indexCount = mesh.indexCount,
+        .instanceCount = mesh.instanceCount,
+        .firstIndex = mesh.firstIndex,
+        .vertexOffset = mesh.vertexOffset,
+        .firstInstance = mesh.firstInstance,
+        .has_skin = -1,
+        .material_index = 0,
+    };
+}
+
+// Used to send buffer device addresses to GPU
+struct AddressBuffer {
+    vk::DeviceAddress instance_buffer;
+    vk::DeviceAddress uniform_buffer;
+}
+
+DescriptorImages descriptor_images;
+
+Vec2f window_size = {800, 600};
+char[*] shader = $embed("./shaders/shader.spv");
+
 fn void main()
 {
     c3w::Window win = c3w::new(
@@ -82,64 +74,69 @@ fn void main()
     defer context.free();
 
     // Create camera
-    camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
+    camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
+    GameData game_data = helpers::createGame(&context);
+    defer game_data.free();
 
-   Memory local_memory = vk::new_buffer(
+    Gltf gltf = gltf::loadFile("assets/duck.gltf")!!;
+    defer gltf.free();
+
+    MeshData duck = game_data.add_mesh(gltf.findMesh("Duck")!!, gltf);
+    game_data.build_buffers()!!;
+
+    Memory local_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &context.local_allocation,
         null,
-        data_size: 45_000_000
+        data_size: 25_000_000
     )!!;
 
+    ecs::Buffer dynamic_buffer;
+
     EntityManager manager = ecs::create_manager({
-        &&ecs::Buffer{},
+        &dynamic_buffer,
         (ecs::Allocator)&local_memory
     });
 
     defer manager.free();
+
+    Entity scene = manager.@create_entity(
+        camera.data(),
+        Light[] {
+            Light {
+                .position = {2, 12.0, 5},
+                .color = {1, 1, 1},
+                .intensity = 54351,
+                .type = DIRECTIONAL
+            },
+        },
+    );
 
     Entity player = manager.@create_entity(
         Position {
             .translation = {1.0, 1.0, 1.0},
             .scale = {1.0, 1.0, 1.0}
         },
-        Render{}
+        createRender(duck)
     );
 
-    player.@set(Position {
-        .translation = {5.0, 5.0, 5.0},
-        .scale = {5.0, 5.0, 5.0}
-    }, manager);
+    // Render render = player.@get(Render, manager);
 
-    Position position = player.@get(Position, manager);
+    // io::printfn("matrix %s", render.node_matrix.m);
 
-    io::printfn("%s", position.translation);
-  
-    Memory uniform = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &context.local_allocation,
-        &&Uniform {
-            .perspective = camera.perspective.transpose(),
-            .view = camera.view.transpose(),
-            .eye = Vec4f {camera.eye, 0.0 },
-        },
-        data_size: Uniform.sizeof
-    )!!;
+    // player.@set_value(Render, MATRIX4F_IDENTITY, manager, offset: Render.node_matrix.offsetof);
 
-    Memory instance_buffer = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        &context.local_allocation,
-        null,
-        data_size: InstanceData.sizeof * 100
-    )!!;
+
+
+    // manager.@query(Position{}, Render{}; Entity entity) {};
 
     Memory addresses = vk::new_buffer(
         vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         &context.local_allocation,
         &&AddressBuffer {
-            instance_buffer.address,
-            uniform.address
+            local_memory.address,
+            local_memory.address
         },
         data_size: AddressBuffer.sizeof
     )!!;
@@ -282,20 +279,20 @@ fn void main()
 
         foreach (event: event_map) {
             switch {
-                case event.is_pressed(LEFT_MOUSE): {
-                    Vec2f mouse_pos = win.getMousePos();
-                    camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
-                    uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
-                    prev_mouse = mouse_pos;
-                }
-                case event.is_pressed(MOUSE_SCROLL_DOWN): {
-                    camera.zoom(-5);
-                    uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
-                }
-                case event.is_pressed(MOUSE_SCROLL_UP): {
-                    camera.zoom(5);
-                    uniform.upload(&&camera.view.transpose(), size: Matrix4f.sizeof, offset: Uniform.view.offsetof);
-                }
+                // case event.is_pressed(LEFT_MOUSE): {
+                //     Vec2f mouse_pos = win.getMousePos();
+                //     camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
+                //     scene.@set(camera.data(), manager);
+                //     prev_mouse = mouse_pos;
+                // }
+                // case event.is_pressed(MOUSE_SCROLL_DOWN): {
+                //     camera.zoom(-5);
+                //     scene.@set(camera.data(), manager);
+                // }
+                // case event.is_pressed(MOUSE_SCROLL_UP): {
+                //     camera.zoom(5);
+                //     scene.@set(camera.data(), manager);
+                // }
                 case event.is_pressed(ESCAPE): {
                     running = false;
                 }

@@ -1268,6 +1268,16 @@ fn Node! Gltf.getNode(Gltf* self, String name) {
     return ParseError.KEY_NOT_FOUND?;
 }
 
+
+fn Mesh! Gltf.findMesh(Gltf* self, String name) {
+    foreach (mesh : self.meshes) {
+        if (mesh.name == name) {
+            return mesh;
+        }
+    }
+    return ParseError.KEY_NOT_FOUND?;
+}
+
 <*
  @require self.animations.len() > 0 "GLTF animations must not be empty"
  @require self.animations.len() >= indexes.len "Theres more load indexes, than GLTF animations"
