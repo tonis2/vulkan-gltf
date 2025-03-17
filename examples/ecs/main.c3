@@ -36,10 +36,10 @@ struct Render @tag("BUFFER", 1) {
 fn Render createRender(MeshData mesh, bool has_skin = false, int material = -1, Matrix4f node_matrix = MATRIX4F_IDENTITY) {
     return Render {
         .indexCount = mesh.indexCount,
-        .instanceCount = mesh.instanceCount,
         .firstIndex = mesh.firstIndex,
         .vertexOffset = mesh.vertexOffset,
-        .firstInstance = mesh.firstInstance,
+        .instanceCount = 1,
+        .firstInstance = 0,
         .has_skin = (int)has_skin,
         .material_index = material,
         .node_matrix = node_matrix
@@ -133,9 +133,6 @@ fn void main()
         },
         createRender(duck)
     );
-
-    // vk::DeviceAddress scene_adr = ;
-
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
 
@@ -362,6 +359,8 @@ fn void main()
         vk::cmdPushDescriptorSetKHR(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.layout, 0, (uint)pipeline_layout.sets.len(), pipeline_layout.sets.entries);
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        vk::cmdBindIndexBuffer(command_buffer, game_data.index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
  
         rendering_info.setColorAttachments({ main_render_target });
         rendering_info.setDepthAttachment(&main_depth_target);

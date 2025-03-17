@@ -68,10 +68,10 @@ struct Light
 struct DrawCommand
 {   
     uint indexCount;
-    uint firstInstance;
     uint instanceCount;
     uint firstIndex;
-    uint vertexOffset;
+    int vertexOffset;
+    uint firstInstance;
 
     int material_index;
     int has_skin;
