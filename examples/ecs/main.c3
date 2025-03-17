@@ -13,7 +13,7 @@ import ecs;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-struct Position {
+struct Position @tag("BUFFER", 2) {
     Vec3f scale;
     Vec3f translation;
     Quaternionf rotation;
@@ -33,23 +33,25 @@ struct Render @tag("BUFFER", 1) {
 }
 
 
-fn Render createRender(MeshData mesh) {
+fn Render createRender(MeshData mesh, bool has_skin = false, int material = -1, Matrix4f node_matrix = MATRIX4F_IDENTITY) {
     return Render {
         .indexCount = mesh.indexCount,
         .instanceCount = mesh.instanceCount,
         .firstIndex = mesh.firstIndex,
         .vertexOffset = mesh.vertexOffset,
         .firstInstance = mesh.firstInstance,
-        .has_skin = -1,
-        .material_index = 0,
+        .has_skin = (int)has_skin,
+        .material_index = material,
+        .node_matrix = node_matrix
     };
 }
 
-// Used to send buffer device addresses to GPU
-struct AddressBuffer {
-    vk::DeviceAddress instance_buffer;
-    vk::DeviceAddress uniform_buffer;
+struct VertexData { 
+    vk::DeviceAddress vertices;
+    vk::DeviceAddress instances;
 }
+
+// Used to send buffer device addresses to GPU
 
 DescriptorImages descriptor_images;
 
@@ -82,35 +84,46 @@ fn void main()
     Gltf gltf = gltf::loadFile("assets/duck.gltf")!!;
     defer gltf.free();
 
-    MeshData duck = game_data.add_mesh(gltf.findMesh("Duck")!!, gltf);
+    MeshData duck = game_data.add_mesh("Duck", gltf);
     game_data.build_buffers()!!;
 
-    Memory local_memory = vk::new_buffer(
+    Memory scene_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &context.local_allocation,
         null,
-        data_size: 25_000_000
+        data_size: 15_000_000
+    )!!;
+
+    Memory instance_memory = vk::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        &context.local_allocation,
+        null,
+        data_size: 5_000_000
     )!!;
 
     ecs::Buffer dynamic_buffer;
+    defer dynamic_buffer.free();
 
     EntityManager manager = ecs::create_manager({
+        (ecs::Allocator)&scene_memory,
+        (ecs::Allocator)&instance_memory,
         &dynamic_buffer,
-        (ecs::Allocator)&local_memory
     });
 
     defer manager.free();
 
     Entity scene = manager.@create_entity(
         camera.data(),
-        Light[] {
-            Light {
-                .position = {2, 12.0, 5},
-                .color = {1, 1, 1},
-                .intensity = 54351,
-                .type = DIRECTIONAL
-            },
+        Light {
+            .position = {2, 12.0, 5},
+            .color = {1, 1, 1},
+            .intensity = 54351,
+            .type = DIRECTIONAL
         },
+        VertexData {
+            .vertices = game_data.vertex_buffer.address,
+            .instances = instance_memory.address
+        }
     );
 
     Entity player = manager.@create_entity(
@@ -121,25 +134,8 @@ fn void main()
         createRender(duck)
     );
 
-    // Render render = player.@get(Render, manager);
+    // vk::DeviceAddress scene_adr = ;
 
-    // io::printfn("matrix %s", render.node_matrix.m);
-
-    // player.@set_value(Render, MATRIX4F_IDENTITY, manager, offset: Render.node_matrix.offsetof);
-
-
-
-    // manager.@query(Position{}, Render{}; Entity entity) {};
-
-    Memory addresses = vk::new_buffer(
-        vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        &context.local_allocation,
-        &&AddressBuffer {
-            local_memory.address,
-            local_memory.address
-        },
-        data_size: AddressBuffer.sizeof
-    )!!;
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
 
@@ -150,9 +146,9 @@ fn void main()
             .setDstBinding(0)
             .setBufferInfo({
                 {
-                    .buffer = addresses.buffer,
-                    .offset = 0,
-                    .range = AddressBuffer.sizeof,
+                    .buffer = scene_memory.buffer,
+                    .offset = ecs::get_offset(scene, manager),
+                    .range = ecs::get_size(scene, manager),
                 },
             }),
             vk::writeDescriptorSet()
@@ -218,8 +214,8 @@ fn void main()
     .setDepthBiasEnable(vk::FALSE);
 
     PipelineViewportStateCreateInfo view_port_state = vk::pipelineViewportStateCreateInfo()
-            .setViewports({{}})
-            .setScissors({{}});
+    .setViewports({{}})
+    .setScissors({{}});
 
    PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo()
     .setDynamicStates(
@@ -371,7 +367,7 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        // vk::cmdDrawIndexedIndirect(command_buffer, indirect_commands_buffer.buffer, 0, (uint)indirect_commands.len(), DrawIndexedIndirectCommand.sizeof);
+        vk::cmdDrawIndexedIndirect(command_buffer, instance_memory.buffer, 0, (uint)instance_memory.used_size / Render.sizeof, Render.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

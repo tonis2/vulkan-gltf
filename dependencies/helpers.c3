@@ -988,7 +988,8 @@ fn void! GameData.build_buffers(&self) {
 //     mesh.draw_index = (uint)self.draw_buffer.used_size / DrawData.sizeof;
 // }
 
-fn MeshData GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
+fn MeshData GameData.add_mesh(&self, String name, Gltf gltf) {
+        gltf::Mesh mesh = gltf.findMesh(name)!!;
         MeshData data = {
             .firstIndex = (uint)self.indices.len(),
             .vertexOffset = (uint)self.vertices.len(),

@@ -12,12 +12,14 @@ interface Allocator
     fn void push(void* data, usz size);
     fn char* data();
     fn void upload(void* data, usz size, usz offset);
+    fn ulong getAddress();
     fn usz usedSize();
     fn void free();
 }
 
 struct Component {
     uint id;
+    uint size;
     uint buffer;
     usz offset;
 }
@@ -32,8 +34,13 @@ bitstruct BufferID : ulong {
     uint entity : 32..63;
 }
 
+struct BufferView {
+    uint offset;
+    uint size;
+}
+
 def ComponentMap = HashMap(<String, Component>);
-def BufferMap = HashMap(<BufferID, uint>);
+def BufferMap = HashMap(<BufferID, BufferView>);
 
 macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
 
@@ -84,6 +91,7 @@ macro Component EntityManager.@create_component(&self, #data) {
         component = {
             .id = key_index,
             .buffer = buffer_index,
+            .size = $typeof(#data).sizeof,
         };
 
         self.keys[$typeof(#data).nameof] = component;
@@ -116,7 +124,10 @@ macro Entity EntityManager.@create_entity(&self, ...) {
             self.views[BufferID {
                 .component = $vaarg[$i].id,
                 .entity = entity.id,
-            }] = (uint)$vaarg[$i].offset;
+            }] = BufferView {
+                .offset = (uint)$vaarg[$i].offset,
+                .size = $typeof($vaarg[$i]).sizeof
+            };
         $else
             component = self.keys[type_name];
             if (try component) {
@@ -134,7 +145,8 @@ macro Entity EntityManager.@create_entity(&self, ...) {
 
                 component = {
                     .id = key_index,
-                    .buffer = buffer_index
+                    .buffer = buffer_index,
+                    .size = $typeof($vaarg[$i]).sizeof
                 };
 
                 self.keys[type_name] = component!!;
@@ -144,7 +156,10 @@ macro Entity EntityManager.@create_entity(&self, ...) {
             self.views[BufferID {
                 .component = component!!.id,
                 .entity = entity.id,
-            }] = (uint)self.buffers[buffer_index].usedSize();
+            }] = BufferView {
+                .offset = (uint)self.buffers[buffer_index].usedSize(),
+                .size = component!!.size
+            };
             
             self.buffers[buffer_index].push(&&$vaarg[$i], $typeof($vaarg[$i]).sizeof);
         $endif   
@@ -184,7 +199,7 @@ macro Entity.@get(self, #type, EntityManager manager) {
     };
 
     Allocator buffer = manager.buffers[component.buffer];
-    uint type_offset = manager.views[index]!!;
+    uint type_offset = manager.views[index]!!.offset;
 
     return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
 }
@@ -197,19 +212,70 @@ macro Entity.@set(self, #data, EntityManager manager, usz offset = 0) {
     };
 
     Allocator buffer = manager.buffers[component.buffer];
-    uint type_offset = manager.views[index]!!;
+    uint type_offset = manager.views[index]!!.offset;
 
     return buffer.upload(&&#data, $typeof(#data).sizeof, type_offset + offset);
 }
 
-macro Entity.add(&self, Component component, EntityManager manager) {
+fn void Entity.add(&self, Component component, EntityManager manager) {
     self.bitmask |= 1 << component.id;
 
     manager.entities[self.id].bitmask = self.bitmask;
     manager.views[BufferID {
         .component = component.id,
         .entity = self.id,
-    }] = (uint)component.offset;
+    }] = {
+        .offset = (uint)component.offset,
+        .size = component.size,
+    };
+}
+
+fn ulong get_address(Entity entity, EntityManager manager) {
+    Component* component = null;
+    @pool() {
+        foreach (key : manager.views.tcopy_keys()) {
+            if (key.entity == entity.id) {
+                manager.keys.@each_entry(; Entry(<String, Component>)* entry) {
+                    if (entry.value.id == key.component) {
+                         component = &entry.value;
+                    }
+                };
+            }
+        }
+    };
+
+    uint offset = manager.views[BufferID {
+        .component = component.id,
+        .entity = entity.id,
+    }]!!.offset;
+
+    return manager.buffers[component.buffer].getAddress() + offset;
+}
+
+fn uint get_size(Entity entity, EntityManager manager) {
+    uint size;
+    @pool() {
+        foreach (key : manager.views.tcopy_keys()) {
+            if (key.entity == entity.id) {
+                size += manager.views[key]!!.size;
+            }
+        }
+    };
+
+    return size;
+}
+
+fn uint get_offset(Entity entity, EntityManager manager) {
+    uint offset;
+    @pool() {
+        foreach (key : manager.views.tcopy_keys()) {
+            if (key.entity == entity.id) {
+                offset = manager.views[key]!!.offset;
+            }
+        }
+    };
+
+    return 0;
 }
 
 macro Entity.@set_value(self, #type, #data, EntityManager manager, usz offset = 0) {
@@ -233,7 +299,6 @@ macro Component.@set(self, #data, EntityManager manager, usz offset = 0) {
 struct Buffer (Allocator) {
     usz size;
     usz used_size;
-    usz page_size;
     char* mapped;
 }
 
@@ -254,74 +319,75 @@ fn void Buffer.upload(&self, void* data, usz size, usz offset) @dynamic {
     mem::copy(self.mapped + offset, data, size);
 }
 
-fn char* Buffer.data(&self) @dynamic => self.mapped;
-fn usz Buffer.usedSize(&self) @dynamic => self.used_size;
-
 fn void Buffer.free(&self) @dynamic {
     mem::free(self.mapped);
     self.size = 0;
     self.used_size = 0;
 }
 
-struct Position  {
-    Vec3f scale;
-    Vec3f translation;
-    Quaternionf rotation;
-}
+fn char* Buffer.data(&self) @dynamic => self.mapped;
+fn usz Buffer.usedSize(&self) @dynamic => self.used_size;
+fn ulong Buffer.getAddress(&self) @dynamic => 0;
 
-struct Render {
-    uint draw_id;
-}
+// struct Position  {
+//     Vec3f scale;
+//     Vec3f translation;
+//     Quaternionf rotation;
+// }
 
-struct Velocity @tag("BUFFER", 0) {
-    float x;
-    float y;
-    float z;
-}
+// struct Render {
+//     uint draw_id;
+// }
 
-fn void main() {
+// struct Velocity @tag("BUFFER", 0) {
+//     float x;
+//     float y;
+//     float z;
+// }
+
+// fn void main() {
     
-    EntityManager manager = create_manager({
-        &&Buffer{},
-        &&Buffer{}
-    });
+//     EntityManager manager = create_manager({
+//         &&Buffer{},
+//         &&Buffer{}
+//     });
 
-    defer manager.free();
+//     defer manager.free();
 
-    Component velocity_comp = manager.@create_component(Velocity{ 1.0, 2.0, 3.0 });
+//     Component velocity_comp = manager.@create_component(Velocity{ 1.0, 2.0, 3.0 });
 
-    velocity_comp.@set(Velocity{ 3.0, 3.0, 3.0 }, manager);
+//     velocity_comp.@set(Velocity{ 3.0, 3.0, 3.0 }, manager);
 
-    Entity player = manager.@create_entity(
-        Position {
-            .translation = {1.0, 1.0, 1.0},
-            .scale = {1.0, 1.0, 1.0}
-        },
-    );
+//     Entity player = manager.@create_entity(
+//         Position {
+//             .translation = {1.0, 1.0, 1.0},
+//             .scale = {1.0, 1.0, 1.0}
+//         },
+//     );
 
-    Entity player2 = manager.@create_entity(
-        Position{},
-        velocity_comp
-    );
+//     Entity player2 = manager.@create_entity(
+//         Position{},
+//         velocity_comp
+//     );
 
-    player.add(velocity_comp, manager);
+//     player.add(velocity_comp, manager);
 
-    manager.@query(Position{}, Velocity{}; Entity entity) {
-        Velocity velocity = entity.@get(Velocity, manager);
-        io::printfn("QUERY ENTRY");
+//     manager.@query(Position{}, Velocity{}; Entity entity) {
+//         Velocity velocity = entity.@get(Velocity, manager);
+//         io::printfn("QUERY ENTRY");
 
-        assert(velocity.x == 3.000000);
-        assert(velocity.y == 3.000000);
+//         assert(velocity.x == 3.000000);
+//         assert(velocity.y == 3.000000);
 
-        entity.@set(Position {
-            .translation = {5.0, 5.0, 5.0},
-            .scale = {5.0, 5.0, 5.0}
-        }, manager);
+//         entity.@set(Position {
+//             .translation = {5.0, 5.0, 5.0},
+//             .scale = {5.0, 5.0, 5.0}
+//         }, manager);
 
-        Position position = entity.@get(Position, manager);
-        assert(position.translation.x == 5.000000);
-    };
-}
+//         Position position = entity.@get(Position, manager);
+//         assert(position.translation.x == 5.000000);
+//     };
+// }
 
 
 

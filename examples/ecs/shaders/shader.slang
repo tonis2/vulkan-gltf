@@ -43,61 +43,53 @@ struct Material
     }
 };
 
-public typealias u8vec4 = vector<uint8_t, 4>;
 
 struct Vertex
 {
     float3 position;
     float3 normal;
     float2 tex_cord;
-    u8vec4 skin_pos;
+    float4 skin_pos;
     float4 skin_weight;
 };
 
-struct Instance
+struct Light
 {
-    int material_index;
-    int has_skin;
-    float4x4 node_matrix;
-    float3* positions;
-    float3* normals;
-    float2* text_cords;
-    u8vec4* skin_pos;
-    float4* weights;
-
-    Vertex get_vertex(uint index) {
-        float3 normal = normals[index];
-        return {
-            positions[index],
-            normal,
-            text_cords[index],
-            skin_pos[index],
-            weights[index]
-        };
-    }
+    float4 position;
+    float4 color;
+    uint type;
+    float intensity;
+    float range;
+    float inner_angle;
+    float outer_angle;
+    float3 pad;
 }
 
-struct Uniform
+struct DrawCommand
+{   
+    uint indexCount;
+    uint firstInstance;
+    uint instanceCount;
+    uint firstIndex;
+    uint vertexOffset;
+
+    int material_index;
+    int has_skin;
+    uint instance_offset;
+    float4x4 node_matrix;
+}
+
+
+[vk_binding(0)]
+cbuffer Scene
 {
     float4x4 perspective;
     float4x4 view;
     float4 eye;
-}
-
-// struct PushData
-// {
-//     uint light_index;
-// };
-
-// [vk_push_constant]
-// const PushData push_constant;
-
-[vk_binding(0)]
-cbuffer Buffers
-{
-    Material *materials;
-    Instance *instances;
-    Uniform *uniform;
+    Light light;
+    Vertex* vertices;
+    DrawCommand* commmands;
+    Material* materials;
 }
 
 [vk_binding(1)]
@@ -123,11 +115,11 @@ struct VertexInput {
 [shader("vertex")]
 FragmentData vertexMain(VertexInput input)
 {
-    Instance instance = instances[input.drawID];
-    Vertex vertex = instance.get_vertex(input.vertID);
+    DrawCommand instance = commmands[input.drawID];
+    Vertex vertex = vertices[input.vertID];
 
     float4 frag_pos = mul(instance.node_matrix, float4(vertex.position.xyz, 1.0));
-    float4 vertex_pos = mul(mul(uniform.perspective, uniform.view), frag_pos);
+    float4 vertex_pos = mul(mul(perspective, view), frag_pos);
 
     FragmentData output = {
         vertex.tex_cord,
