@@ -46,10 +46,12 @@ struct Material
 
 struct Vertex
 {
-    float3 position;
-    float3 normal;
+    float4 position;
+    float4 normal;
     float2 tex_cord;
-    float4 skin_pos;
+    float2 pad;
+    float4 tangent;
+    uint4 skin_pos;
     float4 skin_weight;
 };
 

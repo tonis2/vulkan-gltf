@@ -13,10 +13,14 @@ import ecs;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-struct Position @tag("BUFFER", 2) {
+struct Position @tag("BUFFER", 3) {
     Vec3f scale;
     Vec3f translation;
     Quaternionf rotation;
+}
+
+struct MaterialInfo @tag("BUFFER", 2) {
+    uint texture;
 }
 
 struct Render @tag("BUFFER", 1) {
@@ -46,17 +50,39 @@ fn Render createRender(MeshData mesh, bool has_skin = false, int material = -1, 
     };
 }
 
-struct VertexData { 
+struct SceneData { 
     vk::DeviceAddress vertices;
     vk::DeviceAddress instances;
 }
 
 // Used to send buffer device addresses to GPU
-
 DescriptorImages descriptor_images;
 
 Vec2f window_size = {800, 600};
 char[*] shader = $embed("./shaders/shader.spv");
+
+DeviceContext context;
+
+fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
+    vk::Device device = context.device;
+
+    Memory stage_buffer = vk::new_buffer(
+        vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
+        &context.local_allocation,
+        data,
+        data_size: size
+    )!!;
+
+    device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, (vk::Buffer)target_buffer.getBuffer(), 1, &&BufferCopy {
+            .srcOffset = 0,
+            .dstOffset = offset,
+            .size = size
+        });
+    }!!;
+
+    stage_buffer.free();
+}
 
 fn void main()
 {
@@ -72,7 +98,7 @@ fn void main()
     defer win.free();
 
     // Vulkan context
-    DeviceContext context = helpers::createContext(win)!!;
+    context = helpers::createContext(win)!!;
     defer context.free();
 
     // Create camera
@@ -101,14 +127,25 @@ fn void main()
         data_size: 5_000_000
     )!!;
 
+    Memory device_memory = vk::new_buffer(
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+        &context.device_allocation,
+        null,
+        data_size: 15_000_000,
+    )!!;
+
     ecs::Buffer dynamic_buffer;
     defer dynamic_buffer.free();
 
-    EntityManager manager = ecs::create_manager({
-        (ecs::Allocator)&scene_memory,
-        (ecs::Allocator)&instance_memory,
-        &dynamic_buffer,
-    });
+    EntityManager manager = ecs::create_manager(
+        uploadFN: &stageToGPU,    
+        buffers: {
+            (ecs::Allocator)&scene_memory,
+            (ecs::Allocator)&instance_memory,
+            (ecs::Allocator)&device_memory,
+            &dynamic_buffer,
+        }
+    );
 
     defer manager.free();
 
@@ -120,7 +157,7 @@ fn void main()
             .intensity = 54351,
             .type = DIRECTIONAL
         },
-        VertexData {
+        SceneData {
             .vertices = game_data.vertex_buffer.address,
             .instances = instance_memory.address
         }
@@ -131,7 +168,10 @@ fn void main()
             .translation = {1.0, 1.0, 1.0},
             .scale = {1.0, 1.0, 1.0}
         },
-        createRender(duck)
+        MaterialInfo {
+            .texture = 0,
+        },
+        createRender(duck),
     );
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;

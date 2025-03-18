@@ -7,6 +7,19 @@ import std::collections::map;
 import std::encoding::json;
 import std::core::builtin;
 
+
+enum GpuType : uint
+{
+    HOST_VISIBLE,
+    DEVICE_ONLY
+}
+
+
+enum Action : uint
+{
+    STAGE_TO_GPU,
+}
+
 interface Allocator
 {
     fn void push(void* data, usz size);
@@ -14,6 +27,8 @@ interface Allocator
     fn void upload(void* data, usz size, usz offset);
     fn ulong getAddress();
     fn usz usedSize();
+    fn uint getType();
+    fn void* getBuffer();
     fn void free();
 }
 
@@ -41,21 +56,29 @@ struct BufferView {
 
 def ComponentMap = HashMap(<String, Component>);
 def BufferMap = HashMap(<BufferID, BufferView>);
+def ActionMap = HashMap(<Action, void*>);
 
 macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
+macro uint Action.hash(Action i) => builtin::@generic_hash(i.ordinal);
 
 struct EntityManager {
     ComponentMap keys;
     BufferMap views;
     List(<Allocator>) buffers;
     List(<Entity>) entities;
+    UploadFN uploadFN;
 }
 
-fn EntityManager create_manager(Allocator[] buffers) {
-    EntityManager manager;
+fn EntityManager create_manager(UploadFN uploadFN, Allocator[] buffers) {
+    EntityManager manager = {
+        .uploadFN = uploadFN,
+    };
     foreach (buffer: buffers) manager.buffers.push(buffer);
     return manager;
 }
+
+def UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset);
+
 
 fn void EntityManager.free(&self) {
     // foreach (buffer: self.buffers) {
@@ -160,8 +183,12 @@ macro Entity EntityManager.@create_entity(&self, ...) {
                 .offset = (uint)self.buffers[buffer_index].usedSize(),
                 .size = component!!.size
             };
-            
-            self.buffers[buffer_index].push(&&$vaarg[$i], $typeof($vaarg[$i]).sizeof);
+
+            if (self.buffers[buffer_index].getType() == GpuType.DEVICE_ONLY.ordinal) {
+                self.uploadFN(self.buffers[buffer_index], &&$vaarg[$i], $typeof($vaarg[$i]).sizeof, self.buffers[buffer_index].usedSize());
+            } else {
+                self.buffers[buffer_index].push(&&$vaarg[$i], $typeof($vaarg[$i]).sizeof);
+            }
         $endif   
 	$endfor
 
@@ -328,6 +355,8 @@ fn void Buffer.free(&self) @dynamic {
 fn char* Buffer.data(&self) @dynamic => self.mapped;
 fn usz Buffer.usedSize(&self) @dynamic => self.used_size;
 fn ulong Buffer.getAddress(&self) @dynamic => 0;
+fn uint Buffer.getType(&self) @dynamic => 0;
+fn void* Buffer.getBuffer(&self) @dynamic => null;
 
 // struct Position  {
 //     Vec3f scale;
