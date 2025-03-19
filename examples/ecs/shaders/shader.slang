@@ -140,9 +140,9 @@ float4 fragmentMain(FragmentData input)
     Material material = materials[input.material_index];
     if (input.material_index >= 0)
     {
-        Material material = materials[input.material_index];
-        float4 diffuse_texture = material.getBaseColor(input.tex_cord);
-        return diffuse_texture;
+        // Material material = materials[input.material_index];
+        // float4 diffuse_texture = material.getBaseColor(input.tex_cord);
+        // return diffuse_texture;
     }
 
     return float4(0.5, 0.5, 0.5, 1.0);

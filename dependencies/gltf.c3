@@ -938,7 +938,7 @@ fn void Skin.fromJson(&self, Object* json) {
     uint! skeleton = json.get_int("skeleton");
     uint! inverseBindMatrices = json.get_int("inverseBindMatrices");
     
-    if (try name) self.name = name;
+    if (try name) self.name = name.copy();
     if (try skeleton) self.skeleton = skeleton;
     if (try inverseBindMatrices) self.inverseBindAccessor = inverseBindMatrices;
     if (try joints) {
@@ -1260,9 +1260,9 @@ fn void Gltf.free(Gltf* self) {
 }
 
 fn Node! Gltf.getNode(Gltf* self, String name) {
-    foreach (node : self.nodes) {
-        if (node.name == name) {
-            return node;
+    foreach (data : self.nodes) {
+        if (data.name == name) {
+            return data;
         }
     }
     return ParseError.KEY_NOT_FOUND?;
@@ -1270,9 +1270,19 @@ fn Node! Gltf.getNode(Gltf* self, String name) {
 
 
 fn Mesh! Gltf.findMesh(Gltf* self, String name) {
-    foreach (mesh : self.meshes) {
-        if (mesh.name == name) {
-            return mesh;
+    foreach (data : self.meshes) {
+        if (data.name == name) {
+            return data;
+        }
+    }
+    return ParseError.KEY_NOT_FOUND?;
+}
+
+fn Skin! Gltf.findSkin(Gltf* self, String name) {
+    foreach (data : self.skins) {
+        io::printfn("%s", data.name);
+        if (data.name == name) {
+            return data;
         }
     }
     return ParseError.KEY_NOT_FOUND?;

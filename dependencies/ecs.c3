@@ -241,7 +241,11 @@ macro Entity.@set(self, #data, EntityManager manager, usz offset = 0) {
     Allocator buffer = manager.buffers[component.buffer];
     uint type_offset = manager.views[index]!!.offset;
 
-    return buffer.upload(&&#data, $typeof(#data).sizeof, type_offset + offset);
+    if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+        manager.uploadFN(buffer, &&#data, $typeof(#data).sizeof, type_offset + offset);
+    } else {
+        buffer.upload(&&#data, $typeof(#data).sizeof, type_offset + offset);
+    }
 }
 
 fn void Entity.add(&self, Component component, EntityManager manager) {

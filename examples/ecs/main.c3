@@ -36,16 +36,15 @@ struct Render @tag("BUFFER", 1) {
     Matrix4f node_matrix;
 }
 
-
-fn Render createRender(MeshData mesh, bool has_skin = false, int material = -1, Matrix4f node_matrix = MATRIX4F_IDENTITY) {
+fn Render createRender(MeshData mesh, bool has_skin = false, Matrix4f node_matrix = MATRIX4F_IDENTITY) {
     return Render {
         .indexCount = mesh.indexCount,
         .firstIndex = mesh.firstIndex,
         .vertexOffset = mesh.vertexOffset,
+        .has_skin = (int)has_skin,
+        .material_index = mesh.materialIndex,
         .instanceCount = 1,
         .firstInstance = 0,
-        .has_skin = (int)has_skin,
-        .material_index = material,
         .node_matrix = node_matrix
     };
 }
@@ -107,10 +106,15 @@ fn void main()
     GameData game_data = helpers::createGame(&context);
     defer game_data.free();
 
-    Gltf gltf = gltf::loadFile("assets/duck.gltf")!!;
+    Gltf gltf = gltf::loadFile("assets/CesiumMan.gltf")!!;
     defer gltf.free();
 
-    MeshData duck = game_data.add_mesh("Duck", gltf);
+    AnimationMap animations;
+    defer animations.free();
+
+    animations.load_animation("Armature", gltf)!!;
+
+    MeshData duck = game_data.add_mesh("Cesium_Man", gltf);
     game_data.build_buffers()!!;
 
     Memory scene_memory = vk::new_buffer(
@@ -120,7 +124,7 @@ fn void main()
         data_size: 15_000_000
     )!!;
 
-    Memory instance_memory = vk::new_buffer(
+    Memory render_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         &context.local_allocation,
         null,
@@ -141,7 +145,7 @@ fn void main()
         uploadFN: &stageToGPU,    
         buffers: {
             (ecs::Allocator)&scene_memory,
-            (ecs::Allocator)&instance_memory,
+            (ecs::Allocator)&render_memory,
             (ecs::Allocator)&device_memory,
             &dynamic_buffer,
         }
@@ -159,7 +163,7 @@ fn void main()
         },
         SceneData {
             .vertices = game_data.vertex_buffer.address,
-            .instances = instance_memory.address
+            .instances = render_memory.address
         }
     );
 
@@ -169,7 +173,7 @@ fn void main()
             .scale = {1.0, 1.0, 1.0}
         },
         MaterialInfo {
-            .texture = 0,
+            .texture = 5,
         },
         createRender(duck),
     );
@@ -406,7 +410,7 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        vk::cmdDrawIndexedIndirect(command_buffer, instance_memory.buffer, 0, (uint)instance_memory.used_size / Render.sizeof, Render.sizeof);
+        vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, 0, (uint)render_memory.used_size / Render.sizeof, Render.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

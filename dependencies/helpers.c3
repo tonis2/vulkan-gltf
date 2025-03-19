@@ -1075,3 +1075,44 @@ fn MeshData GameData.add_mesh(&self, String name, Gltf gltf) {
         self.meshes.push(data);
         return data;
 }
+
+def AnimationMap = HashMap(<String, Animation>);
+
+struct Node {
+    Vec3f scale;
+    Vec3f translation;
+    Quaternionf rotation;
+    Matrix4f matrix;
+    int parent;
+}
+
+struct Animation {
+    String name;
+    List(<Matrix4f>) inverseBindMatrices;
+    List(<Node>) nodes;
+}
+
+fn void AnimationMap.release(self) {
+    @pool() {
+        foreach (key : self.tcopy_keys()) {
+            self[key]!!.inverseBindMatrices.free();
+            self[key]!!.nodes.free();
+        }
+    };
+}
+
+fn void! AnimationMap.load_animation(&self, String name, Gltf gltf) {
+    gltf::Skin skin = gltf.findSkin(name)!;
+
+    Animation animation;
+    Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
+
+    for (uint i; i < skin_accessor.count; i++) {
+        Matrix4f matrix = gltf.@castBuffer(skin_accessor, i, Matrix4f).transpose();
+        animation.inverseBindMatrices.push(matrix);
+    }
+
+    foreach (joint : skin.joints) {
+        io::printfn("%d", joint);
+    }
+}
