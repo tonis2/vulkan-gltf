@@ -299,8 +299,7 @@ fn void main()
 
     Clock time = clock::now();
 
-    bool running = true;
-    MouseParams last_params;
+
 
     RenderingInfo rendering_info = vk::renderingInfo()
     .setLayerCount(1)
@@ -309,6 +308,7 @@ fn void main()
         .extent = context.extent,
     });
 
+    bool running = true;
     Vec2f prev_mouse;
 
     while (running) {
