@@ -109,10 +109,16 @@ fn void main()
     Gltf gltf = gltf::loadFile("assets/CesiumMan.gltf")!!;
     defer gltf.free();
 
-    AnimationMap animations;
-    defer animations.free();
+    SkinAnimations skins;
+    defer skins.free();
 
-    animations.load_animation("Armature", gltf)!!;
+    skins.load_data("Armature", gltf)!!;
+
+    List(<helpers::Node>) skin_nodes = skins["Armature"]!!.nodes;
+
+    // foreach (node: skin_nodes) {
+    //     io::printfn("%s", node.localMatrix().m);
+    // }
 
     MeshData duck = game_data.add_mesh("Cesium_Man", gltf);
     game_data.build_buffers()!!;

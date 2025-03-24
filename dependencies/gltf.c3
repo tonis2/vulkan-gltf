@@ -1280,7 +1280,6 @@ fn Mesh! Gltf.findMesh(Gltf* self, String name) {
 
 fn Skin! Gltf.findSkin(Gltf* self, String name) {
     foreach (data : self.skins) {
-        io::printfn("%s", data.name);
         if (data.name == name) {
             return data;
         }

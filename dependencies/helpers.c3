@@ -1076,7 +1076,7 @@ fn MeshData GameData.add_mesh(&self, String name, Gltf gltf) {
         return data;
 }
 
-def AnimationMap = HashMap(<String, Animation>);
+def SkinAnimations = HashMap(<String, SkinAnimation>);
 
 struct Node {
     Vec3f scale;
@@ -1086,13 +1086,37 @@ struct Node {
     int parent;
 }
 
-struct Animation {
+fn Matrix4f Node.globalMatrix(&self, List(<Node>) nodes) {
+    Matrix4f global_matrix;
+    helpers::Node* active_node = self;
+
+    while (active_node.parent == -1) {
+        helpers::Node* parent = &nodes[active_node.parent];
+        global_matrix = parent.localMatrix().mul(active_node.localMatrix());
+        active_node = parent;
+    }
+
+    return global_matrix;
+}
+
+fn Matrix4f Node.localMatrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
+
+fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
+    return Matrix4f {
+        scale.x, 0, 0, translation.x,
+        0, scale.y, 0, translation.y,
+        0, 0, scale.z, translation.z,
+        0.0, 0.0, 0.0, 1.0,
+    }.mul(rotation.to_matrixf());
+}
+
+struct SkinAnimation {
     String name;
     List(<Matrix4f>) inverseBindMatrices;
     List(<Node>) nodes;
 }
 
-fn void AnimationMap.release(self) {
+fn void SkinAnimations.release(self) {
     @pool() {
         foreach (key : self.tcopy_keys()) {
             self[key]!!.inverseBindMatrices.free();
@@ -1101,10 +1125,28 @@ fn void AnimationMap.release(self) {
     };
 }
 
-fn void! AnimationMap.load_animation(&self, String name, Gltf gltf) {
-    gltf::Skin skin = gltf.findSkin(name)!;
+fn void parse_nodes(List(<uint>)* joints, List(<uint>) src_joints, List(<Node>)* target_nodes, List(<gltf::Node>) gltf_nodes, int parent = -1) {
+    foreach (joint : src_joints) {
+        if (joints.contains(joint)) continue;
 
-    Animation animation;
+        gltf::Node node = gltf_nodes[joint];
+        target_nodes.push({
+            .scale = node.scale,
+            .translation = node.translation,
+            .rotation = node.rotation,
+            .parent = parent
+        });
+
+        parse_nodes(joints, node.children, target_nodes, gltf_nodes, (int)target_nodes.len());
+        joints.push(joint);
+    }
+}
+
+fn void! SkinAnimations.load_data(&self, String name, Gltf gltf) {
+    gltf::Skin skin = gltf.findSkin(name)!;
+    List(<uint>) joints;
+
+    SkinAnimation animation;
     Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
 
     for (uint i; i < skin_accessor.count; i++) {
@@ -1112,7 +1154,7 @@ fn void! AnimationMap.load_animation(&self, String name, Gltf gltf) {
         animation.inverseBindMatrices.push(matrix);
     }
 
-    foreach (joint : skin.joints) {
-        io::printfn("%d", joint);
-    }
+    parse_nodes(&joints, skin.joints, &animation.nodes, gltf.nodes);
+    self.set(name, animation);
+    joints.free();
 }
