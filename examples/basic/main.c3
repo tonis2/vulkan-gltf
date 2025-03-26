@@ -44,7 +44,7 @@ struct AddressBuffer {
 }
 
 Gltf gltf;
-AnimationChannels animaton_data;
+gltf::AnimationChannels animaton_data;
 
 DescriptorImages descriptor_images;
 

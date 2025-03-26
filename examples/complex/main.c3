@@ -33,7 +33,7 @@ struct AddressBuffer {
     uint light_count;
 }
 
-AnimationChannels animaton_data;
+gltf::AnimationChannels animaton_data;
 DescriptorImages descriptor_images;
 DescriptorImages shadow_maps;
 
@@ -82,12 +82,12 @@ fn void main()
     List(<uint>) scene_nodes = gltf::flatten_nodes(scene.nodes, gltf);
     defer scene_nodes.free();
 
-    GameData game = helpers::create_game(context: &context);
+    GameData game = helpers::createGame(context: &context);
     defer game.free();
 
     foreach (mesh: gltf.meshes) game.add_mesh(mesh, gltf);
     foreach (node_index: scene_nodes) {
-        Node node = gltf.nodes[node_index];
+        gltf::Node node = gltf.nodes[node_index];
         bool has_skin = node.hasSkin();
 
         if (node.hasMesh()) {

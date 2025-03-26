@@ -109,18 +109,27 @@ fn void main()
     Gltf gltf = gltf::loadFile("assets/CesiumMan.gltf")!!;
     defer gltf.free();
 
-    SkinAnimations skins;
+    AnimationSkins skins;
+    helpers::AnimationChannels fly_animation;
+    defer fly_animation.free();
     defer skins.free();
 
-    skins.load_data("Armature", gltf)!!;
+    skins.load_data("wasp", gltf.skins[0], gltf)!!;
+    fly_animation.load_data(gltf.animations[0], gltf)!!;
 
-    List(<helpers::Node>) skin_nodes = skins["Armature"]!!.nodes;
+    foreach (node: skins["wasp"]!!.nodes) {
+        io::printfn("%s", node.inverse_bind.m);
+    }
+
+    // fly_animation.run_animation(skins["wasp"]!!, (NanoDuration)0.5);
+
+    // List(<helpers::Node>) skin_nodes = skins["Armature"]!!.nodes;
 
     // foreach (node: skin_nodes) {
     //     io::printfn("%s", node.localMatrix().m);
     // }
 
-    MeshData duck = game_data.add_mesh("Cesium_Man", gltf);
+    MeshData duck = game_data.add_mesh(gltf.findMesh("Object_0")!!, gltf);
     game_data.build_buffers()!!;
 
     Memory scene_memory = vk::new_buffer(
@@ -304,8 +313,6 @@ fn void main()
     defer pipeline.free(context.device);
 
     Clock time = clock::now();
-
-
 
     RenderingInfo rendering_info = vk::renderingInfo()
     .setLayerCount(1)
