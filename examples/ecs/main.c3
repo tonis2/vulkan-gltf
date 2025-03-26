@@ -114,22 +114,12 @@ fn void main()
     defer fly_animation.free();
     defer skins.free();
 
-    skins.load_data("wasp", gltf.skins[0], gltf)!!;
-    fly_animation.load_data(gltf.animations[0], gltf)!!;
+    skins.load_data("main", gltf.skins[0], gltf)!!;
+    fly_animation.load_data(gltf.animations[0], skins["main"]!!, gltf)!!;
 
-    foreach (node: skins["wasp"]!!.nodes) {
-        io::printfn("%s", node.inverse_bind.m);
-    }
+    // fly_animation.run_animation(skins["main"]!!, (NanoDuration)0.5);
 
-    // fly_animation.run_animation(skins["wasp"]!!, (NanoDuration)0.5);
-
-    // List(<helpers::Node>) skin_nodes = skins["Armature"]!!.nodes;
-
-    // foreach (node: skin_nodes) {
-    //     io::printfn("%s", node.localMatrix().m);
-    // }
-
-    MeshData duck = game_data.add_mesh(gltf.findMesh("Object_0")!!, gltf);
+    MeshData duck = game_data.add_mesh(gltf.meshes[0], gltf);
     game_data.build_buffers()!!;
 
     Memory scene_memory = vk::new_buffer(

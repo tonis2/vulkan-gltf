@@ -1078,6 +1078,7 @@ fn MeshData GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
 
 def AnimationSkins = HashMap(<String, AnimationSkin>);
 def AnimationChannels = List(<AnimationChannel>);
+def NodeMap = HashMap(<uint, uint>);
 
 enum AnimationProperty {
     TRANSLATION,
@@ -1140,15 +1141,19 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
     }.mul(rotation.to_matrixf());
 }
 
+
+
 struct AnimationSkin {
     String name;
     List(<Node>) nodes;
+    NodeMap node_map;
 }
 
 fn void AnimationSkins.release(self) {
     @pool() {
         foreach (key : self.tcopy_keys()) {
             self[key]!!.nodes.free();
+            self[key]!!.node_map.free();
         }
     };
 }
@@ -1159,11 +1164,20 @@ fn void AnimationChannels.release(self) {
     }
 }
 
-fn void parse_nodes(List(<uint>)* joints, List(<uint>) src_joints, List(<Node>)* target_nodes, List(<gltf::Node>) gltf_nodes, List(<Matrix4f>) inverseBindMatrices, int parent = -1) {
+fn void parse_nodes(List(<uint>)* joints, 
+                    List(<uint>) src_joints, 
+                    List(<Node>)* target_nodes, 
+                    List(<gltf::Node>) gltf_nodes, 
+                    List(<Matrix4f>) inverseBindMatrices,
+                    NodeMap* node_map,
+                    int parent = -1)
+{
     foreach (joint : src_joints) {
         if (joints.contains(joint)) continue;
 
         gltf::Node node = gltf_nodes[joint];
+        node_map.set(joint, (uint)target_nodes.len());
+
         target_nodes.push({
             .scale = node.scale,
             .translation = node.translation,
@@ -1171,9 +1185,9 @@ fn void parse_nodes(List(<uint>)* joints, List(<uint>) src_joints, List(<Node>)*
             .inverse_bind = inverseBindMatrices[target_nodes.len()],
             .parent = parent
         });
-
+        
         joints.push(joint);
-        parse_nodes(joints, node.children, target_nodes, gltf_nodes, inverseBindMatrices, (int)target_nodes.len());
+        parse_nodes(joints, node.children, target_nodes, gltf_nodes, inverseBindMatrices, node_map, (int)target_nodes.len());
     }
 }
 
@@ -1189,24 +1203,26 @@ fn void! AnimationSkins.load_data(&self, String name, gltf::Skin skin, Gltf gltf
         inverseBindMatrices.push(matrix);
     }
 
-    parse_nodes(&joints, skin.joints, &animation.nodes, gltf.nodes, inverseBindMatrices);
+    parse_nodes(&joints, skin.joints, &animation.nodes, gltf.nodes, inverseBindMatrices, &animation.node_map);
     self.set(name, animation);
     joints.free();
     inverseBindMatrices.free();
 }
 
 
-fn void! AnimationChannels.load_data(&self, gltf::Animation animation, Gltf gltf) {    
+fn void! AnimationChannels.load_data(&self, gltf::Animation animation, AnimationSkin skin, Gltf gltf) {    
     foreach (channel : animation.channels) {
         AnimationSampler sampler = animation.samplers[channel.sampler];
 
         Accessor time_accessor = gltf.accessors[sampler.input];
         Accessor value_accessor = gltf.accessors[sampler.output];
-        
+
+        uint node_index = skin.node_map[(uint)channel.target.node]!!;
+
         AnimationChannel frame = {
             .elapsed_time = 0,
             .path = AnimationProperty.from_ordinal(channel.target.path.ordinal),
-            .node = (uint)channel.target.node,
+            .node = node_index,
             .interpolation = Interpolation.from_ordinal(sampler.interpolation.ordinal),
         };
 
