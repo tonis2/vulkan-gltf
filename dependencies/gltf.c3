@@ -1287,6 +1287,15 @@ fn Skin! Gltf.findSkin(Gltf* self, String name) {
     return ParseError.KEY_NOT_FOUND?;
 }
 
+fn Animation! Gltf.findAnimation(Gltf* self, String name) {
+    foreach (data : self.animations) {
+        if (data.name == name) {
+            return data;
+        }
+    }
+    return ParseError.KEY_NOT_FOUND?;
+}
+
 <*
  @require self.animations.len() > 0 "GLTF animations must not be empty"
  @require self.animations.len() >= indexes.len "Theres more load indexes, than GLTF animations"
@@ -1297,7 +1306,6 @@ fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
         Animation animation = self.animations[index];
         foreach (channel : animation.channels) {
             AnimationSampler sampler = animation.samplers[channel.sampler];
-            Node animation_node = self.nodes[channel.target.node];
 
             Accessor time_accessor = self.accessors[sampler.input];
             Accessor value_accessor = self.accessors[sampler.output];
