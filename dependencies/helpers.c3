@@ -1076,7 +1076,7 @@ fn MeshData GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
         return data;
 }
 
-def AnimationSkins = HashMap(<String, AnimationSkin>);
+// def AnimationSkins = HashMap(<String, AnimationSkin>);
 def AnimationChannels = List(<AnimationChannel>);
 def NodeMap = HashMap(<uint, uint>);
 
@@ -1141,21 +1141,15 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
     }.mul(rotation.to_matrixf());
 }
 
-
-
 struct AnimationSkin {
     String name;
     List(<Node>) nodes;
     NodeMap node_map;
 }
 
-fn void AnimationSkins.release(self) {
-    @pool() {
-        foreach (key : self.tcopy_keys()) {
-            self[key]!!.nodes.free();
-            self[key]!!.node_map.free();
-        }
-    };
+fn void AnimationSkin.free(self) {
+    self.nodes.free();
+    self.node_map.free();
 }
 
 fn void AnimationChannels.release(self) {
@@ -1191,7 +1185,7 @@ fn void parse_nodes(List(<uint>)* joints,
     }
 }
 
-fn void! AnimationSkins.load_data(&self, String name, gltf::Skin skin, Gltf gltf) {
+fn AnimationSkin! load_skin_data(gltf::Skin skin, Gltf gltf) {
     List(<uint>) joints;
 
     AnimationSkin animation;
@@ -1204,13 +1198,15 @@ fn void! AnimationSkins.load_data(&self, String name, gltf::Skin skin, Gltf gltf
     }
 
     parse_nodes(&joints, skin.joints, &animation.nodes, gltf.nodes, inverseBindMatrices, &animation.node_map);
-    self.set(name, animation);
+
     joints.free();
     inverseBindMatrices.free();
+    return animation;
 }
 
 
-fn void! AnimationChannels.load_data(&self, gltf::Animation animation, AnimationSkin skin, Gltf gltf) {    
+fn AnimationChannels! load_animation_data(gltf::Animation animation, AnimationSkin skin, Gltf gltf) {
+    AnimationChannels response;    
     foreach (channel : animation.channels) {
         AnimationSampler sampler = animation.samplers[channel.sampler];
 
@@ -1239,8 +1235,10 @@ fn void! AnimationChannels.load_data(&self, gltf::Animation animation, Animation
                 .value = gltf.@castBuffer(value_accessor, i, Vec4f),
             });
         }
-        self.push(frame);
+        response.push(frame);
     };
+
+    return response;
 }
 
 

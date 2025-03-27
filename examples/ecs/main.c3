@@ -109,13 +109,19 @@ fn void main()
     Gltf gltf = gltf::loadFile("assets/CesiumMan.gltf")!!;
     defer gltf.free();
 
-    AnimationSkins skins;
-    helpers::AnimationChannels fly_animation;
+    AnimationSkin main_skin = helpers::load_skin_data(gltf.skins[0], gltf)!!;
+    helpers::AnimationChannels fly_animation = helpers::load_animation_data(gltf.animations[0], main_skin, gltf)!!;
     defer fly_animation.free();
-    defer skins.free();
+    defer main_skin.free();
 
-    skins.load_data("main", gltf.skins[0], gltf)!!;
-    fly_animation.load_data(gltf.animations[0], skins["main"]!!, gltf)!!;
+
+    // foreach (skin: gltf.skins) {
+    //     foreach (joint_index, joint: skin.joints) {
+    //         Node joint_node = gltf.nodes[joint];
+    //         Matrix4f data = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
+    //         joint_buffer.upload(&data, size: Matrix4f.sizeof, offset: joint_index * Matrix4f.sizeof);
+    //     }
+    // }
 
     // fly_animation.run_animation(skins["main"]!!, (NanoDuration)0.5);
 
