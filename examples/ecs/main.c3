@@ -148,17 +148,22 @@ fn void main()
 
     defer manager.free();
 
-    AnimationSkin main_skin = helpers::load_skin_data(gltf.skins[0], gltf)!!;
-    helpers::AnimationChannels fly_animation = helpers::load_animation_data(gltf.animations[0], main_skin, gltf)!!;
-    defer fly_animation.free();
-    defer main_skin.free();
+    ecs::Animations animation_manager = ecs::create_animations_manager(gltf.skins[0], gltf);
+    animation_manager.add_from_gltf(gltf.animations[0], gltf, "fly")!!;
 
-    Component animation_comp = manager.@create_component("Fly_animation", size: (uint)main_skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
+    defer animation_manager.free();
+    
 
-    foreach (index, node: main_skin.nodes) {
-        Matrix4f matrix = node.localMatrix();
+    // ecs::AnimationChannels fly_animation = ecs::load_animation_data(, main_skin, gltf)!!;
+    // defer fly_animation.free();
+    // defer main_skin.free();
+
+    Component animation_comp = manager.@create_component("Fly_animation", size: (uint)animation_manager.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
+
+    foreach (index, node: animation_manager.skin.nodes) {
+        Matrix4f matrix = node.local_matrix();
         if (node.parent != -1) {
-            matrix = main_skin.nodes[node.parent].localMatrix().mul(node.localMatrix()).mul(node.inverse_bind).transpose();
+            matrix = animation_manager.skin.nodes[node.parent].local_matrix().mul(matrix).mul(node.inverse_bind).transpose();
         }
         ecs::@upload(manager, animation_comp, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
