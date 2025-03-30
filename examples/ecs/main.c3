@@ -136,7 +136,7 @@ fn void main()
     ecs::Buffer dynamic_buffer;
     defer dynamic_buffer.free();
 
-    EntityManager manager = ecs::create_manager( 
+    EntityManager manager = ecs::create_manager(
         buffers: {
             (ecs::Allocator)&scene_memory,
             (ecs::Allocator)&render_memory,
@@ -153,7 +153,7 @@ fn void main()
     defer fly_animation.free();
     defer main_skin.free();
 
-    Component animation_comp = manager.@create_component("Fly_animation", size: (uint)main_skin.nodes.len() * Matrix4f.sizeof);
+    Component animation_comp = manager.@create_component("Fly_animation", size: (uint)main_skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
 
     foreach (index, node: main_skin.nodes) {
         Matrix4f matrix = node.localMatrix();
@@ -174,7 +174,7 @@ fn void main()
         SceneData {
             .vertices = game_data.vertex_buffer.address,
             .instances = render_memory.address
-        }
+        },
     );
 
     Entity player = manager.@create_entity(
@@ -186,6 +186,7 @@ fn void main()
             .texture = 5,
         },
         createRender(duck),
+        animation_comp
     );
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;

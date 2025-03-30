@@ -99,7 +99,7 @@ macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
     }
 }
 
-macro Component EntityManager.@create_component(&self, #data, uint buffer_index = 0, void* data = null, uint size = 0) {
+macro Component EntityManager.@create_component(&self, #data, void* data = null, uint size = 0, uint buffer_index = 0) {
     Component component;
 
     $if $typeof(#data).nameof == "String":
@@ -261,26 +261,42 @@ fn void Entity.add(&self, Component component, EntityManager manager) {
     };
 }
 
-fn ulong get_address(Entity entity, EntityManager manager) {
+macro ulong @get_address(EntityManager manager, #target) {
     Component* component = null;
-    @pool() {
-        foreach (key : manager.views.tcopy_keys()) {
-            if (key.entity == entity.id) {
-                manager.keys.@each_entry(; Entry(<String, Component>)* entry) {
-                    if (entry.value.id == key.component) {
-                         component = &entry.value;
-                    }
-                };
+
+    $if $typeof(#target).nameof == "Component":
+        return manager.buffers[#target.buffer].getAddress() + #target.offset;
+    $endif;
+
+    $if $typeof(#target).nameof == "Entity":
+        Component component = manager.keys[$typeof(#data).nameof]!!;
+        BufferID index = {
+            .component = component.id,
+            .entity = #target.id,
+        };
+
+        @pool() {
+            foreach (key : manager.views.tcopy_keys()) {
+                if (key.entity == entity.id) {
+                    manager.keys.@each_entry(; Entry(<String, Component>)* entry) {
+                        if (entry.value.id == key.component) {
+                            component = &entry.value;
+                        }
+                    };
+                }
             }
-        }
-    };
+        };
 
-    uint offset = manager.views[BufferID {
-        .component = component.id,
-        .entity = entity.id,
-    }]!!.offset;
+        uint offset = manager.views[BufferID {
+            .component = component.id,
+            .entity = entity.id,
+        }]!!.offset;
 
-    return manager.buffers[component.buffer].getAddress() + offset;
+        return manager.buffers[component.buffer].getAddress() + offset;
+    $endif;
+
+
+
 }
 
 fn uint get_size(Entity entity, EntityManager manager) {
