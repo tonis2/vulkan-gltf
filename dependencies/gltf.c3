@@ -139,12 +139,12 @@ struct Gltf {
     List(<Image>) images;
     List(<Accessor>) accessors;
     List(<Camera>) cameras;
-    Materials materials;
     List(<Sampler>) samplers;
     List(<Texture>) textures;
     List(<Animation>) animations;
     List(<Light>) lights;
     List(<String>) extensions;
+    Materials materials;
     SkinList skins;
 }
 

@@ -1121,11 +1121,16 @@ fn Matrix4f Node.globalMatrix(&self, List(<Node>) nodes) {
     Matrix4f global_matrix;
     helpers::Node* active_node = self;
 
-    while (active_node.parent == -1) {
-        helpers::Node* parent = &nodes[active_node.parent];
-        global_matrix = parent.localMatrix().mul(active_node.localMatrix());
-        active_node = parent;
-    }
+    // foreach (node: nodes) {
+    //     io::printfn("parent %d", node.parent);
+    // }
+
+    // while (active_node.parent != -1) {
+        // io::printfn("%d", active_node.parent);
+        // helpers::Node* parent = &nodes[active_node.parent];
+        // // global_matrix = parent.localMatrix().mul(active_node.localMatrix());
+        // active_node = parent;
+    // }
 
     return global_matrix;
 }
@@ -1198,7 +1203,6 @@ fn AnimationSkin! load_skin_data(gltf::Skin skin, Gltf gltf) {
     }
 
     parse_nodes(&joints, skin.joints, &animation.nodes, gltf.nodes, inverseBindMatrices, &animation.node_map);
-
     joints.free();
     inverseBindMatrices.free();
     return animation;

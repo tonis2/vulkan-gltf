@@ -109,22 +109,6 @@ fn void main()
     Gltf gltf = gltf::loadFile("assets/CesiumMan.gltf")!!;
     defer gltf.free();
 
-    AnimationSkin main_skin = helpers::load_skin_data(gltf.skins[0], gltf)!!;
-    helpers::AnimationChannels fly_animation = helpers::load_animation_data(gltf.animations[0], main_skin, gltf)!!;
-    defer fly_animation.free();
-    defer main_skin.free();
-
-
-    // foreach (skin: gltf.skins) {
-    //     foreach (joint_index, joint: skin.joints) {
-    //         Node joint_node = gltf.nodes[joint];
-    //         Matrix4f data = joint_node.globalMatrix().mul(skin.inverseBindMatrices[joint_index]).transpose();
-    //         joint_buffer.upload(&data, size: Matrix4f.sizeof, offset: joint_index * Matrix4f.sizeof);
-    //     }
-    // }
-
-    // fly_animation.run_animation(skins["main"]!!, (NanoDuration)0.5);
-
     MeshData duck = game_data.add_mesh(gltf.meshes[0], gltf);
     game_data.build_buffers()!!;
 
@@ -152,17 +136,32 @@ fn void main()
     ecs::Buffer dynamic_buffer;
     defer dynamic_buffer.free();
 
-    EntityManager manager = ecs::create_manager(
-        uploadFN: &stageToGPU,    
+    EntityManager manager = ecs::create_manager( 
         buffers: {
             (ecs::Allocator)&scene_memory,
             (ecs::Allocator)&render_memory,
             (ecs::Allocator)&device_memory,
             &dynamic_buffer,
-        }
+        },
+        uploadFN: &stageToGPU,
     );
 
     defer manager.free();
+
+    AnimationSkin main_skin = helpers::load_skin_data(gltf.skins[0], gltf)!!;
+    helpers::AnimationChannels fly_animation = helpers::load_animation_data(gltf.animations[0], main_skin, gltf)!!;
+    defer fly_animation.free();
+    defer main_skin.free();
+
+    Component animation_comp = manager.@create_component("Fly_animation", size: (uint)main_skin.nodes.len() * Matrix4f.sizeof);
+
+    foreach (index, node: main_skin.nodes) {
+        Matrix4f matrix = node.localMatrix();
+        if (node.parent != -1) {
+            matrix = main_skin.nodes[node.parent].localMatrix().mul(node.localMatrix()).mul(node.inverse_bind).transpose();
+        }
+        ecs::@upload(manager, animation_comp, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
+    }
 
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -328,16 +327,16 @@ fn void main()
                 case event.is_pressed(LEFT_MOUSE): {
                     Vec2f mouse_pos = win.getMousePos();
                     camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
-                    scene.@set(camera.data(), manager);
+                    ecs::@upload(manager, scene, camera.data());
                     prev_mouse = mouse_pos;
                 }
                 case event.is_pressed(MOUSE_SCROLL_DOWN): {
                     camera.zoom(-5);
-                    scene.@set(camera.data(), manager);
+                    ecs::@upload(manager, scene, camera.data());
                 }
                 case event.is_pressed(MOUSE_SCROLL_UP): {
                     camera.zoom(5);
-                    scene.@set(camera.data(), manager);
+                    ecs::@upload(manager, scene, camera.data());
                 }
                 case event.is_pressed(ESCAPE): {
                     running = false;
