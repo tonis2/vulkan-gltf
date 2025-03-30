@@ -52,6 +52,7 @@ fn Render createRender(MeshData mesh, bool has_skin = false, Matrix4f node_matri
 struct SceneData { 
     vk::DeviceAddress vertices;
     vk::DeviceAddress instances;
+    vk::DeviceAddress skin_data;
 }
 
 // Used to send buffer device addresses to GPU
@@ -152,21 +153,18 @@ fn void main()
     animation_manager.add_from_gltf(gltf.animations[0], gltf, "fly")!!;
 
     defer animation_manager.free();
-    
-
-    // ecs::AnimationChannels fly_animation = ecs::load_animation_data(, main_skin, gltf)!!;
-    // defer fly_animation.free();
-    // defer main_skin.free();
 
     Component animation_comp = manager.@create_component("Fly_animation", size: (uint)animation_manager.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
+    // Animation stuff
+    // foreach (index, node: animation_manager.skin.nodes) {
+    //     Matrix4f matrix = node.local_matrix();
+    //     if (node.parent != -1) {
+    //         matrix = animation_manager.skin.nodes[node.parent].local_matrix().mul(matrix).mul(node.inverse_bind).transpose();
+    //     }
+    //     ecs::@upload(manager, animation_comp, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
+    // }
 
-    foreach (index, node: animation_manager.skin.nodes) {
-        Matrix4f matrix = node.local_matrix();
-        if (node.parent != -1) {
-            matrix = animation_manager.skin.nodes[node.parent].local_matrix().mul(matrix).mul(node.inverse_bind).transpose();
-        }
-        ecs::@upload(manager, animation_comp, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
-    }
+    io::printfn("used size %d", scene_memory.used_size);
 
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -178,20 +176,22 @@ fn void main()
         },
         SceneData {
             .vertices = game_data.vertex_buffer.address,
-            .instances = render_memory.address
+            .instances = render_memory.address,
+            .skin_data = ecs::@get_address(manager, animation_comp)
         },
     );
 
+    // io::printfn("offset %d", ecs::get_offset(scene, manager));
+
     Entity player = manager.@create_entity(
-        Position {
-            .translation = {1.0, 1.0, 1.0},
-            .scale = {1.0, 1.0, 1.0}
-        },
-        MaterialInfo {
-            .texture = 5,
-        },
+        // Position {
+        //     .translation = {1.0, 1.0, 1.0},
+        //     .scale = {1.0, 1.0, 1.0}
+        // },
+        // MaterialInfo {
+        //     .texture = 5,
+        // },
         createRender(duck),
-        animation_comp
     );
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
@@ -328,6 +328,8 @@ fn void main()
     while (running) {
         EventMap[] event_map = win.getEvent();
 
+        animation_manager.run_animation("fly", time.mark())!!;
+
         foreach (event: event_map) {
             switch {
                 case event.is_pressed(LEFT_MOUSE): {
@@ -424,7 +426,7 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, 0, (uint)render_memory.used_size / Render.sizeof, Render.sizeof);
+        //vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, 0, (uint)render_memory.used_size / Render.sizeof, Render.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

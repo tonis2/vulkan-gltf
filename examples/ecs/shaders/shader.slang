@@ -92,6 +92,7 @@ cbuffer Scene
     Vertex* vertices;
     DrawCommand* commmands;
     Material* materials;
+    float4x4* joints;
 }
 
 [vk_binding(1)]
@@ -122,6 +123,22 @@ FragmentData vertexMain(VertexInput input)
 
     float4 frag_pos = mul(instance.node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(perspective, view), frag_pos);
+
+    float4x4 skin_matrix = {
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    };
+
+    // if (instance.has_skin > 0)
+    // {
+    //     skin_matrix =
+    //         vertex.skin_weight[0] * joints[vertex.skin_pos[0]] +
+    //         vertex.skin_weight[1] * joints[vertex.skin_pos[1]] +
+    //         vertex.skin_weight[2] * joints[vertex.skin_pos[2]] +
+    //         vertex.skin_weight[3] * joints[vertex.skin_pos[3]];
+    // }
 
     FragmentData output = {
         vertex.tex_cord,

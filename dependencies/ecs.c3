@@ -7,13 +7,11 @@ import std::collections::map;
 import std::encoding::json;
 import std::core::builtin;
 
-
 enum GpuType : uint
 {
     HOST_VISIBLE,
     DEVICE_ONLY
 }
-
 
 enum Action : uint
 {
@@ -23,6 +21,7 @@ enum Action : uint
 interface Allocator
 {
     fn void push(void* data, usz size);
+    fn void setUsedSize(usz size);
     fn char* data();
     fn void upload(void* data, usz size, usz offset);
     fn ulong getAddress();
@@ -123,12 +122,22 @@ macro Component EntityManager.@create_component(&self, #data, void* data = null,
             self.keys[#data] = component;
         }
 
-        component.offset = self.buffers[component.buffer].usedSize();
-
+        Allocator buffer = self.buffers[component.buffer];
+        component.offset = buffer.usedSize();
+        
         if (data != null) {
-            self.buffers[component.buffer].push(data, size);
+            buffer.push(data, size);
+        } else {
+            buffer.setUsedSize(component.offset + size);
         }
-        return component;
+
+        self.views[BufferID {
+            .component = component.id,
+            .entity = 0,
+        }] = BufferView {
+            .offset = (uint)component.offset,
+            .size = component.size
+        };
     $endif;
 
     $if $typeof(#data).nameof != "String":
@@ -150,18 +159,28 @@ macro Component EntityManager.@create_component(&self, #data, void* data = null,
         } else {
             component = self.keys[$typeof(#data).nameof]!!;
         }
-        
-        component.offset = self.buffers[component.buffer].usedSize();
-        self.buffers[component.buffer].push(&&#data, $typeof(#data).sizeof);
 
-        return component;
-     $endif;   
+        Allocator buffer = self.buffers[component.buffer];
+        
+        component.offset = buffer.usedSize();
+        buffer.push(&&#data, $typeof(#data).sizeof);
+
+        self.views[BufferID {
+            .component = component.id,
+            .entity = 0,
+        }] = BufferView {
+            .offset = (uint)component.offset,
+            .size = component.size
+        };
+     $endif;
+
+    return component;   
 }
 
 macro Entity EntityManager.@create_entity(&self, ...) {
     Component! component;
     String type_name;
-    Entity entity = {.id = (uint)self.entities.len()};
+    Entity entity = {.id = math::max((uint)1, (uint)self.entities.len())};
 
     uint size = 0;
     uint buffer_index = 0;
@@ -204,7 +223,6 @@ macro Entity EntityManager.@create_entity(&self, ...) {
 
                 self.keys[type_name] = component!!;
             }
-
             // Create a buffer view mapping and push data to buffer
             self.views[BufferID {
                 .component = component!!.id,
@@ -213,7 +231,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
                 .offset = (uint)self.buffers[buffer_index].usedSize(),
                 .size = component!!.size
             };
-
+            // io::printfn("%d %s", self.buffers[buffer_index].usedSize(), type_name);
             if (self.buffers[buffer_index].getType() == GpuType.DEVICE_ONLY.ordinal) {
                 self.uploadFN(self.buffers[buffer_index], &&$vaarg[$i], $typeof($vaarg[$i]).sizeof, self.buffers[buffer_index].usedSize());
             } else {
@@ -294,9 +312,6 @@ macro ulong @get_address(EntityManager manager, #target) {
 
         return manager.buffers[component.buffer].getAddress() + offset;
     $endif;
-
-
-
 }
 
 fn uint get_size(Entity entity, EntityManager manager) {
@@ -322,7 +337,7 @@ fn uint get_offset(Entity entity, EntityManager manager) {
         }
     };
 
-    return 0;
+    return offset;
 }
 
 // macro Entity.@set_value(self, #type, #data, EntityManager manager, usz offset = 0) {
@@ -419,7 +434,9 @@ fn usz Buffer.usedSize(&self) @dynamic => self.used_size;
 fn ulong Buffer.getAddress(&self) @dynamic => 0;
 fn uint Buffer.getType(&self) @dynamic => 0;
 fn void* Buffer.getBuffer(&self) @dynamic => null;
-
+fn void Buffer.setUsedSize(&self, usz size) @dynamic  {
+    self.used_size = size;
+}
 
 module ecs @if($feature(ECS_EXTRA));
 import gltf;
