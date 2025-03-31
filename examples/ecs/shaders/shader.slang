@@ -120,8 +120,7 @@ FragmentData vertexMain(VertexInput input)
     DrawCommand instance = commmands[input.drawID];
     Vertex vertex = vertices[input.vertID];
 
-    float4 frag_pos = mul(instance.node_matrix, float4(vertex.position.xyz, 1.0));
-    float4 vertex_pos = mul(mul(perspective, view), frag_pos);
+
 
     float4x4 skin_matrix = {
         1, 0, 0, 0,
@@ -138,6 +137,10 @@ FragmentData vertexMain(VertexInput input)
             vertex.skin_weight[2] * joints[vertex.skin_pos[2]] +
             vertex.skin_weight[3] * joints[vertex.skin_pos[3]];
     }
+
+    float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
+    float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
+    float4 vertex_pos = mul(mul(perspective, view), frag_pos);
 
     FragmentData output = {
         vertex.tex_cord,

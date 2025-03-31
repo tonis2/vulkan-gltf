@@ -1348,11 +1348,12 @@ fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
     return channels;
 }
 
-fn void AnimationChannels.run_animation(&self, Gltf* gltf, NanoDuration time) {
-    double current_time = time.to_sec();
-
+<*
+ @require time > 0 "Time must be bigger than 0"
+*>
+fn void AnimationChannels.run_animation(&self, Gltf* gltf, double time) {
     foreach (&channel: self) {
-        channel.elapsed_time += current_time;
+        channel.elapsed_time += time;
         if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
 
         foreach (index, entry: channel.values) {

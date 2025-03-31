@@ -479,22 +479,17 @@ struct Node {
     int parent;
 }
 
-fn Matrix4f Node.globalMatrix(&self, List(<Node>) nodes) {
-    Matrix4f global_matrix;
-    Node* active_node = self;
+fn Matrix4f Node.global_matrix(self, List(<Node>) nodes) {
+    Matrix4f current_matrix = self.local_matrix();
+    Node active_node = self;
 
-    // foreach (node: nodes) {
-    //     io::printfn("parent %d", node.parent);
-    // }
+    while (active_node.parent != -1) {
+        Node parent = nodes[active_node.parent];
+        current_matrix = parent.local_matrix().mul(current_matrix);
+        active_node = parent;
+    }
 
-    // while (active_node.parent != -1) {
-        // io::printfn("%d", active_node.parent);
-        // helpers::Node* parent = &nodes[active_node.parent];
-        // // global_matrix = parent.localMatrix().mul(active_node.localMatrix());
-        // active_node = parent;
-    // }
-
-    return global_matrix;
+    return current_matrix;
 }
 
 fn Matrix4f Node.local_matrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
@@ -507,7 +502,6 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
         0.0, 0.0, 0.0, 1.0,
     }.mul(rotation.to_matrixf());
 }
-
 
 struct Animations {
     AnimationSkin skin;
@@ -539,7 +533,11 @@ fn void! Animations.add_from_gltf(&self, gltf::Animation animation, Gltf gltf, S
     self.channels[name] = load_animation_data(animation, self.skin, gltf, &self.values)!;
 }
 
-fn void! Animations.run_animation(&self, String name, NanoDuration time) {
+
+<*
+ @require time > 0 "Time must be bigger than 0"
+*>
+fn void! Animations.run_animation(&self, String name, double time) {
     AnimationChannel* channel = self.channels.get_ref(name)!;
     channel.run_animation(self.values, &self.skin, time);
 }
@@ -578,7 +576,7 @@ fn void parse_nodes(List(<uint>)* joints,
         });
         
         joints.push(joint);
-        parse_nodes(joints, node.children, target_nodes, gltf_nodes, inverseBindMatrices, node_map, (int)target_nodes.len());
+        parse_nodes(joints, node.children, target_nodes, gltf_nodes, inverseBindMatrices, node_map, (int)target_nodes.len() - 1);
     }
 }
 
@@ -640,11 +638,10 @@ fn AnimationChannel! load_animation_data(gltf::Animation animation, AnimationSki
 }
 
 
-fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, AnimationSkin* skin, NanoDuration time) {
-    double current_time = time.to_sec();
-
+fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, AnimationSkin* skin, double current_time) {
     foreach (&channel: self) {
         channel.elapsed_time += current_time;
+
         if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
 
         for (uint index; index < channel.value_count; index++) {
@@ -670,7 +667,7 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
                     if (channel.interpolation == LINEAR) {
                         AnimationValue prev_value = values[index + channel.value_offset - 1];
                         double interpolation_value = (channel.elapsed_time - prev_value.time) / (current_value.time - prev_value.time);
-
+                  
                         switch (channel.path) {
                             case TRANSLATION: {
                                 node.translation = prev_value.value.xyz.lerp(current_value.value.xyz, (float)interpolation_value);

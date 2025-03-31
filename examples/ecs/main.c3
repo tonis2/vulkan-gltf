@@ -152,17 +152,14 @@ fn void main()
     ecs::Animations animation_manager = ecs::create_animations_manager(gltf.skins[0], gltf);
     animation_manager.add_from_gltf(gltf.animations[0], gltf, "fly")!!;
 
+
+    // foreach (node: animation_manager.skin.nodes) {
+    //     Matrix4f matrix = node.global_matrix(animation_manager.skin.nodes);
+    // }
+
     defer animation_manager.free();
 
     Component animation_comp = manager.@create_component("Fly_animation", size: (uint)animation_manager.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
-    // Animation stuff
-    // foreach (index, node: animation_manager.skin.nodes) {
-    //     Matrix4f matrix = node.local_matrix();
-    //     if (node.parent != -1) {
-    //         matrix = animation_manager.skin.nodes[node.parent].local_matrix().mul(matrix).mul(node.inverse_bind).transpose();
-    //     }
-    //     ecs::@upload(manager, animation_comp, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
-    // }
 
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -187,7 +184,7 @@ fn void main()
         MaterialInfo {
             .texture = 5,
         },
-        createRender(duck),
+        createRender(duck, has_skin: true),
     );
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
@@ -309,8 +306,6 @@ fn void main()
 
     defer pipeline.free(context.device);
 
-    Clock time = clock::now();
-
     RenderingInfo rendering_info = vk::renderingInfo()
     .setLayerCount(1)
     .setRenderArea({
@@ -320,11 +315,18 @@ fn void main()
 
     bool running = true;
     Vec2f prev_mouse;
+    
+    Clock animation_time = clock::now();
 
     while (running) {
         EventMap[] event_map = win.getEvent();
 
-        animation_manager.run_animation("fly", time.mark())!!;
+        animation_manager.run_animation("fly", animation_time.mark().to_sec())!!;
+
+        foreach (index, node: animation_manager.skin.nodes) {
+            Matrix4f matrix = node.global_matrix(animation_manager.skin.nodes).mul(node.inverse_bind).transpose();
+            ecs::@upload(manager, animation_comp, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
+        }
 
         foreach (event: event_map) {
             switch {
