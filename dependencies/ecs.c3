@@ -279,41 +279,6 @@ fn void Entity.add(&self, Component component, EntityManager manager) {
     };
 }
 
-macro ulong @get_address(EntityManager manager, #target) {
-    Component* component = null;
-
-    $if $typeof(#target).nameof == "Component":
-        return manager.buffers[#target.buffer].getAddress() + #target.offset;
-    $endif;
-
-    $if $typeof(#target).nameof == "Entity":
-        Component component = manager.keys[$typeof(#data).nameof]!!;
-        BufferID index = {
-            .component = component.id,
-            .entity = #target.id,
-        };
-
-        @pool() {
-            foreach (key : manager.views.tcopy_keys()) {
-                if (key.entity == entity.id) {
-                    manager.keys.@each_entry(; Entry(<String, Component>)* entry) {
-                        if (entry.value.id == key.component) {
-                            component = &entry.value;
-                        }
-                    };
-                }
-            }
-        };
-
-        uint offset = manager.views[BufferID {
-            .component = component.id,
-            .entity = entity.id,
-        }]!!.offset;
-
-        return manager.buffers[component.buffer].getAddress() + offset;
-    $endif;
-}
-
 fn uint get_size(Entity entity, EntityManager manager) {
     uint size;
     @pool() {
@@ -325,19 +290,6 @@ fn uint get_size(Entity entity, EntityManager manager) {
     };
 
     return size;
-}
-
-fn uint get_offset(Entity entity, EntityManager manager) {
-    uint offset;
-    @pool() {
-        foreach (key : manager.views.tcopy_keys()) {
-            if (key.entity == entity.id) {
-                offset = manager.views[key]!!.offset;
-            }
-        }
-    };
-
-    return offset;
 }
 
 // macro Entity.@set_value(self, #type, #data, EntityManager manager, usz offset = 0) {
@@ -397,6 +349,45 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
         Allocator buffer = manager.buffers[component.buffer];
         uint type_offset = manager.views[index]!!.offset;
         return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
+    $endif;
+}
+
+macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0) {
+    $if $typeof(#target).nameof == "Component":
+        Allocator buffer = manager.buffers[#target.buffer];
+
+        return manager.buffers[#target.buffer].getAddress() + #target.offset + offset;
+    $endif;
+
+    $if $typeof(#target).nameof == "Entity":
+        Component component = manager.keys[#type.nameof]!!;
+        BufferID index = {
+            .component = component.id,
+            .entity = #target.id,
+        };
+
+        Allocator buffer = manager.buffers[component.buffer];
+        uint type_offset = manager.views[index]!!.offset;
+        return manager.buffers[component.buffer].getAddress() + type_offset + offset;
+    $endif;
+}
+
+macro @get_offset(EntityManager manager, #target, #type) {
+    // $if $typeof(#target).nameof == "Component":
+    //     Allocator buffer = manager.buffers[#target.buffer];
+    //     return;
+    // $endif;
+
+    $if $typeof(#target).nameof == "Entity":
+        Component component = manager.keys[#type.nameof]!!;
+        BufferID index = {
+            .component = component.id,
+            .entity = #target.id,
+        };
+
+        Allocator buffer = manager.buffers[component.buffer];
+        uint type_offset = manager.views[index]!!.offset;
+        return type_offset;
     $endif;
 }
 

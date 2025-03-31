@@ -164,8 +164,6 @@ fn void main()
     //     ecs::@upload(manager, animation_comp, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     // }
 
-    io::printfn("used size %d", scene_memory.used_size);
-
     Entity scene = manager.@create_entity(
         camera.data(),
         Light {
@@ -181,16 +179,14 @@ fn void main()
         },
     );
 
-    // io::printfn("offset %d", ecs::get_offset(scene, manager));
-
     Entity player = manager.@create_entity(
-        // Position {
-        //     .translation = {1.0, 1.0, 1.0},
-        //     .scale = {1.0, 1.0, 1.0}
-        // },
-        // MaterialInfo {
-        //     .texture = 5,
-        // },
+        Position {
+            .translation = {1.0, 1.0, 1.0},
+            .scale = {1.0, 1.0, 1.0}
+        },
+        MaterialInfo {
+            .texture = 5,
+        },
         createRender(duck),
     );
 
@@ -204,7 +200,7 @@ fn void main()
             .setBufferInfo({
                 {
                     .buffer = scene_memory.buffer,
-                    .offset = ecs::get_offset(scene, manager),
+                    .offset = ecs::@get_offset(manager, scene, CameraData),
                     .range = ecs::get_size(scene, manager),
                 },
             }),
@@ -426,7 +422,7 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        //vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, 0, (uint)render_memory.used_size / Render.sizeof, Render.sizeof);
+        vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, 0, (uint)render_memory.used_size / Render.sizeof, Render.sizeof);
         vk::cmdEndRendering(command_buffer);
       
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));

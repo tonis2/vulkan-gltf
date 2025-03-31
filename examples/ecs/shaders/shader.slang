@@ -91,7 +91,6 @@ cbuffer Scene
     Light light;
     Vertex* vertices;
     DrawCommand* commmands;
-    Material* materials;
     float4x4* joints;
 }
 
@@ -131,14 +130,14 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    // if (instance.has_skin > 0)
-    // {
-    //     skin_matrix =
-    //         vertex.skin_weight[0] * joints[vertex.skin_pos[0]] +
-    //         vertex.skin_weight[1] * joints[vertex.skin_pos[1]] +
-    //         vertex.skin_weight[2] * joints[vertex.skin_pos[2]] +
-    //         vertex.skin_weight[3] * joints[vertex.skin_pos[3]];
-    // }
+    if (instance.has_skin > 0)
+    {
+        skin_matrix =
+            vertex.skin_weight[0] * joints[vertex.skin_pos[0]] +
+            vertex.skin_weight[1] * joints[vertex.skin_pos[1]] +
+            vertex.skin_weight[2] * joints[vertex.skin_pos[2]] +
+            vertex.skin_weight[3] * joints[vertex.skin_pos[3]];
+    }
 
     FragmentData output = {
         vertex.tex_cord,
@@ -154,7 +153,7 @@ FragmentData vertexMain(VertexInput input)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
-    Material material = materials[input.material_index];
+    // Material material = materials[input.material_index];
     if (input.material_index >= 0)
     {
         // Material material = materials[input.material_index];
