@@ -456,7 +456,7 @@ enum Interpolation {
 }
 
 struct AnimationValue {
-    double time;
+    float time;
     Vec4f value;
 }
 
@@ -576,6 +576,7 @@ fn void parse_nodes(List(<uint>)* joints,
         });
         
         joints.push(joint);
+
         parse_nodes(joints, node.children, target_nodes, gltf_nodes, inverseBindMatrices, node_map, (int)target_nodes.len() - 1);
     }
 }
@@ -627,7 +628,7 @@ fn AnimationChannel! load_animation_data(gltf::Animation animation, AnimationSki
 
         for (ulong i; i < time_accessor.count; i++) {
             values.push({
-                .time = gltf.@castBuffer(time_accessor, i, double),
+                .time = gltf.@castBuffer(time_accessor, i, float),
                 .value = gltf.@castBuffer(value_accessor, i, Vec4f),
             });
         }
@@ -641,10 +642,9 @@ fn AnimationChannel! load_animation_data(gltf::Animation animation, AnimationSki
 fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, AnimationSkin* skin, double current_time) {
     foreach (&channel: self) {
         channel.elapsed_time += current_time;
-
         if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
 
-        for (uint index; index < channel.value_count; index++) {
+        for (uint index = 0; index < channel.value_count; index++) {
             AnimationValue current_value = values[index + channel.value_offset];
 
             if (channel.elapsed_time < current_value.time && index > 0) {
@@ -666,17 +666,17 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
 
                     if (channel.interpolation == LINEAR) {
                         AnimationValue prev_value = values[index + channel.value_offset - 1];
-                        double interpolation_value = (channel.elapsed_time - prev_value.time) / (current_value.time - prev_value.time);
+                        float interpolation_value = (float)(channel.elapsed_time - prev_value.time) / (float)(current_value.time - prev_value.time);
                   
                         switch (channel.path) {
                             case TRANSLATION: {
-                                node.translation = prev_value.value.xyz.lerp(current_value.value.xyz, (float)interpolation_value);
+                                node.translation = prev_value.value.xyz.lerp(current_value.value.xyz, interpolation_value);
                             }
                             case ROTATION: {
-                                node.rotation = Quaternionf{.v = prev_value.value}.slerp(Quaternionf{.v = current_value.value}, (float)interpolation_value);
+                                node.rotation = Quaternionf{.v = prev_value.value}.slerp(Quaternionf{.v = current_value.value}, interpolation_value);
                             }
                             case SCALE: {
-                                node.scale = prev_value.value.xyz.lerp(current_value.value.xyz, (float)interpolation_value);
+                                node.scale = prev_value.value.xyz.lerp(current_value.value.xyz, interpolation_value);
                             }
                             default: {}
                         }
