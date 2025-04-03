@@ -108,7 +108,7 @@ fn void main()
     defer game_data.free();
 
     Gltf gltf = gltf::loadFile("assets/CesiumMan.gltf")!!;
-    defer gltf.free();
+    // defer gltf.free();
 
     MeshData duck = game_data.add_mesh(gltf.meshes[0], gltf);
     game_data.build_buffers()!!;
@@ -151,13 +151,24 @@ fn void main()
 
     ecs::Animations animation_manager = ecs::create_animations_manager(gltf.skins[0], gltf);
     animation_manager.add_from_gltf(gltf.animations[0], gltf, "fly")!!;
+    defer animation_manager.free();
 
+
+    gltf.free();
+    // gltf::AnimationChannels animaton_data = gltf.load_animations({0});
+    // defer animaton_data.release();
+
+    // animation_manager.run_animation("fly", 5)!!;
+
+    // io::printfn("BREAK");
+
+    // animaton_data.run_animation(&gltf, 5);
 
     // foreach (node: animation_manager.skin.nodes) {
     //     Matrix4f matrix = node.global_matrix(animation_manager.skin.nodes);
     // }
 
-    defer animation_manager.free();
+
 
     Component animation_comp = manager.@create_component("Fly_animation", size: (uint)animation_manager.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
 
