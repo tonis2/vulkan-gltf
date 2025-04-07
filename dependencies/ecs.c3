@@ -31,6 +31,11 @@ interface Allocator
     fn void free();
 }
 
+fault Error
+{
+   NO_KEY_FOUND
+}
+
 struct Component {
     uint id;
     uint size;
@@ -48,20 +53,16 @@ bitstruct BufferID : ulong {
     uint entity : 32..63;
 }
 
-struct BufferView {
-    uint offset;
-    uint size;
-}
-
 def ComponentMap = HashMap(<String, Component>);
-def BufferMap = HashMap(<BufferID, BufferView>);
+def ViewMap = HashMap(<BufferID, uint>);
 
 macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
-macro uint Action.hash(Action i) => builtin::@generic_hash(i.ordinal);
+// macro uint Action.hash(Action i) => builtin::@generic_hash(i.ordinal);
 
 struct EntityManager {
     ComponentMap keys;
-    BufferMap views;
+    ViewMap views;
+    List(<Component>) components;
     List(<Allocator>) buffers;
     List(<Entity>) entities;
     UploadFN uploadFN;
@@ -98,147 +99,99 @@ macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
     }
 }
 
-macro Component EntityManager.@create_component(&self, #data, void* data = null, uint size = 0, uint buffer_index = 0) {
-    Component component;
+fn bool Entity.has_name(self, String name, EntityManager manager) {
+    Component! key = manager.keys[name];
+
+    if (try key) {
+        uint mask = 1 << key.id;
+        return self.bitmask & mask == mask;
+    }
+
+    return false;
+}
+
+fn Component EntityManager.new_component(&self, uint type_index, void* data = null, uint size = 0, uint buffer_index = 0) {
+    Allocator buffer = self.buffers[buffer_index];
+
+    Component component = {
+        .id = type_index,
+        .size = size,
+        .buffer = buffer_index,
+        .offset = buffer.usedSize()
+    };
+
+    self.components.push(component);
+
+    if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+        self.uploadFN(buffer, data, size, component.offset);
+    } else {
+        buffer.push(data, size);
+    }
+
+    return component;
+}
+
+macro Component! EntityManager.@create_component(&self, #data, void* data = null, uint size = 0, int buffer_index = -1) {
+    String type_name;
 
     $if $typeof(#data).nameof == "String":
-        if (self.keys.has_key(#data)) {
-            io::printfn("Component key already taken");
-            return component;
-        } else {
-            uint index = buffer_index;
-            uint key_index = (uint)self.keys.len();
-
-            $if $typeof(#data).has_tagof("BUFFER"):
-                index = $typeof(#data).tagof("BUFFER");
-            $endif
-
-            component = {
-                .id = key_index,
-                .buffer = index,
-                .size = size,
-            };
-
-            self.keys[#data] = component;
-        }
-
-        Allocator buffer = self.buffers[component.buffer];
-        component.offset = buffer.usedSize();
-        
-        if (data != null) {
-            buffer.push(data, size);
-        } else {
-            buffer.setUsedSize(component.offset + size);
-        }
-
-        self.views[BufferID {
-            .component = component.id,
-            .entity = 0,
-        }] = BufferView {
-            .offset = (uint)component.offset,
-            .size = component.size
-        };
-    $endif;
+        type_name = #data; 
+    $endif
 
     $if $typeof(#data).nameof != "String":
-        if (!self.keys.has_key($typeof(#data).nameof)) {
-            uint index = buffer_index;
-            uint key_index = (uint)self.keys.len();
+        type_name = $typeof(#data).nameof;
+    $endif
 
-            $if $typeof(#data).has_tagof("BUFFER"):
-                index = $typeof(#data).tagof("BUFFER");
-            $endif
-
-            component = {
-                .id = key_index,
-                .buffer = index,
-                .size = $typeof(#data).sizeof,
-            };
-
-            self.keys[$typeof(#data).nameof] = component;
-        } else {
-            component = self.keys[$typeof(#data).nameof]!!;
-        }
-
-        Allocator buffer = self.buffers[component.buffer];
-        
-        component.offset = buffer.usedSize();
-        buffer.push(&&#data, $typeof(#data).sizeof);
-
-        self.views[BufferID {
-            .component = component.id,
-            .entity = 0,
-        }] = BufferView {
-            .offset = (uint)component.offset,
-            .size = component.size
+    if (!self.keys.has_key(type_name)) {
+        self.keys[type_name] = {
+            .id = (uint)self.keys.len(),
+            .buffer = buffer_index >= 0 ? buffer_index : 0,
         };
-     $endif;
+    }
 
-    return component;   
+    Component info = self.keys[type_name]!!;
+    uint default_buffer = buffer_index >= 0 ? buffer_index : info.buffer;
+
+    if (type_name != "String") {
+        return self.new_component(info.id, &&#data, $typeof(#data).sizeof, default_buffer);
+    }
+
+    if (type_name == "String") {
+        return self.new_component(info.id, data, size, default_buffer);
+    }
+
+    return Error.NO_KEY_FOUND?;
 }
 
 macro Entity EntityManager.@create_entity(&self, ...) {
-    Component! component;
     String type_name;
     Entity entity = {.id = math::max((uint)1, (uint)self.entities.len())};
 
     uint size = 0;
     uint buffer_index = 0;
+    Component component;
 
     // Loop over entity data
     $for (var $i = 0; $i < $vacount; $i++);
         type_name = $typeof($vaarg[$i]).nameof;
         size += $typeof($vaarg[$i]).sizeof;
 
-        $if $typeof($vaarg[$i]).nameof == "Component":
-            // Reuse already saved data
-            entity.bitmask |= 1 << $vaarg[$i].id;
+        $if $typeof($vaarg[$i]).has_tagof("BUFFER"):
+            buffer_index = $typeof($vaarg[$i]).tagof("BUFFER");
+        $endif
+
+        if (type_name = "Component") {
+            // Todo component value
+        } else {
+
+            component = self.@create_component($vaarg[$i], buffer_index: buffer_index)!!;
+            entity.bitmask |= 1 << component.id;
             self.views[BufferID {
-                .component = $vaarg[$i].id,
+                .component = component.id,
                 .entity = entity.id,
-            }] = BufferView {
-                .offset = (uint)$vaarg[$i].offset,
-                .size = $typeof($vaarg[$i]).sizeof
-            };
-        $else
-            component = self.keys[type_name];
-            if (try component) {
-                // If component already exists, add mark component in entitys bitmask
-                entity.bitmask |= 1 << component.id;
-                buffer_index = component.buffer;
-            } else {
-                // If component not created before, add it to component map and then to entiy's bitmask
-                uint key_index = (uint)self.keys.len();
-                entity.bitmask |= 1 << key_index;
-
-                $if $typeof($vaarg[$i]).has_tagof("BUFFER"):
-                    buffer_index = $typeof($vaarg[$i]).tagof("BUFFER");
-                $endif
-
-                component = {
-                    .id = key_index,
-                    .buffer = buffer_index,
-                    .size = $typeof($vaarg[$i]).sizeof
-                };
-
-                self.keys[type_name] = component!!;
-            }
-            // Create a buffer view mapping and push data to buffer
-            self.views[BufferID {
-                .component = component!!.id,
-                .entity = entity.id,
-            }] = BufferView {
-                .offset = (uint)self.buffers[buffer_index].usedSize(),
-                .size = component!!.size
-            };
-            // io::printfn("%d %s", self.buffers[buffer_index].usedSize(), type_name);
-            if (self.buffers[buffer_index].getType() == GpuType.DEVICE_ONLY.ordinal) {
-                self.uploadFN(self.buffers[buffer_index], &&$vaarg[$i], $typeof($vaarg[$i]).sizeof, self.buffers[buffer_index].usedSize());
-            } else {
-                self.buffers[buffer_index].push(&&$vaarg[$i], $typeof($vaarg[$i]).sizeof);
-            }
-        $endif   
-	$endfor
+            }] = (uint)self.components.len() - 1;
+        }
+    $endfor
 
     self.entities.push(entity);
     return entity;
@@ -255,36 +208,26 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
-fn bool Entity.has_name(self, String name, EntityManager manager) {
-    Component! key = manager.keys[name];
-
-    if (try key) {
-        uint mask = 1 << key.id;
-        return self.bitmask & mask == mask;
-    }
-
-    return false;
-}
-
-fn void Entity.add(&self, Component component, EntityManager manager) {
+fn void Entity.add(&self, uint component_id, EntityManager manager) {
+    Component component = manager.components[component_id];
     self.bitmask |= 1 << component.id;
 
     manager.entities[self.id].bitmask = self.bitmask;
     manager.views[BufferID {
         .component = component.id,
         .entity = self.id,
-    }] = {
-        .offset = (uint)component.offset,
-        .size = component.size,
-    };
+    }] = component_id;
 }
 
 fn uint get_size(Entity entity, EntityManager manager) {
     uint size;
     @pool() {
+        io::printfn("%s", manager.components.len());
         foreach (key : manager.views.tcopy_keys()) {
             if (key.entity == entity.id) {
-                size += manager.views[key]!!.size;
+                io::printfn("%d", manager.views[key]!!);
+                Component component = manager.components[manager.views[key]!!];
+                size += component.size;
             }
         }
     };
@@ -320,7 +263,7 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
         };
 
         Allocator buffer = manager.buffers[component.buffer];
-        uint type_offset = manager.views[index]!!.offset;
+        uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
 
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
             manager.uploadFN(buffer, &&#data, $typeof(#data).sizeof, type_offset + offset);
@@ -347,7 +290,7 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
         };
 
         Allocator buffer = manager.buffers[component.buffer];
-        uint type_offset = manager.views[index]!!.offset;
+        uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
         return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
     $endif;
 }
@@ -367,7 +310,7 @@ macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0)
         };
 
         Allocator buffer = manager.buffers[component.buffer];
-        uint type_offset = manager.views[index]!!.offset;
+        uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
         return manager.buffers[component.buffer].getAddress() + type_offset + offset;
     $endif;
 }
@@ -386,7 +329,7 @@ macro @get_offset(EntityManager manager, #target, #type) {
         };
 
         Allocator buffer = manager.buffers[component.buffer];
-        uint type_offset = manager.views[index]!!.offset;
+        uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
         return type_offset;
     $endif;
 }
@@ -526,7 +469,7 @@ fn Animations new_animation(AnimationSkin skin, EntityManager manager, String na
         .manager = manager,
     };
 
-    response.component = response.manager.@create_component(name, size: (uint)response.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
+    response.component = response.manager.@create_component(name, size: (uint)response.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0)!!;
 
     return response;
 }
@@ -725,8 +668,8 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
 
 //     defer manager.free();
 
-//     Component velocity_comp = manager.@create_component(Velocity{ 1.0, 2.0, 3.0 });
-//     Component animation_comp = manager.@create_component("Fly_animation", size: Position.sizeof);
+//     Component velocity_comp = manager.@create_component(Velocity{ 1.0, 2.0, 3.0 })!!;
+//     Component animation_comp = manager.@create_component("Fly_animation", size: Position.sizeof)!!;
 
 //     ecs::@upload(manager, velocity_comp, &&Velocity{ 3.0, 3.0, 3.0 }, size: Velocity.sizeof);
 
@@ -743,7 +686,7 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
 //         animation_comp
 //     );
 
-//     player.add(velocity_comp, manager);
+//     player.add(velocity_comp.id, manager);
 
 //     manager.@query("Position", "Velocity"; Entity entity) {
 //         Velocity velocity = @get(manager, entity, Velocity);
