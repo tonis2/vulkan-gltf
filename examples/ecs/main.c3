@@ -13,6 +13,10 @@ import ecs;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
+struct PushConstantData {
+   uint draw_index;
+}
+
 struct Position @tag("BUFFER", 3) {
     Vec3f scale;
     Vec3f translation;
@@ -29,25 +33,13 @@ struct Render @tag("BUFFER", 1) {
     uint firstIndex;
     int vertexOffset;
     uint firstInstance;
-
-    int material_index;
-    int has_skin;
-    uint instance_offset;
+    vk::DeviceAddress skin_data;
     Matrix4f node_matrix;
 }
 
-fn Render createRender(MeshData mesh, bool has_skin = false, Matrix4f node_matrix = MATRIX4F_IDENTITY) {
-    return Render {
-        .indexCount = mesh.indexCount,
-        .firstIndex = mesh.firstIndex,
-        .vertexOffset = mesh.vertexOffset,
-        .has_skin = (int)has_skin,
-        .material_index = mesh.materialIndex,
-        .instanceCount = 1,
-        .firstInstance = 0,
-        .node_matrix = node_matrix
-    };
-}
+// fn Render createRender(MeshData mesh, bool has_skin = false, Matrix4f node_matrix = MATRIX4F_IDENTITY) {
+//     return ;
+// }
 
 struct SceneData { 
     vk::DeviceAddress vertices;
@@ -110,18 +102,18 @@ fn void main()
     Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
     // defer gltf.free();
 
-    MeshData duck = game_data.add_mesh(gltf.meshes[0], gltf);
+    MeshData mesh = game_data.add_mesh(gltf.meshes[0], gltf);
     game_data.build_buffers()!!;
 
     Memory scene_memory = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         &context.local_allocation,
         null,
         data_size: 15_000_000
     )!!;
 
     Memory render_memory = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_INDIRECT_BUFFER_BIT,
         &context.local_allocation,
         null,
         data_size: 5_000_000
@@ -155,7 +147,11 @@ fn void main()
     
     defer animation_manager.free();
 
-    gltf.free();
+    List(<Component>) materials;
+
+    // foreach (material: gltf.materials) {
+
+    // };
 
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -168,7 +164,6 @@ fn void main()
         SceneData {
             .vertices = game_data.vertex_buffer.address,
             .instances = render_memory.address,
-            .skin_data = ecs::@get_address(manager, animation_manager.component)
         },
     );
 
@@ -180,10 +175,25 @@ fn void main()
         MaterialInfo {
             .texture = 5,
         },
-        createRender(duck, has_skin: true),
+        Render {
+            .indexCount = mesh.indexCount,
+            .firstIndex = mesh.firstIndex,
+            .vertexOffset = mesh.vertexOffset,
+            .instanceCount = 1,
+            .firstInstance = 0,
+            .skin_data = ecs::@get_address(manager, animation_manager.component),
+            .node_matrix = MATRIX4F_IDENTITY
+        }
     );
 
+    gltf.free();
+
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
+
+    defer {
+        foreach (texture: descriptor_images) texture.free(context.device);
+        descriptor_images.free();
+    }
 
     PipelineLayer pipeline_layout = helpers::createPipelineLayout(
         {
@@ -206,7 +216,13 @@ fn void main()
             vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
             vk::SHADER_STAGE_FRAGMENT_BIT,
         },
-        PushConstantRange[] {},
+        PushConstantRange[] {
+            {
+                .offset = 0,
+                .size = PushConstantData.sizeof,
+                .stageFlags = vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
+            },
+        },
         context.device
     )!!;
 
@@ -415,9 +431,17 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
-        vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, 0, (uint)render_memory.used_size / Render.sizeof, Render.sizeof);
+
+        for (uint i = 0; i < (uint)render_memory.used_size / Render.sizeof; i++) {
+            PushConstantData constant_data = {
+                .draw_index = i,
+            };
+
+            vk::cmdPushConstants(command_buffer, pipeline_layout.layout, vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT, 0, PushConstantData.sizeof, &constant_data);
+            vk::cmdDrawIndexedIndirect(command_buffer, render_memory.buffer, i * Render.sizeof, 1, Render.sizeof);
+        }
+
         vk::cmdEndRendering(command_buffer);
-      
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ end_barrier }));
         vk::endCommandBuffer(command_buffer)!!;
          

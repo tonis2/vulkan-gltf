@@ -75,11 +75,17 @@ struct DrawCommand
     int vertexOffset;
     uint firstInstance;
 
-    int material_index;
-    int has_skin;
-    uint instance_offset;
+    float4x4* skin_data;
     float4x4 node_matrix;
 }
+
+struct PushData
+{
+    uint draw_index;
+};
+
+[vk_push_constant]
+const PushData push_constant;
 
 
 [vk_binding(0)]
@@ -91,7 +97,6 @@ cbuffer Scene
     Light light;
     Vertex* vertices;
     DrawCommand* commmands;
-    float4x4* joints;
 }
 
 [vk_binding(1)]
@@ -110,17 +115,14 @@ struct FragmentData
 
 struct VertexInput {
     uint32_t vertID : SV_VertexID;
-    uint32_t drawID : SV_DrawIndex;
     uint32_t instanceID : SV_InstanceID;
 }
 
 [shader("vertex")]
 FragmentData vertexMain(VertexInput input)
 {
-    DrawCommand instance = commmands[input.drawID];
+    DrawCommand instance = commmands[push_constant.draw_index];
     Vertex vertex = vertices[input.vertID];
-
-
 
     float4x4 skin_matrix = {
         1, 0, 0, 0,
@@ -129,13 +131,13 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    if (instance.has_skin > 0)
+    if (instance.skin_data != nullptr)
     {
         skin_matrix =
-            vertex.skin_weight[0] * joints[vertex.skin_pos[0]] +
-            vertex.skin_weight[1] * joints[vertex.skin_pos[1]] +
-            vertex.skin_weight[2] * joints[vertex.skin_pos[2]] +
-            vertex.skin_weight[3] * joints[vertex.skin_pos[3]];
+            vertex.skin_weight[0] * instance.skin_data[vertex.skin_pos[0]] +
+            vertex.skin_weight[1] * instance.skin_data[vertex.skin_pos[1]] +
+            vertex.skin_weight[2] * instance.skin_data[vertex.skin_pos[2]] +
+            vertex.skin_weight[3] * instance.skin_data[vertex.skin_pos[3]];
     }
 
     float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
@@ -144,7 +146,7 @@ FragmentData vertexMain(VertexInput input)
 
     FragmentData output = {
         vertex.tex_cord,
-        instance.material_index,
+        0,
         vertex_pos
     };
 
