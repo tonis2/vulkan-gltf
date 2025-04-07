@@ -437,9 +437,25 @@ import std::collections::list;
 import std::collections::map;
 import std::time;
 
+
 def AnimationMap = HashMap(<String, AnimationChannel>);
 def AnimationChannel = List(<AnimationFrame>);
 def NodeMap = HashMap(<uint, uint>);
+
+
+struct Animations {
+    AnimationSkin skin;
+    AnimationMap channels;
+    EntityManager manager;
+    Component component;
+    List(<AnimationValue>) values;
+}
+
+struct AnimationSkin {
+    String name;
+    List(<Node>) nodes;
+    NodeMap node_map;
+}
 
 enum AnimationProperty {
     TRANSLATION,
@@ -503,10 +519,16 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
     }.mul(rotation.to_matrixf());
 }
 
-struct Animations {
-    AnimationSkin skin;
-    AnimationMap channels;
-    List(<AnimationValue>) values;
+
+fn Animations new_animation(AnimationSkin skin, EntityManager manager, String name) {
+    Animations response = {
+        .skin = skin,
+        .manager = manager,
+    };
+
+    response.component = response.manager.@create_component(name, size: (uint)response.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
+
+    return response;
 }
 
 fn void Animations.free(self) {
@@ -522,17 +544,9 @@ fn void Animations.free(self) {
     self.channels.free();
 }
 
-
-fn Animations create_animations_manager(gltf::Skin skin, Gltf gltf) {
-    return Animations {
-        .skin = load_skin_data(skin, gltf),
-    };
-}
-
 fn void! Animations.add_from_gltf(&self, gltf::Animation animation, Gltf gltf, String name) {
     self.channels[name] = load_animation_data(animation, self.skin, gltf, &self.values)!;
 }
-
 
 <*
  @require time > 0 "Time must be bigger than 0"
@@ -540,12 +554,11 @@ fn void! Animations.add_from_gltf(&self, gltf::Animation animation, Gltf gltf, S
 fn void! Animations.run_animation(&self, String name, double time) {
     AnimationChannel* channel = self.channels.get_ref(name)!;
     channel.run_animation(self.values, &self.skin, time);
-}
 
-struct AnimationSkin {
-    String name;
-    List(<Node>) nodes;
-    NodeMap node_map;
+    foreach (index, node: self.skin.nodes) {
+        Matrix4f matrix = node.global_matrix(self.skin.nodes).mul(node.inverse_bind).transpose();
+        ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
+    }
 }
 
 fn void AnimationSkin.free(self) {

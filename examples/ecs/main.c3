@@ -107,7 +107,7 @@ fn void main()
     GameData game_data = helpers::createGame(&context);
     defer game_data.free();
 
-    Gltf gltf = gltf::loadFile("assets/CesiumMan.gltf")!!;
+    Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
     // defer gltf.free();
 
     MeshData duck = game_data.add_mesh(gltf.meshes[0], gltf);
@@ -149,28 +149,13 @@ fn void main()
 
     defer manager.free();
 
-    ecs::Animations animation_manager = ecs::create_animations_manager(gltf.skins[0], gltf);
-    animation_manager.add_from_gltf(gltf.animations[0], gltf, "fly")!!;
+    ecs::Animations animation_manager = ecs::new_animation(skin: ecs::load_skin_data(gltf.skins[0], gltf), manager: manager, name: "wasp");
+
+    animation_manager.add_from_gltf(gltf.animations[0], gltf, "wasp_fly")!!;
+    
     defer animation_manager.free();
 
-
     gltf.free();
-    // gltf::AnimationChannels animaton_data = gltf.load_animations({0});
-    // defer animaton_data.release();
-
-    // animation_manager.run_animation("fly", 5)!!;
-
-    // io::printfn("BREAK");
-
-    // animaton_data.run_animation(&gltf, 5);
-
-    // foreach (node: animation_manager.skin.nodes) {
-    //     Matrix4f matrix = node.global_matrix(animation_manager.skin.nodes);
-    // }
-
-
-
-    Component animation_comp = manager.@create_component("Fly_animation", size: (uint)animation_manager.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
 
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -183,7 +168,7 @@ fn void main()
         SceneData {
             .vertices = game_data.vertex_buffer.address,
             .instances = render_memory.address,
-            .skin_data = ecs::@get_address(manager, animation_comp)
+            .skin_data = ecs::@get_address(manager, animation_manager.component)
         },
     );
 
@@ -332,12 +317,7 @@ fn void main()
     while (running) {
         EventMap[] event_map = win.getEvent();
 
-        animation_manager.run_animation("fly", animation_time.mark().to_sec())!!;
-
-        foreach (index, node: animation_manager.skin.nodes) {
-            Matrix4f matrix = node.global_matrix(animation_manager.skin.nodes).mul(node.inverse_bind).transpose();
-            ecs::@upload(manager, animation_comp, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
-        }
+        animation_manager.run_animation("wasp_fly", animation_time.mark().to_sec())!!;
 
         foreach (event: event_map) {
             switch {
