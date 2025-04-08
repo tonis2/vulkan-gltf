@@ -17,14 +17,24 @@ struct PushConstantData {
    uint draw_index;
 }
 
+struct Material @tag("BUFFER", 2) {
+    float emissiveStrength;
+    float metallicFactor;
+    float roughnessFactor;
+    Vec4f emissiveFactor;
+    Vec4f baseColorFactor;
+
+    int normalTexture;
+    int occlusionTexture;
+    int emissiveTexture;
+    int baseColorTexture;
+    int metallicRoughnessTexture;
+}
+
 struct Position @tag("BUFFER", 3) {
     Vec3f scale;
     Vec3f translation;
     Quaternionf rotation;
-}
-
-struct MaterialInfo {
-    uint texture;
 }
 
 struct Render @tag("BUFFER", 1) {
@@ -34,6 +44,7 @@ struct Render @tag("BUFFER", 1) {
     int vertexOffset;
     uint firstInstance;
     vk::DeviceAddress skin_data;
+    vk::DeviceAddress material;
     Matrix4f node_matrix;
 }
 
@@ -44,7 +55,6 @@ struct Render @tag("BUFFER", 1) {
 struct SceneData { 
     vk::DeviceAddress vertices;
     vk::DeviceAddress instances;
-    vk::DeviceAddress skin_data;
 }
 
 // Used to send buffer device addresses to GPU
@@ -119,7 +129,7 @@ fn void main()
         data_size: 5_000_000
     )!!;
 
-    Memory device_memory = vk::new_buffer(
+    Memory gpu_only_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &context.device_allocation,
         null,
@@ -133,7 +143,7 @@ fn void main()
         buffers: {
             (ecs::Allocator)&scene_memory,
             (ecs::Allocator)&render_memory,
-            (ecs::Allocator)&device_memory,
+            (ecs::Allocator)&gpu_only_memory,
             &dynamic_buffer,
         },
         uploadFN: &stageToGPU,
@@ -149,9 +159,24 @@ fn void main()
 
     List(<Component>) materials;
 
-    // foreach (material: gltf.materials) {
+    foreach (material: gltf.materials) {
+        materials.push(manager.@create_component(
+            Material {
+                 .emissiveStrength = material.emissiveStrength,
+                 .metallicFactor = material.metallicFactor,
+                 .roughnessFactor = material.roughnessFactor,
+                 .emissiveFactor = material.emissiveFactor,
+                 .baseColorFactor = material.baseColorFactor,
+                 .normalTexture = material.normalTexture.source,
+                 .occlusionTexture = material.occlusionTexture.source,
+                 .emissiveTexture = material.emissiveTexture.source,
+                 .baseColorTexture = material.baseColorTexture.source,
+                 .metallicRoughnessTexture = material.metallicRoughnessTexture.source,
+            }
+        )!!);
+    };
 
-    // };
+    defer materials.free();
 
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -172,19 +197,40 @@ fn void main()
             .translation = {1.0, 1.0, 1.0},
             .scale = {1.0, 1.0, 1.0}
         },
-        MaterialInfo {
-            .texture = 5,
-        },
         Render {
             .indexCount = mesh.indexCount,
             .firstIndex = mesh.firstIndex,
             .vertexOffset = mesh.vertexOffset,
             .instanceCount = 1,
             .firstInstance = 0,
+            .material = ecs::@get_address(manager, materials[0]),
             .skin_data = ecs::@get_address(manager, animation_manager.component),
             .node_matrix = MATRIX4F_IDENTITY
         }
     );
+    
+    foreach (image : gltf.images) {
+        stb::Image image_data;
+        switch (image.type) {
+            case ENCODED_BASE64: {
+                image_data = stb::loadFromBuffer(image.data, image.data.len, stb::Channel.STBI_RGB_ALPHA)!!;
+            };
+            case ENCODED_BIN: {
+                gltf::BufferView buffer_view = gltf.bufferViews[image.view];
+                image_data = stb::loadFromBuffer(gltf.buffers[buffer_view.buffer].data[buffer_view.offset..], (uint)buffer_view.byteLength, stb::Channel.STBI_RGB_ALPHA)!!;
+            };
+            case EXTERNAL_BIN: image_data = stb::loadImage(image.uri, stb::Channel.STBI_RGB_ALPHA)!!;
+            default: {}
+        }
+
+        // Create vulkan texture image
+        if (catch err = descriptor_images.addImageTexture(image_data, &context)) {
+            io::printfn("GPU allocator is too small for textures");
+            return;
+        };
+
+        image_data.free();
+    }
 
     gltf.free();
 
@@ -279,7 +325,7 @@ fn void main()
     .setViewports({{}})
     .setScissors({{}});
 
-   PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo()
+    PipelineDynamicStateCreateInfo dynamic_state = vk::pipelineDynamicStateCreateInfo()
     .setDynamicStates(
     {
         vk::DYNAMIC_STATE_VIEWPORT,

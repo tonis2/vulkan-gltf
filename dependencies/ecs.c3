@@ -230,8 +230,7 @@ fn uint get_size(Entity entity, EntityManager manager) {
     @pool() {
         foreach (key : manager.views.tcopy_keys()) {
             if (key.entity == entity.id) {
-                Component component = manager.components[manager.views[key]!!];
-                size += component.size;
+                size += manager.components[manager.views[key]!!].size;
             }
         }
     };
@@ -260,13 +259,13 @@ macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
-        Component component = manager.keys[$typeof(#data).nameof]!!;
+        Component component_info = manager.keys[$typeof(#data).nameof]!!;
         BufferID index = {
-            .component = component.id,
+            .component = component_info.id,
             .entity = #target.id,
         };
 
-        Allocator buffer = manager.buffers[component.buffer];
+        Allocator buffer = manager.buffers[component_info.buffer];
         uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
 
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {

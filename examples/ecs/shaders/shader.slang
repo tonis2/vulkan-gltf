@@ -1,55 +1,25 @@
 // Shader written in Slang https://github.com/shader-slang/slang
 
-struct TextureInfo
-{
-    int source;
-    int sampler;
-    float rotation;
-    float pad;
-    float2 offset;
-    float2 scale;
-
-    bool can_sample()
-    {
-        return sampler >= 0;
-    }
-};
-
 struct Material
 {
-    bool doubleSided;
-    uint alphaMode;
-    float cutOff;
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
-    float2 pad;
+    float padding;
     float4 emissiveFactor;
     float4 baseColorFactor;
-    TextureInfo normalTexture;
-    TextureInfo occlusionTexture;
-    TextureInfo emissiveTexture;
-    TextureInfo baseColorTexture;
-    TextureInfo metallicRoughnessTexture;
-
-    float4 getBaseColor(float2 tex_pos)
-    {
-        if (baseColorTexture.can_sample())
-        {
-            return image_samplers[baseColorTexture.sampler].Sample(tex_pos) * baseColorFactor;
-        }
-
-        return baseColorFactor;
-    }
+    int normalTexture;
+    int occlusionTexture;
+    int emissiveTexture;
+    int baseColorTexture;
+    int metallicRoughnessTexture;
 };
-
 
 struct Vertex
 {
     float4 position;
     float4 normal;
-    float2 tex_cord;
-    float2 pad;
+    float4 tex_cord;
     float4 tangent;
     uint4 skin_pos;
     float4 skin_weight;
@@ -68,7 +38,7 @@ struct Light
 }
 
 struct DrawCommand
-{   
+{
     uint indexCount;
     uint instanceCount;
     uint firstIndex;
@@ -76,6 +46,7 @@ struct DrawCommand
     uint firstInstance;
 
     float4x4* skin_data;
+    Material* material;
     float4x4 node_matrix;
 }
 
@@ -86,7 +57,6 @@ struct PushData
 
 [vk_push_constant]
 const PushData push_constant;
-
 
 [vk_binding(0)]
 cbuffer Scene
@@ -109,7 +79,7 @@ uniform Sampler2D shadow_samplers[];
 struct FragmentData
 {
     float2 tex_cord;
-    int material_index;
+    uint64_t material;
     float4 sv_position : SV_Position;
 };
 
@@ -145,8 +115,8 @@ FragmentData vertexMain(VertexInput input)
     float4 vertex_pos = mul(mul(perspective, view), frag_pos);
 
     FragmentData output = {
-        vertex.tex_cord,
-        0,
+        vertex.tex_cord.xy,
+        (uint64_t)instance.material,
         vertex_pos
     };
 
@@ -158,12 +128,11 @@ FragmentData vertexMain(VertexInput input)
 float4 fragmentMain(FragmentData input)
     : SV_Target
 {
-    // Material material = materials[input.material_index];
-    if (input.material_index >= 0)
+    Material* material = (Material*)input.material;
+
+    if (material != nullptr)
     {
-        // Material material = materials[input.material_index];
-        // float4 diffuse_texture = material.getBaseColor(input.tex_cord);
-        // return diffuse_texture;
+       return image_samplers[material.baseColorTexture].Sample(input.tex_cord) * material.baseColorFactor;
     }
 
     return float4(0.5, 0.5, 0.5, 1.0);
