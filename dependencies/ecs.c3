@@ -110,7 +110,7 @@ fn bool Entity.has_name(self, String name, EntityManager manager) {
     return false;
 }
 
-fn Component EntityManager.new_component(&self, uint type_index, void* data = null, uint size = 0, uint buffer_index = 0) {
+fn Component EntityManager.new_component(&self, uint type_index, void* data = null, uint size, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
 
     Component component = {
@@ -122,50 +122,55 @@ fn Component EntityManager.new_component(&self, uint type_index, void* data = nu
 
     self.components.push(component);
 
-    if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
-        self.uploadFN(buffer, data, size, component.offset);
+    if (data != null) {
+        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+            self.uploadFN(buffer, data, size, component.offset);
+        } else {
+            buffer.push(data, size);
+        }
     } else {
-        buffer.push(data, size);
+        buffer.setUsedSize(buffer.usedSize() + size);
     }
 
     return component;
 }
 
-macro Component! EntityManager.@create_component(&self, #data, void* data = null, uint size = 0, int buffer_index = -1) {
+macro Component! EntityManager.@create_component(&self, #type, uint size = 0, void* data = null, int buffer_index = -1) {
     String type_name;
 
-    $if $typeof(#data).nameof == "String":
-        type_name = #data; 
+    $if $typeof(#type).nameof == "String":
+        type_name = #type;
     $endif
 
-    $if $typeof(#data).nameof != "String":
-        type_name = $typeof(#data).nameof;
+    $if $typeof(#type).nameof != "String":
+        type_name = $typeof(#type).nameof;
     $endif
+
+    uint default_buffer = buffer_index >= 0 ? buffer_index : 0;
 
     if (!self.keys.has_key(type_name)) {
         self.keys[type_name] = {
             .id = (uint)self.keys.len(),
-            .buffer = buffer_index >= 0 ? buffer_index : 0,
+            .buffer = default_buffer,
         };
     }
 
     Component info = self.keys[type_name]!!;
-    uint default_buffer = buffer_index >= 0 ? buffer_index : info.buffer;
 
-    if (type_name != "String") {
-        return self.new_component(info.id, &&#data, $typeof(#data).sizeof, default_buffer);
-    }
+    $if $typeof(#type).nameof != "String":
+        return self.new_component(info.id, &&#type, $typeof(#type).sizeof, default_buffer);
+    $endif
 
-    if (type_name == "String") {
+    $if $typeof(#type).nameof == "String":
         return self.new_component(info.id, data, size, default_buffer);
-    }
+    $endif
 
     return Error.NO_KEY_FOUND?;
 }
 
 macro Entity EntityManager.@create_entity(&self, ...) {
     String type_name;
-    Entity entity = {.id = math::max((uint)1, (uint)self.entities.len())};
+    Entity entity = {.id = (uint)self.entities.len()};
 
     uint size = 0;
     uint buffer_index = 0;
@@ -173,6 +178,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
 
     // Loop over entity data
     $for (var $i = 0; $i < $vacount; $i++);
+        buffer_index = 0;
         type_name = $typeof($vaarg[$i]).nameof;
         size += $typeof($vaarg[$i]).sizeof;
 
@@ -180,17 +186,17 @@ macro Entity EntityManager.@create_entity(&self, ...) {
             buffer_index = $typeof($vaarg[$i]).tagof("BUFFER");
         $endif
 
-        if (type_name = "Component") {
+        if (type_name == "Component") {
             // Todo component value
         } else {
-
             component = self.@create_component($vaarg[$i], buffer_index: buffer_index)!!;
-            entity.bitmask |= 1 << component.id;
-            self.views[BufferID {
-                .component = component.id,
-                .entity = entity.id,
-            }] = (uint)self.components.len() - 1;
         }
+        
+        entity.bitmask |= 1 << component.id;
+        self.views[BufferID {
+            .component = component.id,
+            .entity = entity.id,
+        }] = (uint)self.components.len() - 1;
     $endfor
 
     self.entities.push(entity);
@@ -222,16 +228,14 @@ fn void Entity.add(&self, uint component_id, EntityManager manager) {
 fn uint get_size(Entity entity, EntityManager manager) {
     uint size;
     @pool() {
-        io::printfn("%s", manager.components.len());
         foreach (key : manager.views.tcopy_keys()) {
             if (key.entity == entity.id) {
-                io::printfn("%d", manager.views[key]!!);
                 Component component = manager.components[manager.views[key]!!];
                 size += component.size;
             }
         }
     };
-
+ 
     return size;
 }
 
@@ -316,22 +320,15 @@ macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0)
 }
 
 macro @get_offset(EntityManager manager, #target, #type) {
-    // $if $typeof(#target).nameof == "Component":
-    //     Allocator buffer = manager.buffers[#target.buffer];
-    //     return;
-    // $endif;
+    Component component = manager.keys[#type]!;
 
-    $if $typeof(#target).nameof == "Entity":
-        Component component = manager.keys[#type.nameof]!!;
-        BufferID index = {
-            .component = component.id,
-            .entity = #target.id,
-        };
+    BufferID index = {
+        .component = component.id,
+        .entity = #target.id,
+    };
 
-        Allocator buffer = manager.buffers[component.buffer];
-        uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
-        return type_offset;
-    $endif;
+    Allocator buffer = manager.buffers[component.buffer];
+    return (uint)manager.components[manager.views[index]!].offset;
 }
 
 struct Buffer (Allocator) {

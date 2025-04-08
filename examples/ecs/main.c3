@@ -23,7 +23,7 @@ struct Position @tag("BUFFER", 3) {
     Quaternionf rotation;
 }
 
-struct MaterialInfo @tag("BUFFER", 2) {
+struct MaterialInfo {
     uint texture;
 }
 
@@ -203,7 +203,7 @@ fn void main()
             .setBufferInfo({
                 {
                     .buffer = scene_memory.buffer,
-                    .offset = ecs::@get_offset(manager, scene, CameraData),
+                    .offset = ecs::@get_offset(manager, scene, "CameraData")!!,
                     .range = ecs::get_size(scene, manager),
                 },
             }),
