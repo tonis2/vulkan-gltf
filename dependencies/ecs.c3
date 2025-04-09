@@ -10,7 +10,8 @@ import std::core::builtin;
 enum GpuType : uint
 {
     HOST_VISIBLE,
-    DEVICE_ONLY
+    DEVICE_ONLY,
+    CPU_ONLY
 }
 
 enum Action : uint
@@ -80,9 +81,9 @@ def UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset)
 
 
 fn void EntityManager.free(&self) {
-    // foreach (buffer: self.buffers) {
-    //     buffer.free();
-    // };
+    foreach (buffer: self.buffers) {
+        buffer.free();
+    };
     self.buffers.free();
     self.keys.free();
     self.views.free();
@@ -110,11 +111,11 @@ fn bool Entity.has_name(self, String name, EntityManager manager) {
     return false;
 }
 
-fn Component EntityManager.new_component(&self, uint type_index, void* data = null, uint size, uint buffer_index) {
+fn Component EntityManager.new_component(&self, void* data = null, uint size, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
 
     Component component = {
-        .id = type_index,
+        .id = (uint)self.components.len(),
         .size = size,
         .buffer = buffer_index,
         .offset = buffer.usedSize()
@@ -135,37 +136,14 @@ fn Component EntityManager.new_component(&self, uint type_index, void* data = nu
     return component;
 }
 
-macro Component! EntityManager.@create_component(&self, #type, uint size = 0, void* data = null, int buffer_index = -1) {
-    String type_name;
-
-    $if $typeof(#type).nameof == "String":
-        type_name = #type;
-    $endif
-
-    $if $typeof(#type).nameof != "String":
-        type_name = $typeof(#type).nameof;
-    $endif
-
+macro Component EntityManager.@create_component(&self, #type = null, uint size = 0, void* data = null, int buffer_index = -1) {
     uint default_buffer = buffer_index >= 0 ? buffer_index : 0;
 
-    if (!self.keys.has_key(type_name)) {
-        self.keys[type_name] = {
-            .id = (uint)self.keys.len(),
-            .buffer = default_buffer,
-        };
-    }
-
-    Component info = self.keys[type_name]!!;
-
-    $if $typeof(#type).nameof != "String":
-        return self.new_component(info.id, &&#type, $typeof(#type).sizeof, default_buffer);
+    $if $typeof(#type).nameof != "void*":
+        return self.new_component(&&#type, $typeof(#type).sizeof, default_buffer);
+    $else
+        return self.new_component(data, size, default_buffer);
     $endif
-
-    $if $typeof(#type).nameof == "String":
-        return self.new_component(info.id, data, size, default_buffer);
-    $endif
-
-    return Error.NO_KEY_FOUND?;
 }
 
 macro Entity EntityManager.@create_entity(&self, ...) {
@@ -174,6 +152,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
 
     uint size = 0;
     uint buffer_index = 0;
+    uint type_id = 0;
     Component component;
 
     // Loop over entity data
@@ -186,17 +165,27 @@ macro Entity EntityManager.@create_entity(&self, ...) {
             buffer_index = $typeof($vaarg[$i]).tagof("BUFFER");
         $endif
 
-        if (type_name == "Component") {
-            // Todo component value
-        } else {
-            component = self.@create_component($vaarg[$i], buffer_index: buffer_index)!!;
+        $if $typeof($vaarg[$i]).nameof == "Component":
+             component = $vaarg[$i];
+        $else
+            component = self.@create_component($vaarg[$i], buffer_index: buffer_index);
+        $endif
+    
+        if (!self.keys.has_key(type_name)) {
+            self.keys[type_name] = {
+                .id = (uint)self.keys.len(),
+                .buffer = buffer_index,
+            };
         }
         
-        entity.bitmask |= 1 << component.id;
+        type_id = self.keys[type_name]!!.id;
+        entity.bitmask |= 1 << type_id;
+
         self.views[BufferID {
-            .component = component.id,
+            .component = type_id,
             .entity = entity.id,
-        }] = (uint)self.components.len() - 1;
+        }] = component.id;
+
     $endfor
 
     self.entities.push(entity);
@@ -214,15 +203,20 @@ macro bool Entity.@has_type(self, #type, EntityManager manager) {
     return false;
 }
 
-fn void Entity.add(&self, uint component_id, EntityManager manager) {
-    Component component = manager.components[component_id];
-    self.bitmask |= 1 << component.id;
-
+fn void Entity.add(&self, String type_name, Component component, EntityManager manager) {
+    if (!manager.keys.has_key(type_name)) {
+        manager.keys[type_name] = {
+            .id = (uint)manager.keys.len(),
+            .buffer = component.buffer,
+        };
+    }
+    
+    self.bitmask |= 1 << manager.keys[type_name]!!.id;
     manager.entities[self.id].bitmask = self.bitmask;
     manager.views[BufferID {
-        .component = component.id,
+        .component = manager.keys[type_name]!!.id,
         .entity = self.id,
-    }] = component_id;
+    }] = component.id;
 }
 
 fn uint get_size(Entity entity, EntityManager manager) {
@@ -347,14 +341,19 @@ struct Buffer (Allocator) {
 
 fn void Buffer.push(&self, void* data, usz size) @dynamic {
     if (self.used_size + size > self.size) {
-        usz new_size = self.size + size;
-        self.mapped = mem::realloc(self.mapped, new_size);
-        self.size = new_size;
+        self.ensure_size(self.used_size + size);
         mem::copy(self.mapped + self.used_size, data, size);
         self.used_size += size;
     } else {
         mem::copy(self.mapped + self.used_size, data, size);
         self.used_size += size;
+    }
+}
+
+fn void Buffer.ensure_size(&self, usz new_size) @dynamic {
+    if (new_size > self.size) {
+        self.mapped = mem::realloc(self.mapped, new_size);
+        self.size = new_size;
     }
 }
 
@@ -371,9 +370,10 @@ fn void Buffer.free(&self) @dynamic {
 fn char* Buffer.data(&self) @dynamic => self.mapped;
 fn usz Buffer.usedSize(&self) @dynamic => self.used_size;
 fn ulong Buffer.getAddress(&self) @dynamic => 0;
-fn uint Buffer.getType(&self) @dynamic => 0;
+fn uint Buffer.getType(&self) @dynamic => 2;
 fn void* Buffer.getBuffer(&self) @dynamic => null;
-fn void Buffer.setUsedSize(&self, usz size) @dynamic  {
+fn void Buffer.setUsedSize(&self, usz size) @dynamic {
+    self.ensure_size(size);
     self.used_size = size;
 }
 
@@ -588,7 +588,7 @@ fn Animations new_animation(AnimationSkin skin, EntityManager manager, String na
         .manager = manager,
     };
 
-    response.component = response.manager.@create_component(name, size: (uint)response.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0)!!;
+    response.component = response.manager.@create_component(name, size: (uint)response.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
 
     return response;
 }
@@ -767,10 +767,6 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
 //     Quaternionf rotation;
 // }
 
-// struct Render {
-//     uint draw_id;
-// }
-
 // struct Velocity @tag("BUFFER", 0) {
 //     float x;
 //     float y;
@@ -781,16 +777,15 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
     
 //     EntityManager manager = create_manager({
 //         &&Buffer{},
-//         &&Buffer{}
 //     });
 
 //     defer manager.free();
 
-//     Component velocity_comp = manager.@create_component(Velocity{ 1.0, 2.0, 3.0 })!!;
-//     Component animation_comp = manager.@create_component("Fly_animation", size: Position.sizeof)!!;
-
-//     ecs::@upload(manager, velocity_comp, &&Velocity{ 3.0, 3.0, 3.0 }, size: Velocity.sizeof);
-
+//     Component velocity_comp = manager.@create_component(Velocity{ 1.0, 2.0, 3.0 });
+//     Component animation_comp = manager.@create_component(size: Position.sizeof);
+    
+//     ecs::@upload(manager, velocity_comp, Velocity{ 3.0, 3.0, 3.0 }, size: Velocity.sizeof);
+ 
 //     Entity player = manager.@create_entity(
 //         Position {
 //             .translation = {1.0, 1.0, 1.0},
@@ -804,7 +799,7 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
 //         animation_comp
 //     );
 
-//     player.add(velocity_comp.id, manager);
+//     player.add("Velocity", velocity_comp, manager);
 
 //     manager.@query("Position", "Velocity"; Entity entity) {
 //         Velocity velocity = @get(manager, entity, Velocity);
