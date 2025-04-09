@@ -58,7 +58,6 @@ def ComponentMap = HashMap(<String, Component>);
 def ViewMap = HashMap(<BufferID, uint>);
 
 macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
-// macro uint Action.hash(Action i) => builtin::@generic_hash(i.ordinal);
 
 struct EntityManager {
     ComponentMap keys;
@@ -81,9 +80,9 @@ def UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset)
 
 
 fn void EntityManager.free(&self) {
-    foreach (buffer: self.buffers) {
-        buffer.free();
-    };
+    // foreach (buffer: self.buffers) {
+    //     buffer.free();
+    // };
     self.buffers.free();
     self.keys.free();
     self.views.free();
@@ -111,9 +110,8 @@ fn bool Entity.has_name(self, String name, EntityManager manager) {
     return false;
 }
 
-fn Component EntityManager.new_component(&self, void* data = null, uint size, uint buffer_index) {
+fn Component EntityManager.new_component(&self, void* data = null, uint size = 0, uint buffer_index) {
     Allocator buffer = self.buffers[buffer_index];
-
     Component component = {
         .id = (uint)self.components.len(),
         .size = size,
@@ -126,6 +124,7 @@ fn Component EntityManager.new_component(&self, void* data = null, uint size, ui
     if (data != null) {
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
             self.uploadFN(buffer, data, size, component.offset);
+            buffer.setUsedSize(buffer.usedSize() + size);
         } else {
             buffer.push(data, size);
         }
@@ -133,17 +132,21 @@ fn Component EntityManager.new_component(&self, void* data = null, uint size, ui
         buffer.setUsedSize(buffer.usedSize() + size);
     }
 
+
     return component;
 }
 
 macro Component EntityManager.@create_component(&self, #type = null, uint size = 0, void* data = null, int buffer_index = -1) {
     uint default_buffer = buffer_index >= 0 ? buffer_index : 0;
 
-    $if $typeof(#type).nameof != "void*":
+    if (size == 0 && data == null) {
+        $if $typeof(#type).has_tagof("BUFFER"):
+            default_buffer = $typeof(#type).tagof("BUFFER");
+        $endif
         return self.new_component(&&#type, $typeof(#type).sizeof, default_buffer);
-    $else
+    } else {
         return self.new_component(data, size, default_buffer);
-    $endif
+    }
 }
 
 macro Entity EntityManager.@create_entity(&self, ...) {
@@ -166,7 +169,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
         $endif
 
         $if $typeof($vaarg[$i]).nameof == "Component":
-             component = $vaarg[$i];
+            component = $vaarg[$i];
         $else
             component = self.@create_component($vaarg[$i], buffer_index: buffer_index);
         $endif
@@ -761,62 +764,70 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
     }
 }
 
-// struct Position  {
-//     Vec3f scale;
-//     Vec3f translation;
-//     Quaternionf rotation;
-// }
+struct Position  {
+    Vec3f scale;
+    Vec3f translation;
+    Quaternionf rotation;
+}
 
-// struct Velocity @tag("BUFFER", 0) {
-//     float x;
-//     float y;
-//     float z;
-// }
+struct Velocity @tag("BUFFER", 0) {
+    float x;
+    float y;
+    float z;
+}
 
-// fn void main() {
+fn void main() {
     
-//     EntityManager manager = create_manager({
-//         &&Buffer{},
-//     });
+    EntityManager manager = create_manager({
+        &&Buffer{},
+    });
 
-//     defer manager.free();
+    defer manager.free();
 
-//     Component velocity_comp = manager.@create_component(Velocity{ 1.0, 2.0, 3.0 });
-//     Component animation_comp = manager.@create_component(size: Position.sizeof);
+    Component velocity_comp = manager.@create_component(Velocity{ 1.0, 2.0, 3.0 });
+    Component animation_comp = manager.@create_component(size: Position.sizeof);
     
-//     ecs::@upload(manager, velocity_comp, Velocity{ 3.0, 3.0, 3.0 }, size: Velocity.sizeof);
+    ecs::@upload(manager, velocity_comp, Velocity{ 3.0, 3.0, 3.0 }, size: Velocity.sizeof);
  
-//     Entity player = manager.@create_entity(
-//         Position {
-//             .translation = {1.0, 1.0, 1.0},
-//             .scale = {1.0, 1.0, 1.0}
-//         },
-//     );
+    Entity player = manager.@create_entity(
+        Position {
+            .translation = {1.0, 1.0, 1.0},
+            .scale = {1.0, 1.0, 1.0}
+        },
+    );
 
-//     Entity player2 = manager.@create_entity(
-//         Position{},
-//         velocity_comp,
-//         animation_comp
-//     );
+    Entity player2 = manager.@create_entity(
+        Position{},
+        velocity_comp,
+        animation_comp
+    );
 
-//     player.add("Velocity", velocity_comp, manager);
+    player.add("Velocity", velocity_comp, manager);
 
-//     manager.@query("Position", "Velocity"; Entity entity) {
-//         Velocity velocity = @get(manager, entity, Velocity);
-//         io::printfn("QUERY ENTRY");
+    io::printfn("%d", @get_offset(manager, player, "Velocity")!!);
 
-//         assert(velocity.x == 3.000000);
-//         assert(velocity.y == 3.000000);
+    manager.@query("Position", "Velocity"; Entity entity) {
+        Velocity velocity = @get(manager, entity, Velocity);
+        io::printfn("QUERY ENTRY");
 
-//         @upload(manager, entity, Position {
-//             .translation = {5.0, 5.0, 5.0},
-//             .scale = {5.0, 5.0, 5.0}
-//         });
+        assert(velocity.x == 3.000000);
+        assert(velocity.y == 3.000000);
 
-//         Position position = @get(manager, entity, Position);
-//         assert(position.translation.x == 5.000000);
-//     };
-// }
+        @upload(manager, entity, Position {
+            .translation = {5.0, 5.0, 5.0},
+            .scale = {5.0, 5.0, 5.0}
+        });
+
+        Position position = @get(manager, entity, Position);
+        assert(position.translation.x == 5.000000);
+    };
+}
+
+// Todo:
+// Test correct buffers on components
+// Test component offset
+// Test entity offset
+// Remove buffer.push()
 
 
 

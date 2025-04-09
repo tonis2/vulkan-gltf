@@ -148,8 +148,8 @@ fn void main()
 
     defer manager.free();
 
-    Component vertices = manager.@create_component("Vertices", size: 5_000_000, buffer_index: 2)!!;
-    Component indices = manager.@create_component("Indices", size: 2_000_000, buffer_index: 2)!!;
+    // Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 2);
+    // Component indices = manager.@create_component(size: 2_000_000, buffer_index: 2);
 
     // meshes.add_mesh(
     //     gltf: gltf,
@@ -191,12 +191,10 @@ fn void main()
                  .baseColorTexture = material.baseColorTexture.source,
                  .metallicRoughnessTexture = material.metallicRoughnessTexture.source,
             }
-        )!!);
+        ));
     };
 
     defer materials.free();
-
-    io::printfn("offset %s", ecs::@get_offset(manager, materials[game_data["Wasp"]!!.materialIndex]));
 
     Entity scene = manager.@create_entity(
         camera.data(),
@@ -211,6 +209,11 @@ fn void main()
             .instances = render_memory.address,
         },
     );
+
+    // io::printfn("%s", CameraData.sizeof);
+    // io::printfn("%s", 4192 - 3904);
+    // io::printfn("%s", ecs::@get_offset(manager, scene, "CameraData")!!);
+    // io::printfn("%s", ecs::@get_offset(manager, scene, "Light")!!);
 
     Entity player = manager.@create_entity(
         Position {
