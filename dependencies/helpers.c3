@@ -880,30 +880,12 @@ struct Vertex {
     Vec4f skin_weight;
 }
 
-struct DrawData {
-    uint indexCount;
-    uint instanceCount;
-    uint firstIndex;
-    int vertexOffset;
-    uint firstInstance;
-
-    int material_index;
-    int has_skin;
-    uint instance_offset;
-    Matrix4f node_matrix;
-}
-
-struct DrawGroup {
-    uint offset;
-    uint size;
-}
-
 struct GameData {
     DeviceContext* context;
 
     List(<Vertex>) vertices;
     List(<ushort>) indices;
-    List(<MeshData>) meshes;
+    HashMap(<String, MeshData>) meshes;
 
     Memory vertex_buffer;
     Memory index_buffer;
@@ -922,8 +904,6 @@ struct MeshData {
     uint firstIndex;
     uint vertexOffset;
     int materialIndex;
-    uint index;
-    uint draw_index;
 }
 
 fn void GameData.free(&self) {
@@ -954,45 +934,19 @@ fn void! GameData.build_buffers(&self) {
     self.indices.free();
 }
 
-// fn void GameData.add_draw_cmd(&self, MeshData* mesh, 
-//                              bool skinned = false, 
-//                              Matrix4f node_matrix, 
-//                              uint instance_offset = 0, 
-//                              uint firstInstance = 0, 
-//                              uint instanceCount = 1,
-//                              String group = "default") {
-//     DrawData data = {
-//         .indexCount = mesh.indexCount,
-//         .firstInstance = firstInstance,
-//         .instanceCount = instanceCount,
-//         .firstIndex = (uint)mesh.firstIndex,
-//         .vertexOffset = (uint)mesh.vertexOffset,
-//         .has_skin = (int)skinned,
-//         .material_index = mesh.materialIndex,
-//         .node_matrix = node_matrix,
-//         .instance_offset = instance_offset
-//     };
 
-//     DrawGroup*! draw_group = self.draw_group.get_ref(group);
+<*
+ @require self.meshes.len() > 0 : `No meshes loaded`
+*>
+fn MeshData! GameData.get(&self, String name) @operator([])
+{
+	return self.meshes[name];
+}
 
-//     if (try draw_group) {
-//         draw_group.size += 1;
-//     } else {
-//         self.draw_group[group] = DrawGroup {
-//             .offset = (uint)self.draw_buffer.used_size,
-//             .size = 1,
-//         };
-//     }
-
-//     self.draw_buffer.push(&data, size: DrawData.sizeof);
-//     mesh.draw_index = (uint)self.draw_buffer.used_size / DrawData.sizeof;
-// }
-
-fn MeshData GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
+fn void GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf, String name) {
         MeshData data = {
             .firstIndex = (uint)self.indices.len(),
             .vertexOffset = (uint)self.vertices.len(),
-            .index = (uint)self.meshes.len() - 1
         };
 
         foreach (prim_index, &primitive: mesh.primitives) {
@@ -1071,7 +1025,6 @@ fn MeshData GameData.add_mesh(&self, gltf::Mesh mesh, Gltf gltf) {
             }
         }
 
-        self.meshes.push(data);
-        return data;
+        self.meshes[name] = data;
 }
 

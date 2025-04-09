@@ -255,7 +255,11 @@ fn uint get_size(Entity entity, EntityManager manager) {
 macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 0) {
     $if $typeof(#target).nameof == "Component":
         Allocator buffer = manager.buffers[#target.buffer];
-        buffer.upload(#data, size, #target.offset + offset);
+        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+            manager.uploadFN(buffer, &&#data, size, #target.offset + offset);
+        } else {
+            buffer.upload(&&#data, size, #target.offset + offset);
+        }
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
@@ -318,16 +322,21 @@ macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0)
     $endif;
 }
 
-macro @get_offset(EntityManager manager, #target, #type) {
-    Component component = manager.keys[#type]!;
+macro @get_offset(EntityManager manager, #target, #type = null) {
+    $if $typeof(#target).nameof == "Component":
+        return (uint)#target.offset;
+    $endif;
 
-    BufferID index = {
-        .component = component.id,
-        .entity = #target.id,
-    };
+    $if $typeof(#target).nameof == "Entity":
+        Component component = manager.keys[#type]!;
 
-    Allocator buffer = manager.buffers[component.buffer];
-    return (uint)manager.components[manager.views[index]!].offset;
+        BufferID index = {
+            .component = component.id,
+            .entity = #target.id,
+        };
+
+        return (uint)manager.components[manager.views[index]!].offset;
+    $endif;
 }
 
 struct Buffer (Allocator) {
@@ -376,11 +385,10 @@ import std::collections::list;
 import std::collections::map;
 import std::time;
 
-
 def AnimationMap = HashMap(<String, AnimationChannel>);
 def AnimationChannel = List(<AnimationFrame>);
 def NodeMap = HashMap(<uint, uint>);
-
+def MeshMap = HashMap(<String, MeshData>);
 
 struct Animations {
     AnimationSkin skin;
@@ -434,6 +442,122 @@ struct Node {
     int parent;
 }
 
+struct MeshData {
+    uint indexCount;
+    uint firstInstance;
+    uint instanceCount;
+    uint firstIndex;
+    uint vertexOffset;
+    int materialIndex;
+    Animations animations;
+}
+
+struct ChannelInfo {
+    gltf::Animation animation;
+    String name;
+}
+
+struct MeshInfo {
+    String name;
+    gltf::Mesh data;
+    struct animation {
+        gltf::Skin skin;
+        ChannelInfo[] channels;
+    }
+}
+
+struct Vertex {
+    Vec3f pos;
+    Vec3f normal;
+    Vec2f tex_cord;
+    Vec4f tangent;
+    uint[4] skin_pos;
+    Vec4f skin_weight;
+}
+
+fn void MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component vertices, Component indices, MeshInfo mesh) {
+    List(<Vertex>) vertex_data;
+    List(<ushort>) index_data;
+
+    foreach (primitive: mesh.data.primitives) {
+        Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
+        Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
+
+        // What to do with material ?
+        // data.indexCount += index_accessor.count;
+        // data.materialIndex = (int)primitive.attributes["material"] ?? -1;
+
+        for (usz i; i < index_accessor.count; i++) {
+            index_data.push(gltf.@castBuffer(index_accessor, i, ushort));
+        }
+
+        for (usz i; i < pos_accessor.count; i++) {
+            Vec2f tex_cord = {|
+                usz! attribute = primitive.attributes["TEXCOORD_0"];
+                if (catch err = attribute) return Vec2f {0,0};
+
+                Accessor accessor = gltf.accessors[attribute];
+                return gltf.@castBuffer(accessor, i, Vec2f);
+            |};
+
+            Vec3f normal = {|
+                usz! attribute = primitive.attributes["NORMAL"];
+                if (catch err = attribute) return Vec3f {0,0,0};
+
+                Accessor accessor = gltf.accessors[attribute];
+                return gltf.@castBuffer(accessor, i, Vec3f);
+            |};
+
+            Vec4f tangent = {|
+                usz! attribute = primitive.attributes["TANGENT"];
+                if (catch err = attribute) return Vec4f {0,0,0,0};
+                Accessor accessor = gltf.accessors[attribute];
+                return gltf.@castBuffer(accessor, i, Vec4f);
+            |};
+
+            uint[4] skin_pos = {|
+                usz! attribute = primitive.attributes["JOINTS_0"];
+                if (catch err = attribute) return uint[4] {0,0,0,0};
+                Accessor accessor = gltf.accessors[attribute];
+
+                if (accessor.data_type == DataType.USHORT) {
+                    short[4] array = gltf.@castBuffer(accessor, i, short[4]);
+                    return uint[4]{array[0], array[1], array[2], array[3]};
+                };
+
+                if (accessor.data_type == DataType.CHAR) {
+                    char[4] array = gltf.@castBuffer(accessor, i, char[4]);
+                    return uint[4]{array[0], array[1], array[2], array[3]};
+                };
+
+                return uint[4] {0,0,0,0};
+            |};
+
+            Vec4f skin_weight = {|
+                usz! attribute = primitive.attributes["WEIGHTS_0"];
+                if (catch err = attribute) return Vec4f {0,0,0,0};
+
+                Accessor accessor = gltf.accessors[attribute];
+                return gltf.@castBuffer(accessor, i, Vec4f);
+            |};
+
+            Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
+
+            vertex_data.push({
+                .pos = position,
+                .normal = normal,
+                .tex_cord = tex_cord,
+                .tangent = tangent,
+                .skin_pos = skin_pos,
+                .skin_weight = skin_weight
+            });
+        }
+    }
+
+    @upload(manager, indices, index_data.entries, size: index_data.byte_size(), offset: 0);
+    @upload(manager, vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: 0);
+}
+
 fn Matrix4f Node.global_matrix(self, List(<Node>) nodes) {
     Matrix4f current_matrix = self.local_matrix();
     Node active_node = self;
@@ -457,7 +581,6 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
         0.0, 0.0, 0.0, 1.0,
     }.mul(rotation.to_matrixf());
 }
-
 
 fn Animations new_animation(AnimationSkin skin, EntityManager manager, String name) {
     Animations response = {
@@ -496,7 +619,7 @@ fn void! Animations.run_animation(&self, String name, double time) {
 
     foreach (index, node: self.skin.nodes) {
         Matrix4f matrix = node.global_matrix(self.skin.nodes).mul(node.inverse_bind).transpose();
-        ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
+        ecs::@upload(self.manager, self.component, matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
 }
 
@@ -619,7 +742,6 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
                     if (channel.interpolation == LINEAR) {
                         AnimationValue prev_value = values[index + channel.value_offset - 1];
                         float interpolation_value = (float)(channel.elapsed_time - prev_value.time) / (float)(current_value.time - prev_value.time);
-                  
                         switch (channel.path) {
                             case TRANSLATION: {
                                 node.translation = prev_value.value.xyz.lerp(current_value.value.xyz, interpolation_value);

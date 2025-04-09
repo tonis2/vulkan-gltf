@@ -48,10 +48,6 @@ struct Render @tag("BUFFER", 1) {
     Matrix4f node_matrix;
 }
 
-// fn Render createRender(MeshData mesh, bool has_skin = false, Matrix4f node_matrix = MATRIX4F_IDENTITY) {
-//     return ;
-// }
-
 struct SceneData { 
     vk::DeviceAddress vertices;
     vk::DeviceAddress instances;
@@ -59,6 +55,8 @@ struct SceneData {
 
 // Used to send buffer device addresses to GPU
 DescriptorImages descriptor_images;
+
+MeshMap meshes;
 
 Vec2f window_size = {800, 600};
 char[*] shader = $embed("./shaders/shader.spv");
@@ -110,9 +108,8 @@ fn void main()
     defer game_data.free();
 
     Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
-    // defer gltf.free();
-
-    MeshData mesh = game_data.add_mesh(gltf.meshes[0], gltf);
+ 
+    game_data.add_mesh(gltf.meshes[0], gltf, name: "Wasp");
     game_data.build_buffers()!!;
 
     Memory scene_memory = vk::new_buffer(
@@ -133,7 +130,7 @@ fn void main()
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
         &context.device_allocation,
         null,
-        data_size: 15_000_000,
+        data_size: 25_000_000,
     )!!;
 
     ecs::Buffer dynamic_buffer;
@@ -150,6 +147,27 @@ fn void main()
     );
 
     defer manager.free();
+
+    Component vertices = manager.@create_component("Vertices", size: 5_000_000, buffer_index: 2)!!;
+    Component indices = manager.@create_component("Indices", size: 2_000_000, buffer_index: 2)!!;
+
+    // meshes.add_mesh(
+    //     gltf: gltf,
+    //     manager: manager,
+    //     vertices: vertices,
+    //     indices: indices,
+    //     mesh: MeshInfo {
+    //         .name = "Wasp",
+    //         .data = gltf.meshes[0],
+    //         .animation = {
+    //             .skin = gltf.skins[0],
+    //             .channels = {
+    //                 ChannelInfo { .animation = gltf.animations[0], .name = "Fly" },
+    //                 ChannelInfo { .animation = gltf.animations[1], .name = "Walk" }
+    //             }
+    //         }
+    //     },
+    // );
 
     ecs::Animations animation_manager = ecs::new_animation(skin: ecs::load_skin_data(gltf.skins[0], gltf), manager: manager, name: "wasp");
 
@@ -178,6 +196,8 @@ fn void main()
 
     defer materials.free();
 
+    io::printfn("offset %s", ecs::@get_offset(manager, materials[game_data["Wasp"]!!.materialIndex]));
+
     Entity scene = manager.@create_entity(
         camera.data(),
         Light {
@@ -198,12 +218,12 @@ fn void main()
             .scale = {1.0, 1.0, 1.0}
         },
         Render {
-            .indexCount = mesh.indexCount,
-            .firstIndex = mesh.firstIndex,
-            .vertexOffset = mesh.vertexOffset,
+            .indexCount = game_data["Wasp"]!!.indexCount,
+            .firstIndex = game_data["Wasp"]!!.firstIndex,
+            .vertexOffset = game_data["Wasp"]!!.vertexOffset,
             .instanceCount = 1,
             .firstInstance = 0,
-            .material = ecs::@get_address(manager, materials[0]),
+            .material = ecs::@get_address(manager, materials[game_data["Wasp"]!!.materialIndex]),
             .skin_data = ecs::@get_address(manager, animation_manager.component),
             .node_matrix = MATRIX4F_IDENTITY
         }
