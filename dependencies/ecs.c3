@@ -42,6 +42,7 @@ struct Component {
     uint id;
     uint size;
     uint buffer;
+    usz used_size;
     usz offset;
 }
 
@@ -314,8 +315,6 @@ macro @get(EntityManager manager, #target, #type, usz offset = 0) {
 
 macro @get_address(EntityManager manager, #target, #type = null, usz offset = 0) {
     $if $typeof(#target).nameof == "Component":
-        Allocator buffer = manager.buffers[#target.buffer];
-
         return manager.buffers[#target.buffer].getAddress() + #target.offset + offset;
     $endif;
 
@@ -491,17 +490,21 @@ struct Vertex {
     Vec4f skin_weight;
 }
 
-fn void MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component vertices, Component indices, MeshInfo mesh) {
+fn void! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh) {
     List(<Vertex>) vertex_data;
     List(<ushort>) index_data;
+
+    MeshData data = {
+        .firstIndex = (uint)indices.used_size,
+        .vertexOffset = (uint)vertices.used_size,
+    };
 
     foreach (primitive: mesh.data.primitives) {
         Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
         Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
 
-        // What to do with material ?
-        // data.indexCount += index_accessor.count;
-        // data.materialIndex = (int)primitive.attributes["material"] ?? -1;
+        data.indexCount += index_accessor.count;
+        data.materialIndex = (int)primitive.attributes["material"] ?? -1;
 
         for (usz i; i < index_accessor.count; i++) {
             index_data.push(gltf.@castBuffer(index_accessor, i, ushort));
@@ -570,8 +573,17 @@ fn void MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component vert
         }
     }
 
-    // @upload(manager, indices, index_data.entries, size: index_data.byte_size(), offset: 0);
-    @upload(manager, vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: 0);
+    if (vertex_data.byte_size() + vertices.used_size > vertices.size || index_data.byte_size() + indices.used_size > indices.size) {
+        return Error.COMPONENT_BUFFER_OVERFLOW?;
+    }
+
+    @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: 0);
+    @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: 0);
+
+    indices.used_size += index_data.byte_size();
+    vertices.used_size += vertex_data.byte_size();
+
+    self.set(mesh.name, data);
 
     vertex_data.free();
     index_data.free();

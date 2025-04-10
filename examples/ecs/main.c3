@@ -65,8 +65,6 @@ DeviceContext context;
 
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
-
- 
     Memory stage_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
         &context.local_allocation,
@@ -105,13 +103,7 @@ fn void main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    GameData game_data = helpers::createGame(&context);
-    defer game_data.free();
-
     Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
- 
-    game_data.add_mesh(gltf.meshes[0], gltf, name: "Wasp");
-    game_data.build_buffers()!!;
 
     Memory scene_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -128,10 +120,10 @@ fn void main()
     )!!;
 
     Memory gpu_only_memory = vk::new_buffer(
-        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT,
+        vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
         &context.device_allocation,
         null,
-        data_size: 25_000_000,
+        data_size: 15_000_000,
     )!!;
 
     ecs::Buffer dynamic_buffer;
@@ -155,8 +147,8 @@ fn void main()
     meshes.add_mesh(
         gltf: gltf,
         manager: manager,
-        vertices: vertices,
-        indices: indices,
+        vertices: &vertices,
+        indices: &indices,
         mesh: MeshInfo {
             .name = "Wasp",
             .data = gltf.meshes[0],
@@ -168,7 +160,7 @@ fn void main()
                 }
             }
         },
-    );
+    )!!;
 
     ecs::Animations animation_manager = ecs::new_animation(skin: ecs::load_skin_data(gltf.skins[0], gltf), manager: manager, name: "wasp");
 
@@ -206,15 +198,10 @@ fn void main()
             .type = DIRECTIONAL
         },
         SceneData {
-            .vertices = game_data.vertex_buffer.address,
+            .vertices = ecs::@get_address(manager, vertices),
             .instances = render_memory.address,
         },
     );
-
-    // io::printfn("%s", CameraData.sizeof);
-    // io::printfn("%s", 4192 - 3904);
-    // io::printfn("%s", ecs::@get_offset(manager, scene, "CameraData")!!);
-    // io::printfn("%s", ecs::@get_offset(manager, scene, "Light")!!);
 
     Entity player = manager.@create_entity(
         Position {
@@ -222,12 +209,12 @@ fn void main()
             .scale = {1.0, 1.0, 1.0}
         },
         Render {
-            .indexCount = game_data["Wasp"]!!.indexCount,
-            .firstIndex = game_data["Wasp"]!!.firstIndex,
-            .vertexOffset = game_data["Wasp"]!!.vertexOffset,
+            .indexCount = meshes["Wasp"]!!.indexCount,
+            .firstIndex = meshes["Wasp"]!!.firstIndex,
+            .vertexOffset = meshes["Wasp"]!!.vertexOffset,
             .instanceCount = 1,
             .firstInstance = 0,
-            .material = ecs::@get_address(manager, materials[game_data["Wasp"]!!.materialIndex]),
+            .material = ecs::@get_address(manager, materials[meshes["Wasp"]!!.materialIndex]),
             .skin_data = ecs::@get_address(manager, animation_manager.component),
             .node_matrix = MATRIX4F_IDENTITY
         }
@@ -495,7 +482,7 @@ fn void main()
 
         vk::cmdBindPipeline(command_buffer, vk::PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-        vk::cmdBindIndexBuffer(command_buffer, game_data.index_buffer.buffer, 0, vk::INDEX_TYPE_UINT16);
+        vk::cmdBindIndexBuffer(command_buffer, gpu_only_memory.buffer, indices.offset, vk::INDEX_TYPE_UINT16);
  
         rendering_info.setColorAttachments({ main_render_target });
         rendering_info.setDepthAttachment(&main_depth_target);
