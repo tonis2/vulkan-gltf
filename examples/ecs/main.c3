@@ -66,6 +66,7 @@ DeviceContext context;
 fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offset) {
     vk::Device device = context.device;
 
+ 
     Memory stage_buffer = vk::new_buffer(
         vk::BUFFER_USAGE_TRANSFER_SRC_BIT,
         &context.local_allocation,
@@ -148,26 +149,26 @@ fn void main()
 
     defer manager.free();
 
-    // Component vertices = manager.@create_component(size: 5_000_000, buffer_index: 2);
-    // Component indices = manager.@create_component(size: 2_000_000, buffer_index: 2);
+    Component vertices = manager.@create_component(size: 2_000_000, buffer_index: 2);
+    Component indices = manager.@create_component(size: 1_000_000, buffer_index: 2);
 
-    // meshes.add_mesh(
-    //     gltf: gltf,
-    //     manager: manager,
-    //     vertices: vertices,
-    //     indices: indices,
-    //     mesh: MeshInfo {
-    //         .name = "Wasp",
-    //         .data = gltf.meshes[0],
-    //         .animation = {
-    //             .skin = gltf.skins[0],
-    //             .channels = {
-    //                 ChannelInfo { .animation = gltf.animations[0], .name = "Fly" },
-    //                 ChannelInfo { .animation = gltf.animations[1], .name = "Walk" }
-    //             }
-    //         }
-    //     },
-    // );
+    meshes.add_mesh(
+        gltf: gltf,
+        manager: manager,
+        vertices: vertices,
+        indices: indices,
+        mesh: MeshInfo {
+            .name = "Wasp",
+            .data = gltf.meshes[0],
+            .animation = {
+                .skin = gltf.skins[0],
+                .channels = {
+                    ChannelInfo { .animation = gltf.animations[0], .name = "Fly" },
+                    ChannelInfo { .animation = gltf.animations[1], .name = "Walk" }
+                }
+            }
+        },
+    );
 
     ecs::Animations animation_manager = ecs::new_animation(skin: ecs::load_skin_data(gltf.skins[0], gltf), manager: manager, name: "wasp");
 
@@ -409,16 +410,16 @@ fn void main()
                 case event.is_pressed(LEFT_MOUSE): {
                     Vec2f mouse_pos = win.getMousePos();
                     camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
-                    ecs::@upload(manager, scene, camera.data());
+                    ecs::@upload(manager, scene, &&camera.data());
                     prev_mouse = mouse_pos;
                 }
                 case event.is_pressed(MOUSE_SCROLL_DOWN): {
                     camera.zoom(-5);
-                    ecs::@upload(manager, scene, camera.data());
+                    ecs::@upload(manager, scene, &&camera.data());
                 }
                 case event.is_pressed(MOUSE_SCROLL_UP): {
                     camera.zoom(5);
-                    ecs::@upload(manager, scene, camera.data());
+                    ecs::@upload(manager, scene, &&camera.data());
                 }
                 case event.is_pressed(ESCAPE): {
                     running = false;

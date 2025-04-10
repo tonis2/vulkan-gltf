@@ -115,7 +115,7 @@ fn void! DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
     self.frame = (self.frame + 1) % 2;
 }
 
-fn DeviceContext! createContext(c3w::Window win, uint device_size = 150_000_000) {
+fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000, uint local_size = 50_000_000) {
     DeviceContext context;
     ZStringList extensions;
     ZStringList device_extensions;
@@ -394,7 +394,7 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 150_000_000)
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
         .flags = vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | vk::MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT,
-        .size = 50_000_000
+        .size = local_size
     }.build()!!;
 
     return context;

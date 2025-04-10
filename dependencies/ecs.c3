@@ -34,7 +34,8 @@ interface Allocator
 
 fault Error
 {
-   NO_KEY_FOUND
+   NO_KEY_FOUND,
+   COMPONENT_BUFFER_OVERFLOW,
 }
 
 struct Component {
@@ -120,7 +121,7 @@ fn Component EntityManager.new_component(&self, void* data = null, uint size = 0
     };
 
     self.components.push(component);
-
+ 
     if (data != null) {
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
             self.uploadFN(buffer, data, size, component.offset);
@@ -131,7 +132,6 @@ fn Component EntityManager.new_component(&self, void* data = null, uint size = 0
     } else {
         buffer.setUsedSize(buffer.usedSize() + size);
     }
-
 
     return component;
 }
@@ -250,31 +250,42 @@ fn uint get_size(Entity entity, EntityManager manager) {
 
 
 macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 0) {
-    usz data_size = size > 0 ? size : $typeof(#data).sizeof;
+    usz data_size = size > 0 ? size : $typeof(*#data).sizeof;
 
     $if $typeof(#target).nameof == "Component":
         Allocator buffer = manager.buffers[#target.buffer];
+        usz data_offset = #target.offset + offset;
+   
+        // if (data_offset + data_size > #target.size) {
+        //     return Error.COMPONENT_BUFFER_OVERFLOW?;
+        // }
+
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
-            manager.uploadFN(buffer, &&#data, data_size, #target.offset + offset);
+            manager.uploadFN(buffer, #data, data_size, data_offset);
         } else {
-            buffer.upload(&&#data, data_size, #target.offset + offset);
+            buffer.upload(#data, data_size, data_offset);
         }
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
-        Component component_info = manager.keys[$typeof(#data).nameof]!!;
+        Component component_info = manager.keys[$typeof(*#data).nameof]!!;
         BufferID index = {
             .component = component_info.id,
             .entity = #target.id,
         };
 
+        usz data_offset = (uint)manager.components[manager.views[index]!!].offset + offset;
+
+        // if (data_offset + data_size > component_info.size) {
+        //     return Error.COMPONENT_BUFFER_OVERFLOW?;
+        // }
+
         Allocator buffer = manager.buffers[component_info.buffer];
-        uint type_offset = (uint)manager.components[manager.views[index]!!].offset;
 
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
-            manager.uploadFN(buffer, &&#data, data_size, type_offset + offset);
+            manager.uploadFN(buffer, #data, data_size, data_offset);
         } else {
-            buffer.upload(&&#data, data_size, type_offset + offset);
+            buffer.upload(#data, data_size, data_offset);
         }
     $endif;
 }
@@ -559,8 +570,11 @@ fn void MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component vert
         }
     }
 
-    @upload(manager, indices, index_data.entries, size: index_data.byte_size(), offset: 0);
+    // @upload(manager, indices, index_data.entries, size: index_data.byte_size(), offset: 0);
     @upload(manager, vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: 0);
+
+    vertex_data.free();
+    index_data.free();
 }
 
 fn Matrix4f Node.global_matrix(self, List(<Node>) nodes) {
@@ -624,7 +638,7 @@ fn void! Animations.run_animation(&self, String name, double time) {
 
     foreach (index, node: self.skin.nodes) {
         Matrix4f matrix = node.global_matrix(self.skin.nodes).mul(node.inverse_bind).transpose();
-        ecs::@upload(self.manager, self.component, matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
+        ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
 }
 
