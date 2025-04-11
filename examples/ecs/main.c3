@@ -152,7 +152,8 @@ fn void main()
         mesh: MeshInfo {
             .name = "Wasp",
             .data = gltf.meshes[0],
-            .animation = {
+            .animation = &&AnimationInfo {
+                .buffer_index = 0,
                 .skin = gltf.skins[0],
                 .channels = {
                     ChannelInfo { .animation = gltf.animations[0], .name = "Fly" },
@@ -162,11 +163,7 @@ fn void main()
         },
     )!!;
 
-    ecs::Animations animation_manager = ecs::new_animation(skin: ecs::load_skin_data(gltf.skins[0], gltf), manager: manager, name: "wasp");
-
-    animation_manager.add_from_gltf(gltf.animations[0], gltf, "wasp_fly")!!;
-    
-    defer animation_manager.free();
+    defer meshes.release();
 
     List(<Component>) materials;
 
@@ -215,7 +212,7 @@ fn void main()
             .instanceCount = 1,
             .firstInstance = 0,
             .material = ecs::@get_address(manager, materials[meshes["Wasp"]!!.materialIndex]),
-            .skin_data = ecs::@get_address(manager, animation_manager.component),
+            .skin_data = ecs::@get_address(manager, meshes["Wasp"]!!.animations.component),
             .node_matrix = MATRIX4F_IDENTITY
         }
     );
@@ -390,7 +387,7 @@ fn void main()
     while (running) {
         EventMap[] event_map = win.getEvent();
 
-        animation_manager.run_animation("wasp_fly", animation_time.mark().to_sec())!!;
+        meshes["Wasp"]!!.run_animation("Fly", animation_time.mark().to_sec())!!;
 
         foreach (event: event_map) {
             switch {

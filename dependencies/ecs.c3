@@ -472,13 +472,16 @@ struct ChannelInfo {
     String name;
 }
 
+struct AnimationInfo {
+    gltf::Skin skin;
+    uint buffer_index;
+    ChannelInfo[] channels;
+}
+
 struct MeshInfo {
     String name;
     gltf::Mesh data;
-    struct animation {
-        gltf::Skin skin;
-        ChannelInfo[] channels;
-    }
+    AnimationInfo* animation;
 }
 
 struct Vertex {
@@ -488,6 +491,18 @@ struct Vertex {
     Vec4f tangent;
     uint[4] skin_pos;
     Vec4f skin_weight;
+}
+
+fn void MeshMap.release(self) {
+    @pool() {
+        foreach (key : self.tcopy_keys()) {
+            self[key]!!.free();
+        }
+    };
+}
+
+fn void MeshData.free(&self) {
+    self.animations.free();
 }
 
 fn void! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh) {
@@ -583,10 +598,26 @@ fn void! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* ve
     indices.used_size += index_data.byte_size();
     vertices.used_size += vertex_data.byte_size();
 
-    self.set(mesh.name, data);
-
     vertex_data.free();
     index_data.free();
+
+    if (mesh.animation != null) {
+        AnimationSkin skin_data = load_skin_data(mesh.animation.skin, gltf);
+
+        Animations animations =  {
+            .skin = skin_data,
+            .manager = manager,
+            .component = manager.@create_component(size: (uint)animations.skin.nodes.len() * Matrix4f.sizeof, buffer_index: mesh.animation.buffer_index),
+        };
+
+        foreach (channel: mesh.animation.channels) {
+            animations.channels[channel.name] = load_animation_data(channel.animation, animations.skin, gltf, &animations.values)!;
+        }
+
+        data.animations = animations;
+    }
+
+    self.set(mesh.name, data);
 }
 
 fn Matrix4f Node.global_matrix(self, List(<Node>) nodes) {
@@ -613,17 +644,6 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
     }.mul(rotation.to_matrixf());
 }
 
-fn Animations new_animation(AnimationSkin skin, EntityManager manager, String name) {
-    Animations response = {
-        .skin = skin,
-        .manager = manager,
-    };
-
-    response.component = response.manager.@create_component(name, size: (uint)response.skin.nodes.len() * Matrix4f.sizeof, buffer_index: 0);
-
-    return response;
-}
-
 fn void Animations.free(self) {
     self.skin.free();
     self.values.free();
@@ -637,20 +657,16 @@ fn void Animations.free(self) {
     self.channels.free();
 }
 
-fn void! Animations.add_from_gltf(&self, gltf::Animation animation, Gltf gltf, String name) {
-    self.channels[name] = load_animation_data(animation, self.skin, gltf, &self.values)!;
-}
-
 <*
  @require time > 0 "Time must be bigger than 0"
 *>
-fn void! Animations.run_animation(&self, String name, double time) {
-    AnimationChannel* channel = self.channels.get_ref(name)!;
-    channel.run_animation(self.values, &self.skin, time);
+fn void! MeshData.run_animation(&self, String name, double time) {
+    AnimationChannel* channel = self.animations.channels.get_ref(name)!;
+    channel.run_animation(self.animations.values, &self.animations.skin, time);
 
-    foreach (index, node: self.skin.nodes) {
-        Matrix4f matrix = node.global_matrix(self.skin.nodes).mul(node.inverse_bind).transpose();
-        ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
+    foreach (index, node: self.animations.skin.nodes) {
+        Matrix4f matrix = node.global_matrix(self.animations.skin.nodes).mul(node.inverse_bind).transpose();
+        ecs::@upload(self.animations.manager, self.animations.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
 }
 
