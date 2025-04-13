@@ -5,7 +5,7 @@ struct Material
     float emissiveStrength;
     float metallicFactor;
     float roughnessFactor;
-    float padding;
+    float pad;
     float4 emissiveFactor;
     float4 baseColorFactor;
     int normalTexture;

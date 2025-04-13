@@ -486,13 +486,13 @@ struct Vertex {
     Vec4f skin_weight;
 }
 
-fn void! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh) {
+fn MeshData*! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh) {
     List(<Vertex>) vertex_data;
     List(<ushort>) index_data;
 
     MeshData data = {
-        .firstIndex = (uint)indices.used_size,
-        .vertexOffset = (uint)vertices.used_size,
+        .firstIndex = (uint)indices.used_size / ushort.sizeof,
+        .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
     };
 
     foreach (primitive: mesh.data.primitives) {
@@ -573,8 +573,8 @@ fn void! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* ve
         return Error.COMPONENT_BUFFER_OVERFLOW?;
     }
 
-    @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: 0);
-    @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: 0);
+    @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
+    @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: indices.used_size);
 
     indices.used_size += index_data.byte_size();
     vertices.used_size += vertex_data.byte_size();
@@ -583,6 +583,8 @@ fn void! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* ve
     index_data.free();
 
     self.set(mesh.name, data);
+
+    return self.get_ref(mesh.name)!!;
 }
 
 
@@ -597,8 +599,11 @@ fn Animations! create_animation(AnimationInfo info, Gltf gltf, EntityManager man
 
     foreach (channel_name: info.channels) {
         gltf::Animation! animation = gltf.findAnimation(channel_name);
+
         if (try animation) {
             animations.channels[channel_name] = load_animation_data(animation, animations.skin, gltf, &animations.values)!;
+        } else {
+            io::printfn("animation channel %s not found", channel_name);
         }
     }
 
@@ -669,16 +674,24 @@ fn void parse_nodes(List(<uint>)* joints,
                     int parent = -1) @private
 {
     foreach (joint : src_joints) {
-        if (joints.contains(joint)) continue;
-
+        if (joints.contains(joint)) {
+            continue;
+        };
+        
         gltf::Node node = gltf_nodes[joint];
         node_map.set(joint, (uint)target_nodes.len());
 
+        Matrix4f inverse_bind = MATRIX4F_IDENTITY;
+
+        if (target_nodes.len() < inverseBindMatrices.len()) {
+            inverse_bind = inverseBindMatrices[target_nodes.len()];
+        }   
+       
         target_nodes.push({
             .scale = node.scale,
             .translation = node.translation,
             .rotation = node.rotation,
-            .inverse_bind = inverseBindMatrices[target_nodes.len()],
+            .inverse_bind = inverse_bind,
             .parent = parent
         });
         
@@ -695,7 +708,7 @@ fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
     Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
     List(<Matrix4f>) inverseBindMatrices;
 
-    for (uint i; i < skin_accessor.count; i++) {
+    for (uint i = 0; i < skin_accessor.count; i++) {
         Matrix4f matrix = gltf.@castBuffer(skin_accessor, i, Matrix4f).transpose();
         inverseBindMatrices.push(matrix);
     }

@@ -123,7 +123,7 @@ fn void main()
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_TRANSFER_DST_BIT | vk::BUFFER_USAGE_INDEX_BUFFER_BIT,
         &context.device_allocation,
         null,
-        data_size: 15_000_000,
+        data_size: 35_000_000,
     )!!;
 
     ecs::Buffer dynamic_buffer;
@@ -141,29 +141,28 @@ fn void main()
 
     defer manager.free();
 
-    Component vertices = manager.@create_component(size: 2_000_000, buffer_index: 2);
-    Component indices = manager.@create_component(size: 1_000_000, buffer_index: 2);
+    Component vertices = manager.@create_component(size: 15_000_000, buffer_index: 2);
+    Component indices = manager.@create_component(size: 5_000_000, buffer_index: 2);
 
-    meshes.add_mesh(
-        gltf: gltf,
-        manager: manager,
-        vertices: &vertices,
-        indices: &indices,
-        mesh: MeshInfo {
-            .name = "Wasp",
-            .data = gltf.meshes[0],
-            .animation = &&AnimationInfo {
-                .buffer_index = 0,
-                .skin = gltf.skins[0],
-                .channels = {
-                    ChannelInfo { .animation = gltf.animations[0], .name = "Fly" },
-                    ChannelInfo { .animation = gltf.animations[1], .name = "Walk" }
-                }
-            }
+    Animations char_animation = ecs::create_animation(AnimationInfo {
+        .skin = gltf.skins[0],
+        .buffer_index = 0,
+        .channels = {
+            "fry",
+            // "Idle",
+            // "Idle_2",
+            // "Gallop",
+            // "Gallop_Jump",
+            // "Walk"
+            },
         },
+        gltf,
+        manager,
     )!!;
 
-    defer meshes.release();
+    defer char_animation.free();
+
+    defer meshes.free();
 
     List(<Component>) materials;
 
@@ -186,6 +185,41 @@ fn void main()
 
     defer materials.free();
 
+    foreach (node : gltf.nodes) {
+        if (node.hasMesh()) {
+            gltf::Mesh mesh = gltf.meshes[node.mesh];
+     
+            MeshData* mesh_data = meshes.add_mesh(
+                gltf: gltf,
+                manager: manager,
+                vertices: &vertices,
+                indices: &indices,
+                mesh: MeshInfo {
+                    .name = mesh.name,
+                    .data = mesh
+                },
+            )!!;
+
+            manager.@create_entity(
+                Position {
+                    .translation = {1.0, 1.0, 1.0},
+                    .scale = {1.0, 1.0, 1.0}
+                },
+                Render {
+                    .indexCount = mesh_data.indexCount,
+                    .firstIndex = mesh_data.firstIndex,
+                    .vertexOffset = mesh_data.vertexOffset,
+                    .instanceCount = 1,
+                    .firstInstance = 0,
+                    .material = ecs::@get_address(manager, materials[mesh_data.materialIndex]),
+                    .skin_data = node.hasSkin() ? ecs::@get_address(manager, char_animation.component) : 0,
+                    .node_matrix = node.globalMatrix().transpose()
+                }
+            );
+        }
+    }
+
+
     Entity scene = manager.@create_entity(
         camera.data(),
         Light {
@@ -198,23 +232,6 @@ fn void main()
             .vertices = ecs::@get_address(manager, vertices),
             .instances = render_memory.address,
         },
-    );
-
-    Entity player = manager.@create_entity(
-        Position {
-            .translation = {1.0, 1.0, 1.0},
-            .scale = {1.0, 1.0, 1.0}
-        },
-        Render {
-            .indexCount = meshes["Wasp"]!!.indexCount,
-            .firstIndex = meshes["Wasp"]!!.firstIndex,
-            .vertexOffset = meshes["Wasp"]!!.vertexOffset,
-            .instanceCount = 1,
-            .firstInstance = 0,
-            .material = ecs::@get_address(manager, materials[meshes["Wasp"]!!.materialIndex]),
-            .skin_data = ecs::@get_address(manager, meshes["Wasp"]!!.animations.component),
-            .node_matrix = MATRIX4F_IDENTITY
-        }
     );
     
     foreach (image : gltf.images) {
@@ -387,7 +404,7 @@ fn void main()
     while (running) {
         EventMap[] event_map = win.getEvent();
 
-        meshes["Wasp"]!!.run_animation("Fly", animation_time.mark().to_sec())!!;
+        char_animation.run_animation("fry", animation_time.mark().to_sec())!!;
 
         foreach (event: event_map) {
             switch {
