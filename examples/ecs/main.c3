@@ -107,7 +107,7 @@ fn void main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/simple_skin.gltf")!!;
+    Gltf gltf = gltf::loadFile("assets/fox_game.glb")!!;
 
     Memory scene_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -259,7 +259,7 @@ fn void main()
         image_data.free();
     }
 
-    gltf.free();
+    // gltf.free();
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
 
