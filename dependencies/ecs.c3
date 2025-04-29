@@ -472,7 +472,7 @@ struct MeshData {
 struct AnimationInfo {
     gltf::Skin skin;
     uint buffer_index;
-    String[] channels;
+    uint[] channels;
 }
 
 struct MeshInfo {
@@ -606,14 +606,12 @@ fn Animations? create_animation(AnimationInfo info, Gltf gltf, EntityManager man
         .component = manager.@create_component(size: (uint)animations.skin.nodes.len() * Matrix4f.sizeof, buffer_index: info.buffer_index),
     };
 
-    foreach (channel_name: info.channels) {
-        gltf::Animation? animation = gltf.findAnimation(channel_name);
+    foreach (channel_index: info.channels) {
+        gltf::Animation animation = gltf.animations[channel_index];
+        char[] buffer;
+        String animation_name = animation.name.len > 0 ? animation.name : (String)io::bprintf(buffer[..], "%s", channel_index)!!;
 
-        if (try animation) {
-            animations.channels[channel_name] = load_animation_data(animation, animations.skin, gltf, &animations.values)!;
-        } else {
-            io::printfn("animation channel %s not found", channel_name);
-        }
+        animations.channels[animation_name] = load_animation_data(animation, animations.skin, gltf, &animations.values)!;
     }
 
     return animations;

@@ -368,11 +368,9 @@ fn void Node.fromJson(&self, Object* json) {
     @when_extended(json, MESH_GPU_INSTANCING_EXTENSION; Object* extension) {
         Object*? attributes = extension.get("attributes");
         if (try attributes) {
-             @pool() {
-                foreach (key : attributes.map.tkeys()) {
-                    self.attributes[key] = (usz)attributes.map[key]!!.f;
-                }
-             };
+            foreach (key : attributes.map.keys(mem)) {
+                self.attributes.set(key, (usz)attributes.map[key]!!.f);
+            }
         }
     };
 
@@ -420,7 +418,7 @@ fn bool Node.hasLight(self) {
     return self.light != -1;
 }
 
-fn void Node.free(self) {
+fn void Node.free(&self) {
     self.children.free();
     self.weights.free();
     self.name.free(mem);

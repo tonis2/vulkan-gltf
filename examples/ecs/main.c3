@@ -149,15 +149,9 @@ fn void main()
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 2);
 
     Animations char_animation = ecs::create_animation({
-        .skin = gltf.skins[0],
-        .buffer_index = 0,
-        .channels = {
-                "Idle",
-                "Idle_2",
-                "Gallop",
-                "Gallop_Jump",
-                "Walk"
-            },
+            .skin = gltf.skins[0],
+            .buffer_index = 0,
+            .channels = { 0 },
         },
         gltf,
         manager,
@@ -259,7 +253,7 @@ fn void main()
         image_data.free();
     }
 
-    // gltf.free();
+    gltf.free();
 
     descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
 
@@ -406,7 +400,7 @@ fn void main()
     while (running) {
         EventMap[] event_map = win.getEvent();
 
-        char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
+        char_animation.run_animation("Attack", animation_time.mark().to_sec())!!;
 
         foreach (event: event_map) {
             switch {
