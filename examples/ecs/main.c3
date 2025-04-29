@@ -13,6 +13,10 @@ import ecs;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
+alias Vec2f @private = float[<2>];
+alias Vec3f @private = float[<3>];
+alias Vec4f @private = float[<4>];
+
 struct PushConstantData {
    uint draw_index;
 }
@@ -73,7 +77,7 @@ fn void stageToGPU(ecs::Allocator target_buffer, void* data, usz size, usz offse
     )!!;
 
     device.@single_time_command(queue: context.graphics_queue; CommandBuffer command_buffer) {
-        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, (vk::Buffer)target_buffer.getBuffer(), 1, &&BufferCopy {
+        vk::cmdCopyBuffer(command_buffer, stage_buffer.buffer, (vk::Buffer)target_buffer.getBuffer(), 1, &&(BufferCopy){
             .srcOffset = 0,
             .dstOffset = offset,
             .size = size
@@ -103,7 +107,7 @@ fn void main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/scene_test.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/simple_skin.gltf")!!;
 
     Memory scene_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -144,16 +148,15 @@ fn void main()
     Component vertices = manager.@create_component(size: 15_000_000, buffer_index: 2);
     Component indices = manager.@create_component(size: 5_000_000, buffer_index: 2);
 
-    Animations char_animation = ecs::create_animation(AnimationInfo {
+    Animations char_animation = ecs::create_animation({
         .skin = gltf.skins[0],
         .buffer_index = 0,
         .channels = {
-            "fry",
-            // "Idle",
-            // "Idle_2",
-            // "Gallop",
-            // "Gallop_Jump",
-            // "Walk"
+                "Idle",
+                "Idle_2",
+                "Gallop",
+                "Gallop_Jump",
+                "Walk"
             },
         },
         gltf,
@@ -164,11 +167,11 @@ fn void main()
 
     defer meshes.free();
 
-    List(<Component>) materials;
+    List{Component} materials;
 
     foreach (material: gltf.materials) {
         materials.push(manager.@create_component(
-            Material {
+            (Material) {
                  .emissiveStrength = material.emissiveStrength,
                  .metallicFactor = material.metallicFactor,
                  .roughnessFactor = material.roughnessFactor,
@@ -194,18 +197,18 @@ fn void main()
                 manager: manager,
                 vertices: &vertices,
                 indices: &indices,
-                mesh: MeshInfo {
+                mesh: {
                     .name = mesh.name,
                     .data = mesh
                 },
             )!!;
 
             manager.@create_entity(
-                Position {
+                (Position) {
                     .translation = {1.0, 1.0, 1.0},
                     .scale = {1.0, 1.0, 1.0}
                 },
-                Render {
+                (Render) {
                     .indexCount = mesh_data.indexCount,
                     .firstIndex = mesh_data.firstIndex,
                     .vertexOffset = mesh_data.vertexOffset,
@@ -219,16 +222,15 @@ fn void main()
         }
     }
 
-
     Entity scene = manager.@create_entity(
         camera.data(),
-        Light {
+        (Light) {
             .position = {2, 12.0, 5},
             .color = {1, 1, 1},
             .intensity = 54351,
             .type = DIRECTIONAL
         },
-        SceneData {
+        (SceneData) {
             .vertices = ecs::@get_address(manager, vertices),
             .instances = render_memory.address,
         },
@@ -259,7 +261,7 @@ fn void main()
 
     gltf.free();
 
-    descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, Vec2f{win.width, win.height}, context.depth_format)!!;
+    descriptor_images.addDepthTexture(&context.device_allocation, context.graphics_queue, {win.width, win.height}, context.depth_format)!!;
 
     defer {
         foreach (texture: descriptor_images) texture.free(context.device);
@@ -283,11 +285,11 @@ fn void main()
             .setDescriptorType(vk::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
             .setImageInfo(descriptor_images.array_view())
         },
-        ShaderStageFlags[]{
+        (ShaderStageFlags[]){
             vk::SHADER_STAGE_VERTEX_BIT | vk::SHADER_STAGE_FRAGMENT_BIT,
             vk::SHADER_STAGE_FRAGMENT_BIT,
         },
-        PushConstantRange[] {
+        (PushConstantRange[]){
             {
                 .offset = 0,
                 .size = PushConstantData.sizeof,
@@ -392,7 +394,7 @@ fn void main()
     RenderingInfo rendering_info = vk::renderingInfo()
     .setLayerCount(1)
     .setRenderArea({
-        .offset = Offset2D{ .x = 0, .y = 0 },
+        .offset = { .x = 0, .y = 0 },
         .extent = context.extent,
     });
 
@@ -404,7 +406,7 @@ fn void main()
     while (running) {
         EventMap[] event_map = win.getEvent();
 
-        char_animation.run_animation("fry", animation_time.mark().to_sec())!!;
+        char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
         foreach (event: event_map) {
             switch {
@@ -415,11 +417,11 @@ fn void main()
                     prev_mouse = mouse_pos;
                 }
                 case event.is_pressed(MOUSE_SCROLL_DOWN): {
-                    camera.zoom(-5);
+                    camera.zoom(-2);
                     ecs::@upload(manager, scene, &&camera.data());
                 }
                 case event.is_pressed(MOUSE_SCROLL_UP): {
-                    camera.zoom(5);
+                    camera.zoom(2);
                     ecs::@upload(manager, scene, &&camera.data());
                 }
                 case event.is_pressed(ESCAPE): {
@@ -487,8 +489,8 @@ fn void main()
         vk::beginCommandBuffer(command_buffer, &&vk::commandBufferBeginInfo())!!;
  
         vk::cmdSetLineWidth(command_buffer, 1.0);
-        vk::cmdSetViewport(command_buffer, 0, 1, &&vk::Viewport{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y });
-        vk::cmdSetScissor(command_buffer, 0, 1, &&vk::Rect2D {.extent = context.extent, .offset = { .x = 0, .y = 0 }});
+        vk::cmdSetViewport(command_buffer, 0, 1, (Viewport[]){{.width = window_size.x, .height = -window_size.y, .minDepth = 0.0, .maxDepth = 1.0, .y = window_size.y}});
+        vk::cmdSetScissor(command_buffer, 0, 1, (Rect2D[]){{.extent = context.extent, .offset = { .x = 0, .y = 0 }}});
 
         // Begin dynamic rendering
         vk::cmdPipelineBarrier2(command_buffer, &&vk::dependencyInfo().setImageMemoryBarriers({ begin_barrier }));

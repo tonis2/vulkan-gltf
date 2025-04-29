@@ -18,14 +18,6 @@
 				"slangc examples/ecs/shaders/shader.slang -force-glsl-scalar-layout -fvk-use-entrypoint-name -target spirv -emit-spirv-directly -o examples/ecs/shaders/shader.spv"
 			]
 		},
-		"complex": {
-			"type": "executable",
-			"sources": ["examples/complex/main.c3"]
-		},
-		"basic": {	
-			"type": "executable",
-			"sources": ["examples/basic/main.c3"]
-		},
 		"ecs": {	
 			"type": "executable",
 			"sources": ["examples/ecs/main.c3", "./dependencies/ecs.c3"]

@@ -11,19 +11,16 @@ import std::collections::map;
 import std::encoding::json;
 import gltf;
 
+alias Vec2f = float[<2>];
+alias Vec3f = float[<3>];
+alias Vec4f = float[<4>];
+
+
 const MAX_FRAMES_IN_FLIGHT = 2;
 
-fault ContextErrors
-{
-    NO_SUITABLE_DEVICE,
-}
+faultdef NO_SUITABLE_DEVICE, FILE_NOT_FOUND;
 
-fault TextureError
-{
-    FILE_NOT_FOUND,
-}
-
-def DescriptorImages = List(<DescriptorImageInfo>);
+alias DescriptorImages = List{DescriptorImageInfo};
 
 struct DeviceContext {
     Instance instance;
@@ -53,7 +50,7 @@ struct DeviceContext {
 struct PipelineLayer {
     DescriptorSetLayout descriptor_layout;
     PipelineLayout layout;
-    List(<WriteDescriptorSet>) sets;
+    List{WriteDescriptorSet} sets;
 }
 
 fn void DeviceContext.free(self) {
@@ -82,7 +79,7 @@ fn void DeviceContext.free(self) {
     self.instance.free();
 }
 
-fn uint! DeviceContext.next_image(self) {
+fn uint? DeviceContext.next_image(self) {
     Fence frame_fence = self.frame_fences[self.frame];
     Semaphore wait_semaphore = self.wait_semaphores[self.frame];
     
@@ -92,7 +89,7 @@ fn uint! DeviceContext.next_image(self) {
     return self.swapchain.getNextImage(self.device, wait_semaphore);
 }
 
-fn void! DeviceContext.present_image(&self, uint next_image, CommandBuffer command_buffer) {
+fn void? DeviceContext.present_image(&self, uint next_image, CommandBuffer command_buffer) {
     Semaphore wait_semaphore = self.wait_semaphores[self.frame];
     Semaphore signal_semaphore = self.signal_semaphores[self.frame];
     Fence frame_fence = self.frame_fences[self.frame];
@@ -115,7 +112,7 @@ fn void! DeviceContext.present_image(&self, uint next_image, CommandBuffer comma
     self.frame = (self.frame + 1) % 2;
 }
 
-fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000, uint local_size = 50_000_000) {
+fn DeviceContext? createContext(c3w::Window win, uint device_size = 100_000_000, uint local_size = 50_000_000) {
     DeviceContext context;
     ZStringList extensions;
     ZStringList device_extensions;
@@ -143,7 +140,7 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
     }
 
     InstanceCreateInfo instanceInfo = vk::instanceCreateInfo()
-    .setApplicationInfo(&&ApplicationInfo{
+    .setApplicationInfo(&&(ApplicationInfo){
       .pApplicationName = "TEST",
       .pEngineName = "Super engine",
       .applicationVersion = vk::@makeApiVersion(0,1,0,0),
@@ -153,7 +150,7 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
     .setFlags(env::os_is_darwin() ? vk::INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0)
     .setEnabledExtensionNames(extensions.array_view());
   
-    DebugUtilsMessengerCreateInfoEXT debug_info = DebugUtilsMessengerCreateInfoEXT {
+    DebugUtilsMessengerCreateInfoEXT debug_info = {
         .sType = vk::STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
         .messageSeverity = vk::DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT,
         .messageType = vk::DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | vk::DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
@@ -188,15 +185,14 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
     $endif
 
     // Create surface
-    $switch(env::OS_TYPE)
-        $case MACOS: {
+    $switch(env::OS_TYPE):
+        $case MACOS:
             MetalSurfaceCreateInfoEXT createInfo = {
                 .sType = vk::STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
                 .pLayer = (CAMetalLayer*)win.src.layer.id
             };
             vk::createMetalSurfaceEXT(context.instance, &createInfo, null, &context.surface)!!;
-        }
-        $case LINUX: {
+        $case LINUX:
             $if $feature(WAYLAND):
                 WaylandSurfaceCreateInfoKHR createInfo = {
                     vk::STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR, 
@@ -218,8 +214,7 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
                 };
                 vk::createXcbSurfaceKHR(context.instance, &createInfo, null, &context.surface)!!;
             $endif
-        }
-        $case WIN32: {
+        $case WIN32:
             Win32SurfaceCreateInfoKHR createInfo = {
                 vk::STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
                 null,
@@ -228,7 +223,6 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
                 win.src.window
             };
             vk::createWin32SurfaceKHR(instance, &createInfo, null, &surface)!!;
-        }
         $default: {}
     $endswitch
 
@@ -264,7 +258,7 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
 
     if (context.pdevice == null) {
         io::printfn("Found no suitable device");
-        return ContextErrors.NO_SUITABLE_DEVICE?;
+        return NO_SUITABLE_DEVICE?;
     }
 
     devices.free();
@@ -327,9 +321,9 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
 
     context.depth_format = vk::findDepthFormat(features: vk::FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, device: context.pdevice);
 
-    SurfaceFormatKHR format = SurfaceFormatKHR {.format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR};
+    SurfaceFormatKHR format = {.format = vk::FORMAT_B8G8R8A8_UNORM, .colorSpace = vk::COLOR_SPACE_SRGB_NONLINEAR_KHR};
     context.surface_format = format;
-    context.extent = Extent2D {(uint)win.width, (uint)win.height};
+    context.extent = {(uint)win.width, (uint)win.height};
     uint min_images = capabilities.maxImageCount != 0 ? capabilities.maxImageCount : capabilities.minImageCount + 2;
 
     SwapchainCreateInfoKHR swapchain_info = vk::swapchainCreateInfoKHR()
@@ -380,7 +374,7 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
     }
 
     // Create allocator of 150MB - DEVICE_ONLY memory
-    context.device_allocation = vk::Allocation {
+    context.device_allocation = (vk::Allocation){
         .device = context.device,
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -389,7 +383,7 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
     }.build()!!;
 
     // Allocation where data can be changed from CPU
-    context.local_allocation = vk::Allocation {
+    context.local_allocation = (vk::Allocation){
         .device = context.device,
         .pdevice = context.pdevice,
         .properties = vk::MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk::MEMORY_PROPERTY_HOST_CACHED_BIT,
@@ -400,7 +394,7 @@ fn DeviceContext! createContext(c3w::Window win, uint device_size = 100_000_000,
     return context;
 }
 
-fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceContext* context) {
+fn void? DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceContext* context) {
     vk::Device device = context.device;
     vk::PhysicalDevice pdevice = context.pdevice;
 
@@ -539,7 +533,7 @@ fn void! DescriptorImages.addImageTexture(&self, stb::Image image_data, DeviceCo
     self.push(texture);
 }
 
-fn vk::Image! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
+fn vk::Image? DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator, DeviceQueue queue, Vec2f size, vk::Format format) {
     DescriptorImageInfo texture;
 
     vk::Device device = allocator.device;
@@ -628,7 +622,7 @@ fn vk::Image! DescriptorImages.addDepthTexture(&self, vk::Allocation* allocator,
     return depth_image;
 }
 
-fn DescriptorSetLayout! createDescriptorLayout(WriteDescriptorSet[] layouts, ShaderStageFlags[] flags, Device device) {
+fn DescriptorSetLayout? createDescriptorLayout(WriteDescriptorSet[] layouts, ShaderStageFlags[] flags, Device device) {
     DescriptorSetLayoutBinding* bindings = mem::new_array(DescriptorSetLayoutBinding, flags.len);
     defer mem::free(bindings);
 
@@ -653,9 +647,9 @@ fn DescriptorSetLayout! createDescriptorLayout(WriteDescriptorSet[] layouts, Sha
 }
 
 
-fn PipelineLayer! createPipelineLayout(WriteDescriptorSet[] descriptor_layouts, ShaderStageFlags[] flags, PushConstantRange[] push_ranges, Device device) {
-    DescriptorSetLayoutBinding* bindings = mem::new_array(DescriptorSetLayoutBinding, flags.len);
-    defer mem::free(bindings);
+fn PipelineLayer? createPipelineLayout(WriteDescriptorSet[] descriptor_layouts, ShaderStageFlags[] flags, PushConstantRange[] push_ranges, Device device) {
+    List{DescriptorSetLayoutBinding} bindings;
+    defer bindings.free();
 
     PipelineLayer layer;
 
@@ -667,15 +661,13 @@ fn PipelineLayer! createPipelineLayout(WriteDescriptorSet[] descriptor_layouts, 
             .descriptorCount = set.descriptorCount,
             .stageFlags = flags[i]
         };
-        bindings[i] = binding;
+        bindings.push(binding);
     }
 
-    DescriptorSetLayout descriptor_layout = DescriptorSetLayoutCreateInfo {
-        .sType = vk::STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .flags = vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
-        .bindingCount = flags.len,
-        .pBindings = bindings
-    }.build(device)!;
+    // Set-up descriptor info for uniform buffer usage
+    DescriptorSetLayout descriptor_layout = vk::descriptorSetLayoutCreateInfo()
+    .setFlags(vk::DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
+    .setBindings(bindings.array_view()).build(device)!!;
     
     PipelineLayoutCreateInfo pipeline_layout_info = vk::pipelineLayoutCreateInfo()
     .setSetLayouts({ descriptor_layout });
@@ -694,7 +686,7 @@ fn void PipelineLayer.free(&self, Device device) {
     self.sets.free();
 }
 
-fn vk::Image! DescriptorImages.add_cube_map(&self, String path, DeviceContext* context) {
+fn vk::Image? DescriptorImages.add_cube_map(&self, String path, DeviceContext* context) {
     vk::Device device = context.device;
     vk::PhysicalDevice pdevice = context.pdevice;
 
@@ -820,7 +812,7 @@ fn vk::Image! DescriptorImages.add_cube_map(&self, String path, DeviceContext* c
                 } 
             };
 
-            bufferCopyRegions[i] = BufferImageCopy2 {
+            bufferCopyRegions[i] = {
                 .sType = vk::STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
                 .bufferOffset = (long)cube_map_width * 4 * i,
                 .bufferRowLength = 0,

@@ -7,6 +7,10 @@ import std::collections::map;
 import std::encoding::json;
 import std::core::builtin;
 
+alias Vec2f @private = float[<2>];
+alias Vec3f @private = float[<3>];
+alias Vec4f @private = float[<4>];
+
 enum GpuType : uint
 {
     HOST_VISIBLE,
@@ -32,11 +36,7 @@ interface Allocator
     fn void free();
 }
 
-fault Error
-{
-   NO_KEY_FOUND,
-   COMPONENT_BUFFER_OVERFLOW,
-}
+faultdef NO_KEY_FOUND, COMPONENT_BUFFER_OVERFLOW;
 
 struct Component {
     uint id;
@@ -56,17 +56,18 @@ bitstruct BufferID : ulong {
     uint entity : 32..63;
 }
 
-def ComponentMap = HashMap(<String, Component>);
-def ViewMap = HashMap(<BufferID, uint>);
+alias ComponentMap = HashMap{String, Component};
+alias ViewMap = HashMap{BufferID, uint};
+alias UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset);
 
 macro uint BufferID.hash(BufferID i) => builtin::@generic_hash((ulong)i);
 
 struct EntityManager {
     ComponentMap keys;
     ViewMap views;
-    List(<Component>) components;
-    List(<Allocator>) buffers;
-    List(<Entity>) entities;
+    List{Component} components;
+    List{Allocator} buffers;
+    List{Entity} entities;
     UploadFN uploadFN;
 }
 
@@ -78,7 +79,7 @@ fn EntityManager create_manager(Allocator[] buffers, UploadFN uploadFN = null) {
     return manager;
 }
 
-def UploadFN = fn void (Allocator buffer, void* data, usz data_size, usz offset);
+
 
 
 fn void EntityManager.free(&self) {
@@ -94,7 +95,7 @@ fn void EntityManager.free(&self) {
 macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
     foreach (entity: self.entities) {
         bool is_valid = true;
-        $for (var $i = 0; $i < $vacount; $i++);
+        $for var $i = 0; $i < $vacount; $i++:
             is_valid = entity.has_name($vaarg[$i], self);
         $endfor
         if (is_valid) @callback(entity);
@@ -102,7 +103,7 @@ macro void EntityManager.@query(self, ...; @callback(Entity entity)) {
 }
 
 fn bool Entity.has_name(self, String name, EntityManager manager) {
-    Component! key = manager.keys[name];
+    Component? key = manager.keys[name];
 
     if (try key) {
         uint mask = 1 << key.id;
@@ -160,7 +161,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
     Component component;
 
     // Loop over entity data
-    $for (var $i = 0; $i < $vacount; $i++);
+    $for var $i = 0; $i < $vacount; $i++:
         buffer_index = 0;
         type_name = $typeof($vaarg[$i]).nameof;
         size += $typeof($vaarg[$i]).sizeof;
@@ -185,7 +186,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
         type_id = self.keys[type_name]!!.id;
         entity.bitmask |= 1 << type_id;
 
-        self.views[BufferID {
+        self.views[(BufferID) {
             .component = type_id,
             .entity = entity.id,
         }] = component.id;
@@ -197,7 +198,7 @@ macro Entity EntityManager.@create_entity(&self, ...) {
 }
 
 macro bool Entity.@has_type(self, #type, EntityManager manager) {
-    Component! key = manager.keys[#type.nameof];
+    Component? key = manager.keys[#type.nameof];
 
     if (try key) {
         uint mask = 1 << key.id;
@@ -217,7 +218,7 @@ fn void Entity.add(&self, String type_name, Component component, EntityManager m
     
     self.bitmask |= 1 << manager.keys[type_name]!!.id;
     manager.entities[self.id].bitmask = self.bitmask;
-    manager.views[BufferID {
+    manager.views[(BufferID) {
         .component = manager.keys[type_name]!!.id,
         .entity = self.id,
     }] = component.id;
@@ -226,7 +227,7 @@ fn void Entity.add(&self, String type_name, Component component, EntityManager m
 fn uint get_size(Entity entity, EntityManager manager) {
     uint size;
     @pool() {
-        foreach (key : manager.views.tcopy_keys()) {
+        foreach (key : manager.views.tkeys()) {
             if (key.entity == entity.id) {
                 size += manager.components[manager.views[key]!!].size;
             }
@@ -249,54 +250,56 @@ fn uint get_size(Entity entity, EntityManager manager) {
 //     return buffer.upload(&&#data, $typeof(#data).sizeof, type_offset + offset);
 // }
 
-
+<*
+ @require (@typekind(#data) == POINTER) ? size > 0 : size == 0 "data pointers must include data size"
+ @require ($typeof(#target).nameof == "Entity" || $typeof(#target).nameof == "Component") "Target can only be compontent or entity"
+*>
 macro @upload(EntityManager manager, #target, #data, usz size = 0, usz offset = 0) {
-    usz data_size = size > 0 ? size : $typeof(*#data).sizeof;
+    usz data_size = size;
+    Allocator buffer;
+    usz data_offset = 0;
+
+    if (size == 0) {
+        data_size = $typeof(#data).sizeof;
+    }
 
     $if $typeof(#target).nameof == "Component":
-        Allocator buffer = manager.buffers[#target.buffer];
-        usz data_offset = #target.offset + offset;
-   
-        // if (data_offset + data_size > #target.size) {
-        //     return Error.COMPONENT_BUFFER_OVERFLOW?;
-        // }
-
-        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
-            manager.uploadFN(buffer, #data, data_size, data_offset);
-        } else {
-            buffer.upload(#data, data_size, data_offset);
-        }
+        buffer = manager.buffers[#target.buffer];
+        data_offset = #target.offset + offset;
     $endif;
 
     $if $typeof(#target).nameof == "Entity":
-        Component component_info = manager.keys[$typeof(*#data).nameof]!!;
+        Component component_info = manager.keys[$typeof(*&&#data).nameof]!!;
         BufferID index = {
             .component = component_info.id,
             .entity = #target.id,
         };
 
-        usz data_offset = (uint)manager.components[manager.views[index]!!].offset + offset;
+        data_offset = (uint)manager.components[manager.views[index]!!].offset + offset;
+        buffer = manager.buffers[component_info.buffer];
+    $endif;
 
-        // if (data_offset + data_size > component_info.size) {
-        //     return Error.COMPONENT_BUFFER_OVERFLOW?;
-        // }
-
-        Allocator buffer = manager.buffers[component_info.buffer];
-
+    $if @typekind(#data) == POINTER:
         if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
             manager.uploadFN(buffer, #data, data_size, data_offset);
-        } else {
+        } else  {
             buffer.upload(#data, data_size, data_offset);
         }
-    $endif;
+    $else {
+        if (buffer.getType() == GpuType.DEVICE_ONLY.ordinal) {
+            manager.uploadFN(buffer, &&#data, data_size, data_offset);
+        } else  {
+            buffer.upload(&&#data, data_size, data_offset);
+        }
+    }
+    $endif
 }
 
 
 macro @get(EntityManager manager, #target, #type, usz offset = 0) {
     $if $typeof(#target).nameof == "Component":
         Allocator buffer = manager.buffers[#target.buffer];
-        uint type_offset = #target.offset;
-
+        usz type_offset = #target.offset;
         return bitcast(*(char[#type.sizeof]*)buffer.data()[type_offset..(type_offset + #type.sizeof)], #type);
     $endif;
 
@@ -400,22 +403,22 @@ import std::collections::list;
 import std::collections::map;
 import std::time;
 
-def AnimationMap = HashMap(<String, AnimationChannel>);
-def AnimationChannel = List(<AnimationFrame>);
-def NodeMap = HashMap(<uint, uint>);
-def MeshMap = HashMap(<String, MeshData>);
+alias AnimationMap = HashMap{String, AnimationChannel};
+alias AnimationChannel = List{AnimationFrame};
+alias NodeMap = HashMap{uint, uint};
+alias MeshMap = HashMap{String, MeshData};
 
 struct Animations {
     AnimationSkin skin;
     AnimationMap channels;
     EntityManager manager;
     Component component;
-    List(<AnimationValue>) values;
+    List{AnimationValue} values;
 }
 
 struct AnimationSkin {
     String name;
-    List(<Node>) nodes;
+    List{Node} nodes;
     NodeMap node_map;
 }
 
@@ -437,6 +440,7 @@ struct AnimationValue {
     float time;
     Vec4f value;
 }
+
 
 struct AnimationFrame {
     double elapsed_time;
@@ -486,9 +490,9 @@ struct Vertex {
     Vec4f skin_weight;
 }
 
-fn MeshData*! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh) {
-    List(<Vertex>) vertex_data;
-    List(<ushort>) index_data;
+fn MeshData*? MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh) {
+    List{Vertex} vertex_data;
+    List{ushort} index_data;
 
     MeshData data = {
         .firstIndex = (uint)indices.used_size / ushort.sizeof,
@@ -507,54 +511,60 @@ fn MeshData*! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Componen
         }
 
         for (usz i; i < pos_accessor.count; i++) {
-            Vec2f tex_cord = {|
-                usz! attribute = primitive.attributes["TEXCOORD_0"];
-                if (catch err = attribute) return Vec2f {0,0};
+            Vec2f tex_cord;
+            Vec3f normal;
+            Vec4f tangent;
+            uint[4] skin_pos;
+            Vec4f skin_weight;
 
-                Accessor accessor = gltf.accessors[attribute];
-                return gltf.@castBuffer(accessor, i, Vec2f);
-            |};
+            {
+                usz? attribute = primitive.attributes["TEXCOORD_0"];
+                if (try attribute) {   
+                    Accessor accessor = gltf.accessors[attribute];
+                    tex_cord = gltf.@castBuffer(accessor, i, Vec2f); 
+                }
+            }
 
-            Vec3f normal = {|
-                usz! attribute = primitive.attributes["NORMAL"];
-                if (catch err = attribute) return Vec3f {0,0,0};
+            {
+                usz? attribute = primitive.attributes["NORMAL"];
+                if (try attribute) {   
+                    Accessor accessor = gltf.accessors[attribute];
+                    normal = gltf.@castBuffer(accessor, i, Vec3f); 
+                }
+            }
 
-                Accessor accessor = gltf.accessors[attribute];
-                return gltf.@castBuffer(accessor, i, Vec3f);
-            |};
+            {
+                usz? attribute = primitive.attributes["TANGENT"];
+                if (try attribute) {   
+                    Accessor accessor = gltf.accessors[attribute];
+                    tangent = gltf.@castBuffer(accessor, i, Vec4f); 
+                }
+            }
 
-            Vec4f tangent = {|
-                usz! attribute = primitive.attributes["TANGENT"];
-                if (catch err = attribute) return Vec4f {0,0,0,0};
-                Accessor accessor = gltf.accessors[attribute];
-                return gltf.@castBuffer(accessor, i, Vec4f);
-            |};
+            {
+                usz? attribute = primitive.attributes["JOINTS_0"];
+                if (try attribute) {   
+                    Accessor accessor = gltf.accessors[attribute];
 
-            uint[4] skin_pos = {|
-                usz! attribute = primitive.attributes["JOINTS_0"];
-                if (catch err = attribute) return uint[4] {0,0,0,0};
-                Accessor accessor = gltf.accessors[attribute];
+                    if (accessor.data_type == DataType.USHORT) {
+                        short[4] array = gltf.@castBuffer(accessor, i, short[4]);
+                        skin_pos = (uint[4]){array[0], array[1], array[2], array[3]};
+                    };
 
-                if (accessor.data_type == DataType.USHORT) {
-                    short[4] array = gltf.@castBuffer(accessor, i, short[4]);
-                    return uint[4]{array[0], array[1], array[2], array[3]};
-                };
+                    if (accessor.data_type == DataType.CHAR) {
+                        char[4] array = gltf.@castBuffer(accessor, i, char[4]);
+                        skin_pos = (uint[4]){array[0], array[1], array[2], array[3]};
+                    };
+                }
+            }
 
-                if (accessor.data_type == DataType.CHAR) {
-                    char[4] array = gltf.@castBuffer(accessor, i, char[4]);
-                    return uint[4]{array[0], array[1], array[2], array[3]};
-                };
-
-                return uint[4] {0,0,0,0};
-            |};
-
-            Vec4f skin_weight = {|
-                usz! attribute = primitive.attributes["WEIGHTS_0"];
-                if (catch err = attribute) return Vec4f {0,0,0,0};
-
-                Accessor accessor = gltf.accessors[attribute];
-                return gltf.@castBuffer(accessor, i, Vec4f);
-            |};
+            {
+                usz? attribute = primitive.attributes["WEIGHTS_0"];
+                if (try attribute) {   
+                    Accessor accessor = gltf.accessors[attribute];
+                    skin_weight = gltf.@castBuffer(accessor, i, Vec4f); 
+                }
+            }
 
             Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
 
@@ -570,7 +580,7 @@ fn MeshData*! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Componen
     }
 
     if (vertex_data.byte_size() + vertices.used_size > vertices.size || index_data.byte_size() + indices.used_size > indices.size) {
-        return Error.COMPONENT_BUFFER_OVERFLOW?;
+        return COMPONENT_BUFFER_OVERFLOW?;
     }
 
     @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
@@ -588,7 +598,7 @@ fn MeshData*! MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Componen
 }
 
 
-fn Animations! create_animation(AnimationInfo info, Gltf gltf, EntityManager manager) {
+fn Animations? create_animation(AnimationInfo info, Gltf gltf, EntityManager manager) {
     AnimationSkin skin_data = load_skin_data(info.skin, gltf);
 
     Animations animations =  {
@@ -598,7 +608,7 @@ fn Animations! create_animation(AnimationInfo info, Gltf gltf, EntityManager man
     };
 
     foreach (channel_name: info.channels) {
-        gltf::Animation! animation = gltf.findAnimation(channel_name);
+        gltf::Animation? animation = gltf.findAnimation(channel_name);
 
         if (try animation) {
             animations.channels[channel_name] = load_animation_data(animation, animations.skin, gltf, &animations.values)!;
@@ -610,7 +620,7 @@ fn Animations! create_animation(AnimationInfo info, Gltf gltf, EntityManager man
     return animations;
 }
 
-fn Matrix4f Node.global_matrix(self, List(<Node>) nodes) {
+fn Matrix4f Node.global_matrix(self, List{Node} nodes) {
     Matrix4f current_matrix = self.local_matrix();
     Node active_node = self;
 
@@ -626,7 +636,7 @@ fn Matrix4f Node.global_matrix(self, List(<Node>) nodes) {
 fn Matrix4f Node.local_matrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
 
 fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
-    return Matrix4f {
+    return (Matrix4f) {
         scale.x, 0, 0, translation.x,
         0, scale.y, 0, translation.y,
         0, 0, scale.z, translation.z,
@@ -639,7 +649,7 @@ fn void Animations.free(self) {
     self.values.free();
 
     @pool() {
-        foreach (key : self.channels.tcopy_keys()) {
+        foreach (key : self.channels.tkeys()) {
             self.channels[key]!!.free();
         }
     };
@@ -650,7 +660,7 @@ fn void Animations.free(self) {
 <*
  @require time > 0 "Time must be bigger than 0"
 *>
-fn void! Animations.run_animation(&self, String name, double time) {
+fn void? Animations.run_animation(&self, String name, double time) {
     AnimationChannel* channel = self.channels.get_ref(name)!;
     channel.run_animation(self.values, &self.skin, time);
 
@@ -665,11 +675,11 @@ fn void AnimationSkin.free(self) {
     self.node_map.free();
 }
 
-fn void parse_nodes(List(<uint>)* joints, 
-                    List(<uint>) src_joints, 
-                    List(<Node>)* target_nodes, 
-                    List(<gltf::Node>) gltf_nodes, 
-                    List(<Matrix4f>) inverseBindMatrices,
+fn void parse_nodes(List{uint}* joints, 
+                    List{uint} src_joints, 
+                    List{Node}* target_nodes, 
+                    List{gltf::Node} gltf_nodes, 
+                    List{Matrix4f} inverseBindMatrices,
                     NodeMap* node_map,
                     int parent = -1) @private
 {
@@ -702,11 +712,11 @@ fn void parse_nodes(List(<uint>)* joints,
 }
 
 fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
-    List(<uint>) joints;
+    List{uint} joints;
 
     AnimationSkin animation;
     Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
-    List(<Matrix4f>) inverseBindMatrices;
+    List{Matrix4f} inverseBindMatrices;
 
     for (uint i = 0; i < skin_accessor.count; i++) {
         Matrix4f matrix = gltf.@castBuffer(skin_accessor, i, Matrix4f).transpose();
@@ -720,7 +730,7 @@ fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
 }
 
 
-fn AnimationChannel! load_animation_data(gltf::Animation animation, AnimationSkin skin, Gltf gltf, List(<AnimationValue>)* values) {
+fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSkin skin, Gltf gltf, List{AnimationValue}* values) {
     AnimationChannel response;    
     foreach (channel : animation.channels) {
         AnimationSampler sampler = animation.samplers[channel.sampler];
@@ -759,7 +769,7 @@ fn AnimationChannel! load_animation_data(gltf::Animation animation, AnimationSki
 }
 
 
-fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, AnimationSkin* skin, double current_time) {
+fn void AnimationChannel.run_animation(&self, List{AnimationValue} values, AnimationSkin* skin, double current_time) {
     foreach (&channel: self) {
         channel.elapsed_time += current_time;
         if (channel.elapsed_time > channel.max_time) channel.elapsed_time = 0;
@@ -775,7 +785,7 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
                                 node.translation = current_value.value.xyz;
                             }
                             case ROTATION: {
-                                node.rotation = Quaternionf{.v = current_value.value};
+                                node.rotation = (Quaternionf){.v = current_value.value};
                             }
                             case SCALE: {
                                 node.scale = current_value.value.xyz;
@@ -792,7 +802,7 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
                                 node.translation = prev_value.value.xyz.lerp(current_value.value.xyz, interpolation_value);
                             }
                             case ROTATION: {
-                                node.rotation = Quaternionf{.v = prev_value.value}.slerp(Quaternionf{.v = current_value.value}, interpolation_value);
+                                node.rotation = (Quaternionf){.v = prev_value.value}.slerp({.v = current_value.value}, interpolation_value);
                             }
                             case SCALE: {
                                 node.scale = prev_value.value.xyz.lerp(current_value.value.xyz, interpolation_value);
@@ -806,67 +816,73 @@ fn void AnimationChannel.run_animation(&self, List(<AnimationValue>) values, Ani
     }
 }
 
-// struct Position  {
-//     Vec3f scale;
-//     Vec3f translation;
-//     Quaternionf rotation;
-// }
+struct Position  {
+    Vec3f scale;
+    Vec3f translation;
+    Quaternionf rotation;
+}
 
-// struct Velocity @tag("BUFFER", 0) {
-//     float x;
-//     float y;
-//     float z;
-// }
+struct Velocity @tag("BUFFER", 0) {
+    float x;
+    float y;
+    float z;
+}
 
-// fn void main() {
-//     Buffer buffer;
-//     defer buffer.free();
+fn void main() {
+    Buffer buffer;
+    defer buffer.free();
 
-//     EntityManager manager = create_manager({
-//         &buffer,
-//     });
+    EntityManager manager = create_manager({
+        &buffer,
+    });
 
-//     defer manager.free();
+    defer manager.free();
 
-//     Component velocity_comp = manager.@create_component(Velocity{ 1.0, 2.0, 3.0 });
-//     Component animation_comp = manager.@create_component(size: Position.sizeof);
+    Component velocity_comp = manager.@create_component((Velocity){ 1.0, 2.0, 3.0 });
+    Component animation_comp = manager.@create_component(size: Position.sizeof);
     
-//     ecs::@upload(manager, velocity_comp, Velocity{ 3.0, 3.0, 3.0 }, size: Velocity.sizeof);
+    ecs::@upload(manager, velocity_comp, (Velocity){ 3.0, 3.0, 3.0 });
  
-//     Entity player = manager.@create_entity(
-//         Position {
-//             .translation = {1.0, 1.0, 1.0},
-//             .scale = {1.0, 1.0, 1.0}
-//         },
-//     );
+    Entity player = manager.@create_entity(
+        (Position) {
+            .translation = {1.0, 1.0, 1.0},
+            .scale = {1.0, 1.0, 1.0}
+        },
+    );
 
-//     Entity player2 = manager.@create_entity(
-//         Position{},
-//         velocity_comp,
-//         animation_comp
-//     );
+    Entity player2 = manager.@create_entity(
+        (Position){},
+        velocity_comp,
+        animation_comp
+    );
 
-//     player.add("Velocity", velocity_comp, manager);
+    player.add("Velocity", velocity_comp, manager);
+
+    @upload(manager, animation_comp, &&(Position) {
+        .scale = {5.0, 5.0, 5.0},
+        .translation = {5.0, 5.0, 5.0},
+    }, size: Position.sizeof);
     
-//     assert(@get_offset(manager, player, "Position")!! == Velocity.sizeof + Position.sizeof);
-//     assert(@get_offset(manager, player2, "Position")!! == Velocity.sizeof + Position.sizeof * 2);
+    assert(@get_offset(manager, player, "Position")!! == Velocity.sizeof + Position.sizeof);
+    assert(@get_offset(manager, player2, "Position")!! == Velocity.sizeof + Position.sizeof * 2);
+    assert(@get(manager, animation_comp, Position).scale == (Vec3f) {5.0, 5.0, 5.0});
 
-//     manager.@query("Position", "Velocity"; Entity entity) {
-//         Velocity velocity = @get(manager, entity, Velocity);
-//         io::printfn("QUERY ENTRY");
+    manager.@query("Position", "Velocity"; Entity entity) {
+        Velocity velocity = @get(manager, entity, Velocity);
+        io::printfn("QUERY ENTRY");
 
-//         assert(velocity.x == 3.000000);
-//         assert(velocity.y == 3.000000);
+        assert(velocity.x == 3.000000);
+        assert(velocity.y == 3.000000);
 
-//         @upload(manager, entity, Position {
-//             .translation = {5.0, 5.0, 5.0},
-//             .scale = {5.0, 5.0, 5.0}
-//         });
+        @upload(manager, entity, (Position) {
+            .translation = {5.0, 5.0, 5.0},
+            .scale = {5.0, 5.0, 5.0}
+        });
 
-//         Position position = @get(manager, entity, Position);
-//         assert(position.translation.x == 5.000000);
-//     };
-// }
+        Position position = @get(manager, entity, Position);
+        assert(position.translation.x == 5.000000);
+    };
+}
 
 // Todo:
 // Test correct buffers on components
