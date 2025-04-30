@@ -107,7 +107,7 @@ fn void main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/fox_game.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/CesiumMan.gltf")!!;
 
     Memory scene_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -158,8 +158,7 @@ fn void main()
     )!!;
 
     defer char_animation.free();
-
-    defer meshes.free();
+    defer meshes.free();  
 
     List{Component} materials;
 
@@ -229,7 +228,7 @@ fn void main()
             .instances = render_memory.address,
         },
     );
-    
+
     foreach (image : gltf.images) {
         stb::Image image_data;
         switch (image.type) {
@@ -400,7 +399,7 @@ fn void main()
     while (running) {
         EventMap[] event_map = win.getEvent();
 
-        char_animation.run_animation("Attack", animation_time.mark().to_sec())!!;
+        char_animation.run_animation("0", animation_time.mark().to_sec())!!;
 
         foreach (event: event_map) {
             switch {

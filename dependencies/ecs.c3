@@ -418,7 +418,7 @@ struct Animations {
 struct AnimationSkin {
     String name;
     List{Node} nodes;
-    NodeMap node_map;
+    List{uint} joints;
 }
 
 enum AnimationProperty {
@@ -458,7 +458,7 @@ struct Node {
     Quaternionf rotation;
     Matrix4f matrix;
     Matrix4f inverse_bind;
-    int parent;
+    Node* parent;
 }
 
 struct MeshData {
@@ -618,18 +618,16 @@ fn Animations? create_animation(AnimationInfo info, Gltf gltf, EntityManager man
     return animations;
 }
 
-fn Matrix4f Node.global_matrix(self, List{Node} nodes) {
-    Matrix4f current_matrix = self.local_matrix();
-    Node active_node = self;
+fn Matrix4f Node.global_matrix(&self) {
+    Matrix4f global_matrix = self.local_matrix();
+    Node* node = self;
 
-    while (active_node.parent != -1) {
-        Node parent = nodes[active_node.parent];
-        // io::printfn("%s", parent.name);
-        current_matrix = parent.local_matrix().mul(current_matrix);
-        active_node = parent;
+    while (node.parent != null) {
+        global_matrix = node.parent.local_matrix().mul(global_matrix);
+        node = node.parent;
     }
 
-    return current_matrix;
+    return global_matrix;
 }
 
 fn Matrix4f Node.local_matrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
@@ -663,70 +661,59 @@ fn void? Animations.run_animation(&self, String name, double time) {
     AnimationChannel* channel = self.channels.get_ref(name)!;
     channel.run_animation(self.values, &self.skin, time);
 
-    foreach (index, node: self.skin.nodes) {
-        Matrix4f matrix = node.global_matrix(self.skin.nodes).mul(node.inverse_bind).transpose();
+    foreach (index, joint: self.skin.joints) {
+        Node joint_node = self.skin.nodes[joint];
+        Matrix4f matrix = joint_node.global_matrix().mul(joint_node.inverse_bind).transpose();
         ecs::@upload(self.manager, self.component, &matrix, size: Matrix4f.sizeof, offset: index * Matrix4f.sizeof);
     }
 }
 
 fn void AnimationSkin.free(self) {
     self.nodes.free();
-    self.node_map.free();
+    self.joints.free();
 }
 
-fn void parse_nodes(List{uint}* joints, 
-                    List{uint} src_joints, 
-                    List{Node}* target_nodes, 
-                    List{gltf::Node} gltf_nodes, 
-                    List{Matrix4f} inverseBindMatrices,
-                    NodeMap* node_map,
-                    int parent = -1) @private
-{
-    foreach (joint : src_joints) {
-        if (joints.contains(joint)) {
-            continue;
-        };
-        
-        gltf::Node node = gltf_nodes[joint];
-        node_map.set(joint, (uint)target_nodes.len());
+fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
+    AnimationSkin animation;
+    Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
+    List{Matrix4f} inverseBindMatrices;
 
-        Matrix4f inverse_bind = MATRIX4F_IDENTITY;
-
-        if (target_nodes.len() < inverseBindMatrices.len()) {
-            inverse_bind = inverseBindMatrices[target_nodes.len()];
-        }   
-
-        // io::printfn("%s", node.name);
-        target_nodes.push({
+    foreach (node: gltf.nodes) {
+        Node new_nodes = {
             .name = node.name.copy(mem),
             .scale = node.scale,
             .translation = node.translation,
             .rotation = node.rotation,
-            .inverse_bind = inverse_bind,
             .matrix = node.matrix,
-            .parent = parent
-        });
-        
-        joints.push(joint);
+            .parent = null
+        };
 
-        parse_nodes(joints, node.children, target_nodes, gltf_nodes, inverseBindMatrices, node_map, (int)target_nodes.len() - 1);
+        animation.nodes.push(new_nodes);
     }
-}
 
-fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
-    List{uint} joints;
+    animation.joints.add_all(&skin.joints);
 
-    AnimationSkin animation;
-    Accessor skin_accessor = gltf.accessors[skin.inverseBindAccessor];
-    List{Matrix4f} inverseBindMatrices;
+    // Map parent pointers
+    foreach (uint i, node: gltf.nodes) {
+        Node* parent_node = animation.nodes.get_ref(i);
+        if (node.children.len() > 0) {
+            foreach (child: node.children) {
+                Node* child_node = animation.nodes.get_ref(child);
+                child_node.parent = parent_node;
+            }
+        }
+    }
 
     for (uint i = 0; i < skin_accessor.count; i++) {
         Matrix4f matrix = gltf.@castBuffer(skin_accessor, i, Matrix4f).transpose();
         inverseBindMatrices.push(matrix);
     }
 
-    parse_nodes(&joints, skin.joints, &animation.nodes, gltf.nodes, inverseBindMatrices, &animation.node_map);
-    joints.free();
+    foreach (uint i, joint_index: skin.joints) {
+        Node* node = animation.nodes.get_ref(joint_index);
+        node.inverse_bind = (i <= inverseBindMatrices.len()) ? inverseBindMatrices[i] : MATRIX4F_IDENTITY;
+    }
+
     inverseBindMatrices.free();
     return animation;
 }
@@ -740,12 +727,10 @@ fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSki
         Accessor time_accessor = gltf.accessors[sampler.input];
         Accessor value_accessor = gltf.accessors[sampler.output];
 
-        uint node_index = skin.node_map[(uint)channel.target.node]!;
-
         AnimationFrame frame = {
             .elapsed_time = 0,
             .path = AnimationProperty.from_ordinal(channel.target.path.ordinal),
-            .node = node_index,
+            .node = (uint)channel.target.node,
             .interpolation = Interpolation.from_ordinal(sampler.interpolation.ordinal),
             .value_offset = values.len(),
             .value_count = time_accessor.count
