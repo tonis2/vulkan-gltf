@@ -452,6 +452,7 @@ struct AnimationFrame {
 }
 
 struct Node {
+    String name;
     Vec3f scale;
     Vec3f translation;
     Quaternionf rotation;
@@ -608,7 +609,7 @@ fn Animations? create_animation(AnimationInfo info, Gltf gltf, EntityManager man
 
     foreach (channel_index: info.channels) {
         gltf::Animation animation = gltf.animations[channel_index];
-        char[] buffer;
+        char[20] buffer;
         String animation_name = animation.name.len > 0 ? animation.name : (String)io::bprintf(buffer[..], "%s", channel_index)!!;
 
         animations.channels[animation_name] = load_animation_data(animation, animations.skin, gltf, &animations.values)!;
@@ -623,6 +624,7 @@ fn Matrix4f Node.global_matrix(self, List{Node} nodes) {
 
     while (active_node.parent != -1) {
         Node parent = nodes[active_node.parent];
+        // io::printfn("%s", parent.name);
         current_matrix = parent.local_matrix().mul(current_matrix);
         active_node = parent;
     }
@@ -693,12 +695,15 @@ fn void parse_nodes(List{uint}* joints,
         if (target_nodes.len() < inverseBindMatrices.len()) {
             inverse_bind = inverseBindMatrices[target_nodes.len()];
         }   
-       
+
+        // io::printfn("%s", node.name);
         target_nodes.push({
+            .name = node.name.copy(mem),
             .scale = node.scale,
             .translation = node.translation,
             .rotation = node.rotation,
             .inverse_bind = inverse_bind,
+            .matrix = node.matrix,
             .parent = parent
         });
         
@@ -775,8 +780,8 @@ fn void AnimationChannel.run_animation(&self, List{AnimationValue} values, Anima
             AnimationValue current_value = values[index + channel.value_offset];
 
             if (channel.elapsed_time < current_value.time && index > 0) {
-                Node* node = &skin.nodes[channel.node];
-                if (channel.interpolation == STEP) {
+                    Node* node = &skin.nodes[channel.node];
+                    if (channel.interpolation == STEP) {
                         switch (channel.path) {
                             case TRANSLATION: {
                                 node.translation = current_value.value.xyz;
