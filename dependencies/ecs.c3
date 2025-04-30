@@ -612,6 +612,7 @@ fn Animations? create_animation(AnimationInfo info, Gltf gltf, EntityManager man
         char[20] buffer;
         String animation_name = animation.name.len > 0 ? animation.name : (String)io::bprintf(buffer[..], "%s", channel_index)!!;
 
+        io::printfn("animation %s loaded", animation_name);
         animations.channels[animation_name] = load_animation_data(animation, animations.skin, gltf, &animations.values)!;
     }
 
@@ -621,7 +622,6 @@ fn Animations? create_animation(AnimationInfo info, Gltf gltf, EntityManager man
 fn Matrix4f Node.global_matrix(&self) {
     Matrix4f global_matrix = self.local_matrix();
     Node* node = self;
-
     while (node.parent != null) {
         global_matrix = node.parent.local_matrix().mul(global_matrix);
         node = node.parent;
@@ -658,7 +658,12 @@ fn void Animations.free(self) {
  @require time > 0 "Time must be bigger than 0"
 *>
 fn void? Animations.run_animation(&self, String name, double time) {
-    AnimationChannel* channel = self.channels.get_ref(name)!;
+    AnimationChannel*? channel = self.channels.get_ref(name);
+    if (catch err = channel) {
+        io::printfn("Animation not found %s", name);
+        return NO_KEY_FOUND?;
+    }
+
     channel.run_animation(self.values, &self.skin, time);
 
     foreach (index, joint: self.skin.joints) {
@@ -687,7 +692,7 @@ fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
             .matrix = node.matrix,
             .parent = null
         };
-
+    
         animation.nodes.push(new_nodes);
     }
 

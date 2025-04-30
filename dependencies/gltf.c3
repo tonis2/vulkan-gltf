@@ -1222,11 +1222,14 @@ fn Gltf? parse(InStream stream) {
         }
     }
 
-    // Match meshes to scenes
-    foreach (scene_index, scene : content.scenes) {
-         foreach (node : scene.nodes) {
-             content.nodes[node].mapValues(scene_index, &content);
-         }
+    foreach (uint i, node: content.nodes) {
+        Node* parent_node = content.nodes.get_ref(i);
+        if (node.children.len() > 0) {
+            foreach (child: node.children) {
+                Node* child_node = content.nodes.get_ref(child);
+                child_node.parent = parent_node;
+            }
+        }
     }
 
     // Build inverseBindMatrixes for skins
@@ -1482,29 +1485,29 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
     }.mul(rotation.to_matrixf());
 }
 
-fn void Node.mapValues(&self, usz scene_index, Gltf* data) @private {
-    if (self.hasMesh()) {
-        Mesh mesh = data.meshes[self.mesh];
-        mesh.scene = scene_index;
-        foreach (weight: mesh.weights) self.weights.push(weight);
-    }
+// fn void Node.mapValues(&self, usz scene_index, Gltf* data) @private {
+//     if (self.hasMesh()) {
+//         Mesh mesh = data.meshes[self.mesh];
+//         mesh.scene = scene_index;
+//         foreach (weight: mesh.weights) self.weights.push(weight);
+//     }
 
-    foreach (node_index : self.children) {
-        Node* node = &data.nodes[node_index];
-        node.parent = self;
-        node.mapValues(scene_index, data);
-    }
-}
+//     foreach (node_index : self.children) {
+//         Node* node = &data.nodes[node_index];
+//         node.parent = self;
+//         node.mapValues(scene_index, data);
+//     }
+// }
 
 fn Matrix4f Node.globalMatrix(&self) {
     Matrix4f global_matrix = self.localMatrix();
     Node* node = self;
-
+ 
     while (node.parent != null) {
         global_matrix = node.parent.localMatrix().mul(global_matrix);
         node = node.parent;
     }
-
+   
     return global_matrix;
 }
 
