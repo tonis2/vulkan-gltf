@@ -2,6 +2,7 @@ import std::io;
 import std::math;
 import std::collections::list;
 import std::time;
+import std::thread;
 
 import vk;
 import stb;
@@ -11,7 +12,8 @@ import c3w;
 import helpers;
 import ecs;
 
-const MAX_FRAMES_IN_FLIGHT = 2;
+const MAX_FPS = 90;
+NanoDuration min_frame_time = 100_000_00_00 / MAX_FPS;
 
 alias Vec2f @private = float[<2>];
 alias Vec3f @private = float[<3>];
@@ -197,7 +199,6 @@ fn void main()
                 };
                 MeshData mesh_data
             ) {
- 
                 Render render_data = {
                     .indexCount = mesh_data.indexCount,
                     .firstIndex = mesh_data.firstIndex,
@@ -413,8 +414,11 @@ fn void main()
     Vec2f prev_mouse;
     
     Clock animation_time = clock::now();
+    Clock render_time = clock::now();
 
     while (running) {
+        NanoDuration start_time = render_time.mark();
+
         EventMap[] event_map = win.getEvent();
 
         // char_animation.run_animation("Attack", animation_time.mark().to_sec())!!;
@@ -530,6 +534,12 @@ fn void main()
         vk::endCommandBuffer(command_buffer)!!;
          
         context.present_image(next_image, command_buffer)!!;
+
+        NanoDuration time_delta = (start_time - render_time.mark());
+        if (time_delta < min_frame_time) {
+            std::thread::sleep_ns(min_frame_time - time_delta)!!;
+            time_delta = (start_time - render_time.mark());
+        }
     }
     
     context.device.waitIdle();
