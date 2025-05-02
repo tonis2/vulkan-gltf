@@ -49,12 +49,13 @@ struct Render @tag("BUFFER", 1) {
     uint firstInstance;
     vk::DeviceAddress skin_data;
     vk::DeviceAddress material;
+    vk::DeviceAddress instances;
     Matrix4f node_matrix;
 }
 
 struct SceneData { 
     vk::DeviceAddress vertices;
-    vk::DeviceAddress instances;
+    vk::DeviceAddress draw_cmds;
 }
 
 // Used to send buffer device addresses to GPU
@@ -107,7 +108,7 @@ fn void main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/CesiumMan.gltf")!!;
+    Gltf gltf = gltf::loadFile("assets/game.glb")!!;
 
     Memory scene_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -145,19 +146,20 @@ fn void main()
 
     defer manager.free();
 
-    Component vertices = manager.@create_component(size: 15_000_000, buffer_index: 2);
-    Component indices = manager.@create_component(size: 5_000_000, buffer_index: 2);
+    Component vertices = manager.@create_component(size: 20_000_000, buffer_index: 2);
+    Component indices = manager.@create_component(size: 8_000_000, buffer_index: 2);
+    Component instances = manager.@create_component(size: 5_000_000, buffer_index: 2);
 
-    Animations char_animation = ecs::create_animation({
-            .skin = gltf.skins[0],
-            .buffer_index = 0,
-            .channels = { 0 },
-        },
-        gltf,
-        manager,
-    )!!;
+    // Animations char_animation = ecs::create_animation({
+    //         .skin = gltf.skins[0],
+    //         .buffer_index = 0,
+    //         .channels = { 0 },
+    //     },
+    //     gltf,
+    //     manager,
+    // )!!;
 
-    defer char_animation.free();
+    // defer char_animation.free();
     defer meshes.free();  
 
     List{Component} materials;
@@ -183,6 +185,8 @@ fn void main()
 
     foreach (node : gltf.nodes) {
         if (node.hasMesh()) {
+            Matrix4f matrix = node.globalMatrix().transpose();
+
             gltf::Mesh mesh = gltf.meshes[node.mesh];
      
             MeshData* mesh_data = meshes.add_mesh(
@@ -196,21 +200,42 @@ fn void main()
                 },
             )!!;
 
+            Render render_data = {
+                .indexCount = mesh_data.indexCount,
+                .firstIndex = mesh_data.firstIndex,
+                .vertexOffset = mesh_data.vertexOffset,
+                .instanceCount = 1,
+                .firstInstance = 0,
+                .skin_data = 0,
+                .material = mesh_data.has_material() ? ecs::@get_address(manager, materials[mesh_data.materialIndex]) : 0,
+                .instances = ecs::@get_address(manager, instances) + instances.used_size,
+                .node_matrix = matrix
+            };
+
+            // node.hasSkin() ? ecs::@get_address(manager, char_animation.component) : 0
+            if (node.attributes.len() > 0) {
+                Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
+                Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
+                render_data.instanceCount = translation_accessor.count;
+                render_data.firstInstance = 1;
+
+                for (uint i = 0; i < translation_accessor.count; i++) {
+                    Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
+                    Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
+                    Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
+                    Matrix4f instance_matrix = gltf::to_matrix(translation, scale, rotation).transpose();
+                    ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
+                    instances.used_size += Matrix4f.sizeof;
+                }
+            }
+         
             manager.@create_entity(
                 (Position) {
                     .translation = {1.0, 1.0, 1.0},
                     .scale = {1.0, 1.0, 1.0}
                 },
-                (Render) {
-                    .indexCount = mesh_data.indexCount,
-                    .firstIndex = mesh_data.firstIndex,
-                    .vertexOffset = mesh_data.vertexOffset,
-                    .instanceCount = 1,
-                    .firstInstance = 0,
-                    .material = ecs::@get_address(manager, materials[mesh_data.materialIndex]),
-                    .skin_data = node.hasSkin() ? ecs::@get_address(manager, char_animation.component) : 0,
-                    .node_matrix = node.globalMatrix().transpose()
-                }
+                render_data
             );
         }
     }
@@ -225,7 +250,7 @@ fn void main()
         },
         (SceneData) {
             .vertices = ecs::@get_address(manager, vertices),
-            .instances = render_memory.address,
+            .draw_cmds = render_memory.address,
         },
     );
 
@@ -399,7 +424,7 @@ fn void main()
     while (running) {
         EventMap[] event_map = win.getEvent();
 
-        char_animation.run_animation("0", animation_time.mark().to_sec())!!;
+        // char_animation.run_animation("Attack", animation_time.mark().to_sec())!!;
 
         foreach (event: event_map) {
             switch {

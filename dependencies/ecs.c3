@@ -490,6 +490,8 @@ struct Vertex {
     Vec4f skin_weight;
 }
 
+fn bool MeshData.has_material(self) => self.materialIndex > -1;
+
 fn MeshData*? MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh) {
     List{Vertex} vertex_data;
     List{ushort} index_data;

@@ -47,6 +47,7 @@ struct DrawCommand
 
     float4x4* skin_data;
     Material* material;
+    float4x4* instances;
     float4x4 node_matrix;
 }
 
@@ -66,7 +67,7 @@ cbuffer Scene
     float4 eye;
     Light light;
     Vertex* vertices;
-    DrawCommand* commmands;
+    DrawCommand* draw_cmds;
 }
 
 [vk_binding(1)]
@@ -91,7 +92,7 @@ struct VertexInput {
 [shader("vertex")]
 FragmentData vertexMain(VertexInput input)
 {
-    DrawCommand instance = commmands[push_constant.draw_index];
+    DrawCommand draw = draw_cmds[push_constant.draw_index];
     Vertex vertex = vertices[input.vertID];
 
     float4x4 skin_matrix = {
@@ -101,22 +102,30 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-    if (instance.skin_data != nullptr)
+
+
+    if (draw.skin_data != nullptr)
     {
         skin_matrix =
-            vertex.skin_weight[0] * instance.skin_data[vertex.skin_pos[0]] +
-            vertex.skin_weight[1] * instance.skin_data[vertex.skin_pos[1]] +
-            vertex.skin_weight[2] * instance.skin_data[vertex.skin_pos[2]] +
-            vertex.skin_weight[3] * instance.skin_data[vertex.skin_pos[3]];
+            vertex.skin_weight[0] * draw.skin_data[vertex.skin_pos[0]] +
+            vertex.skin_weight[1] * draw.skin_data[vertex.skin_pos[1]] +
+            vertex.skin_weight[2] * draw.skin_data[vertex.skin_pos[2]] +
+            vertex.skin_weight[3] * draw.skin_data[vertex.skin_pos[3]];
     }
 
-    float4x4 node_matrix = mul(instance.node_matrix, skin_matrix);
+    float4x4 node_matrix = mul(draw.node_matrix, skin_matrix);
+
+    if (input.instanceID > 0) {
+        node_matrix = mul(node_matrix, draw.instances[input.instanceID]);
+    }
+
+
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(perspective, view), frag_pos);
 
     FragmentData output = {
         vertex.tex_cord.xy,
-        (uint64_t)instance.material,
+        (uint64_t)draw.material,
         vertex_pos
     };
 
