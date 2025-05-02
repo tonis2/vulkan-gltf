@@ -404,8 +404,6 @@ import std::time;
 
 alias AnimationMap = HashMap{String, AnimationChannel};
 alias AnimationChannel = List{AnimationFrame};
-alias NodeMap = HashMap{uint, uint};
-alias MeshMap = HashMap{String, MeshData};
 
 struct Animations {
     AnimationSkin skin;
@@ -492,21 +490,20 @@ struct Vertex {
 
 fn bool MeshData.has_material(self) => self.materialIndex > -1;
 
-fn MeshData*? MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh) {
-    List{Vertex} vertex_data;
-    List{ushort} index_data;
-
-    MeshData data = {
-        .firstIndex = (uint)indices.used_size / ushort.sizeof,
-        .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
-    };
-
+macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, Component* indices, MeshInfo mesh; @callback(MeshData data)) {
     foreach (primitive: mesh.data.primitives) {
+        List{Vertex} vertex_data;
+        List{ushort} index_data;
+
         Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
         Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
 
-        data.indexCount += index_accessor.count;
-        data.materialIndex = (int)primitive.attributes["material"] ?? -1;
+        MeshData data = {
+            .firstIndex = (uint)indices.used_size / ushort.sizeof,
+            .vertexOffset = (uint)vertices.used_size / Vertex.sizeof,
+            .indexCount = index_accessor.count,
+            .materialIndex = (int)primitive.attributes["material"] ?? -1
+        };
 
         for (usz i; i < index_accessor.count; i++) {
             index_data.push(gltf.@castBuffer(index_accessor, i, ushort));
@@ -579,24 +576,22 @@ fn MeshData*? MeshMap.add_mesh(&self, Gltf gltf, EntityManager manager, Componen
                 .skin_weight = skin_weight
             });
         }
+
+        if (vertex_data.byte_size() + vertices.used_size > vertices.size || index_data.byte_size() + indices.used_size > indices.size) {
+            return COMPONENT_BUFFER_OVERFLOW?;
+        }
+
+        @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
+        @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: indices.used_size);
+
+        indices.used_size += index_data.byte_size();
+        vertices.used_size += vertex_data.byte_size();
+
+        @callback(data);
+
+        vertex_data.free();
+        index_data.free();
     }
-
-    if (vertex_data.byte_size() + vertices.used_size > vertices.size || index_data.byte_size() + indices.used_size > indices.size) {
-        return COMPONENT_BUFFER_OVERFLOW?;
-    }
-
-    @upload(manager, *vertices, vertex_data.entries, size: vertex_data.byte_size(), offset: vertices.used_size);
-    @upload(manager, *indices, index_data.entries, size: index_data.byte_size(), offset: indices.used_size);
-
-    indices.used_size += index_data.byte_size();
-    vertices.used_size += vertex_data.byte_size();
-
-    vertex_data.free();
-    index_data.free();
-
-    self.set(mesh.name, data);
-
-    return self.get_ref(mesh.name)!!;
 }
 
 

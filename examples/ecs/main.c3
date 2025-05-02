@@ -61,8 +61,6 @@ struct SceneData {
 // Used to send buffer device addresses to GPU
 DescriptorImages descriptor_images;
 
-MeshMap meshes;
-
 Vec2f window_size = {800, 600};
 char[*] shader = $embed("./shaders/shader.spv");
 
@@ -160,7 +158,6 @@ fn void main()
     // )!!;
 
     // defer char_animation.free();
-    defer meshes.free();  
 
     List{Component} materials;
 
@@ -189,7 +186,7 @@ fn void main()
 
             gltf::Mesh mesh = gltf.meshes[node.mesh];
      
-            MeshData* mesh_data = meshes.add_mesh(
+            ecs::@parse_mesh(
                 gltf: gltf,
                 manager: manager,
                 vertices: &vertices,
@@ -197,46 +194,42 @@ fn void main()
                 mesh: {
                     .name = mesh.name,
                     .data = mesh
-                },
-            )!!;
+                };
+                MeshData mesh_data
+            ) {
+ 
+                Render render_data = {
+                    .indexCount = mesh_data.indexCount,
+                    .firstIndex = mesh_data.firstIndex,
+                    .vertexOffset = mesh_data.vertexOffset,
+                    .material = mesh_data.has_material() ? ecs::@get_address(manager, materials[mesh_data.materialIndex]) : 0,
+                    .instances = ecs::@get_address(manager, instances) + instances.used_size,
+                    .node_matrix = matrix,
+                    .instanceCount = 1,
+                    .firstInstance = 0,
+                    .skin_data = 0,
+                };
 
-            Render render_data = {
-                .indexCount = mesh_data.indexCount,
-                .firstIndex = mesh_data.firstIndex,
-                .vertexOffset = mesh_data.vertexOffset,
-                .instanceCount = 1,
-                .firstInstance = 0,
-                .skin_data = 0,
-                .material = mesh_data.has_material() ? ecs::@get_address(manager, materials[mesh_data.materialIndex]) : 0,
-                .instances = ecs::@get_address(manager, instances) + instances.used_size,
-                .node_matrix = matrix
-            };
+                // node.hasSkin() ? ecs::@get_address(manager, char_animation.component) : 0
+                if (node.attributes.len() > 0) {
+                    Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
+                    Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
+                    Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
+                    render_data.instanceCount = translation_accessor.count;
+                    render_data.firstInstance = 1;
 
-            // node.hasSkin() ? ecs::@get_address(manager, char_animation.component) : 0
-            if (node.attributes.len() > 0) {
-                Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
-                Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
-                Accessor scale_accessor = gltf.accessors[node.attributes["SCALE"]!!];
-                render_data.instanceCount = translation_accessor.count;
-                render_data.firstInstance = 1;
-
-                for (uint i = 0; i < translation_accessor.count; i++) {
-                    Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
-                    Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
-                    Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
-                    Matrix4f instance_matrix = gltf::to_matrix(translation, scale, rotation).transpose();
-                    ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
-                    instances.used_size += Matrix4f.sizeof;
+                    for (uint i = 0; i < translation_accessor.count; i++) {
+                        Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
+                        Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
+                        Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
+                        Matrix4f instance_matrix = gltf::to_matrix(translation, scale, rotation).transpose();
+                        ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
+                        instances.used_size += Matrix4f.sizeof;
+                    }
                 }
-            }
-         
-            manager.@create_entity(
-                (Position) {
-                    .translation = {1.0, 1.0, 1.0},
-                    .scale = {1.0, 1.0, 1.0}
-                },
-                render_data
-            );
+
+                manager.@create_entity(render_data);
+            }!!;
         }
     }
 
