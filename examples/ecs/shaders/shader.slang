@@ -102,8 +102,6 @@ FragmentData vertexMain(VertexInput input)
         0, 0, 0, 1
     };
 
-
-
     if (draw.skin_data != nullptr)
     {
         skin_matrix =
@@ -118,7 +116,6 @@ FragmentData vertexMain(VertexInput input)
     if (input.instanceID > 0) {
         node_matrix = mul(node_matrix, draw.instances[input.instanceID]);
     }
-
 
     float4 frag_pos = mul(node_matrix, float4(vertex.position.xyz, 1.0));
     float4 vertex_pos = mul(mul(perspective, view), frag_pos);

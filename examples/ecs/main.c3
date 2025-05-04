@@ -63,7 +63,7 @@ struct SceneData {
 // Used to send buffer device addresses to GPU
 DescriptorImages descriptor_images;
 
-Vec2f window_size = {800, 600};
+Vec2f window_size = {1400, 800};
 char[*] shader = $embed("./shaders/shader.spv");
 
 DeviceContext context;
@@ -108,7 +108,7 @@ fn void main()
     // Create camera
     camera::Camera camera = camera::new(eye: {0.0, 5.0, 10}, aspect: window_size.x/window_size.y, min_zoom: 0.01, max_zoom: 1000);
 
-    Gltf gltf = gltf::loadFile("assets/game.glb")!!;
+    Gltf gltf = gltf::loadFile("assets/game.gltf")!!;
 
     Memory scene_memory = vk::new_buffer(
         vk::BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | vk::BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -150,16 +150,16 @@ fn void main()
     Component indices = manager.@create_component(size: 8_000_000, buffer_index: 2);
     Component instances = manager.@create_component(size: 5_000_000, buffer_index: 2);
 
-    // Animations char_animation = ecs::create_animation({
-    //         .skin = gltf.skins[0],
-    //         .buffer_index = 0,
-    //         .channels = { 0 },
-    //     },
-    //     gltf,
-    //     manager,
-    // )!!;
+    Animations char_animation = ecs::create_animation({
+            .skin = gltf.skins[0],
+            .buffer_index = 0,
+            .channels = { 0 },
+        },
+        gltf,
+        manager,
+    )!!;
 
-    // defer char_animation.free();
+    defer char_animation.free();
 
     List{Component} materials;
 
@@ -208,7 +208,7 @@ fn void main()
                     .node_matrix = matrix,
                     .instanceCount = 1,
                     .firstInstance = 0,
-                    .skin_data = 0,
+                    .skin_data = node.hasSkin() ? ecs::@get_address(manager, char_animation.component) : 0,
                 };
 
                 // node.hasSkin() ? ecs::@get_address(manager, char_animation.component) : 0
@@ -421,7 +421,7 @@ fn void main()
 
         EventMap[] event_map = win.getEvent();
 
-        // char_animation.run_animation("Attack", animation_time.mark().to_sec())!!;
+        char_animation.run_animation("Attack", animation_time.mark().to_sec())!!;
 
         foreach (event: event_map) {
             switch {

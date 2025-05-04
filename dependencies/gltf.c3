@@ -1224,10 +1224,16 @@ fn Gltf? parse(InStream stream) {
 
     foreach (uint i, node: content.nodes) {
         Node* parent_node = content.nodes.get_ref(i);
+
         if (node.children.len() > 0) {
             foreach (child: node.children) {
                 Node* child_node = content.nodes.get_ref(child);
-                child_node.parent = parent_node;
+                if (!child_node.hasSkin()) {
+                    child_node.parent = parent_node;
+                }
+                else {
+                    io::printfn("%s is a skinned mesh that is not root. Parent transforms will not affect a skinned mesh.", child_node.name);
+                }
             }
         }
     }
@@ -1482,32 +1488,26 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
         0, scale.y, 0, translation.y,
         0, 0, scale.z, translation.z,
         0.0, 0.0, 0.0, 1.0,
-    }.mul(rotation.to_matrixf());
+    };
 }
 
-// fn void Node.mapValues(&self, usz scene_index, Gltf* data) @private {
-//     if (self.hasMesh()) {
-//         Mesh mesh = data.meshes[self.mesh];
-//         mesh.scene = scene_index;
-//         foreach (weight: mesh.weights) self.weights.push(weight);
-//     }
+fn void Node.mapValues(&self, Gltf* data) @private {
+    foreach (node_index : self.children) {
+        Node* node = &data.nodes[node_index];
+        node.parent = self;
+        node.mapValues(data);
+    }
+}
 
-//     foreach (node_index : self.children) {
-//         Node* node = &data.nodes[node_index];
-//         node.parent = self;
-//         node.mapValues(scene_index, data);
-//     }
-// }
-
-fn Matrix4f Node.globalMatrix(&self) {
+fn Matrix4f Node.globalMatrix(self) {
     Matrix4f global_matrix = self.localMatrix();
-    Node* node = self;
+    Node* node = &self;
  
     while (node.parent != null) {
         global_matrix = node.parent.localMatrix().mul(global_matrix);
         node = node.parent;
     }
-   
+
     return global_matrix;
 }
 

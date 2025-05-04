@@ -494,7 +494,7 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
     foreach (primitive: mesh.data.primitives) {
         List{Vertex} vertex_data;
         List{ushort} index_data;
-
+       
         Accessor index_accessor = gltf.accessors[primitive.attributes["indices"]!!];
         Accessor pos_accessor = gltf.accessors[primitive.attributes["POSITION"]!!];
 
