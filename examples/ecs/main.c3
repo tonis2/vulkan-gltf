@@ -183,9 +183,8 @@ fn void main()
     defer materials.free();
 
     foreach (node : gltf.nodes) {
-        if (node.hasMesh()) {
-            Matrix4f matrix = node.globalMatrix().transpose();
-
+        if (node.has_mesh()) {
+            Matrix4f matrix = node.global_matrix().transpose();
             gltf::Mesh mesh = gltf.meshes[node.mesh];
      
             ecs::@parse_mesh(
@@ -208,10 +207,9 @@ fn void main()
                     .node_matrix = matrix,
                     .instanceCount = 1,
                     .firstInstance = 0,
-                    .skin_data = node.hasSkin() ? ecs::@get_address(manager, char_animation.component) : 0,
+                    .skin_data = node.has_skin() ? ecs::@get_address(manager, char_animation.component) : 0,
                 };
 
-                // node.hasSkin() ? ecs::@get_address(manager, char_animation.component) : 0
                 if (node.attributes.len() > 0) {
                     Accessor translation_accessor = gltf.accessors[node.attributes["TRANSLATION"]!!];
                     Accessor rotation_accessor = gltf.accessors[node.attributes["ROTATION"]!!];
@@ -220,9 +218,9 @@ fn void main()
                     render_data.firstInstance = 1;
 
                     for (uint i = 0; i < translation_accessor.count; i++) {
-                        Vec3f translation = gltf.@castBuffer(translation_accessor, i, Vec3f);
-                        Quaternionf rotation = gltf.@castBuffer(rotation_accessor, i, Quaternionf);
-                        Vec3f scale = gltf.@castBuffer(scale_accessor, i, Vec3f);
+                        Vec3f translation = gltf.@cast_buffer(translation_accessor, i, Vec3f);
+                        Quaternionf rotation = gltf.@cast_buffer(rotation_accessor, i, Quaternionf);
+                        Vec3f scale = gltf.@cast_buffer(scale_accessor, i, Vec3f);
                         Matrix4f instance_matrix = gltf::to_matrix(translation, scale, rotation).transpose();
                         ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
                         instances.used_size += Matrix4f.sizeof;

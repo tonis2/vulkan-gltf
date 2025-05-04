@@ -327,7 +327,7 @@ struct AnimationChannel {
 }
 
 // Parsing JSON to structs
-fn void Scene.fromJson(&self, Object* json) {
+fn void Scene.from_json(&self, Object* json) {
     String? name = json.get_string("name");
     Object*? nodes = json.get("nodes");
     if (try name) self.name = name.copy(mem);
@@ -339,7 +339,7 @@ fn void Scene.free(self) {
     self.name.free(mem);
 }
 
-fn void Node.fromJson(&self, Object* json) {
+fn void Node.from_json(&self, Object* json) {
     self.mesh = -1;
     self.camera = -1;
     self.skin = -1;
@@ -402,19 +402,19 @@ fn void Node.fromJson(&self, Object* json) {
     }
 }
 
-fn bool Node.hasMesh(self) {
+fn bool Node.has_mesh(self) {
     return self.mesh != -1;
 }
 
-fn bool Node.hasSkin(self) {
+fn bool Node.has_skin(self) {
     return self.skin != -1;
 }
 
-fn bool Node.hasCamera(self) {
+fn bool Node.has_camera(self) {
     return self.camera != -1;
 }
 
-fn bool Node.hasLight(self) {
+fn bool Node.has_light(self) {
     return self.light != -1;
 }
 
@@ -425,7 +425,7 @@ fn void Node.free(&self) {
     self.attributes.free();
 }
 
-fn void Mesh.fromJson(&self, Object* json) {
+fn void Mesh.from_json(&self, Object* json) {
     String? name = json.get_string("name");
     Object*? primitives = json.get("primitives");
     Object*? weights = json.get("weights");
@@ -485,7 +485,7 @@ fn void Mesh.free(&self) {
     self.weights.free();
 }
 
-fn void BufferView.fromJson(&self, Object* json) {
+fn void BufferView.from_json(&self, Object* json) {
     uint? buffer = json.get_int("buffer");
     uint? byteLength = json.get_int("byteLength");
     uint? offset = json.get_int("byteOffset");
@@ -508,7 +508,7 @@ fn void BufferView.fromJson(&self, Object* json) {
     }
 }
 
-fn void Accessor.fromJson(&self, Object* json) {
+fn void Accessor.from_json(&self, Object* json) {
     uint? bufferView = json.get_int("bufferView");
     uint? count = json.get_int("count");
     usz? offset = json.get_int("byteOffset");
@@ -586,7 +586,7 @@ fn void Accessor.free(&self) {
     self.max.free();
 }
 
-fn void? Image.fromJson(&self, Object* json) {
+fn void? Image.from_json(&self, Object* json) {
     int? bufferView = json.get_int("bufferView");
     String? name = json.get_string("name");
     String? mimeType = json.get_string("mimeType");
@@ -632,7 +632,7 @@ fn void Image.free(&self) {
     mem::free(self.data);
 }
 
-fn void? Buffer.fromJson(&self, Object* json) {
+fn void? Buffer.from_json(&self, Object* json) {
     uint? size = json.get_int("byteLength");
     String? uri = json.get_string("uri");
     String? data = json.get_string("data");
@@ -660,7 +660,7 @@ fn void Buffer.free(&self) {
     mem::free(self.uri);
 }
 
-fn void Camera.fromJson(&self, Object* json) {
+fn void Camera.from_json(&self, Object* json) {
     String? cameraType = json.get_string("type");
     String? name = json.get_string("name");
 
@@ -687,7 +687,7 @@ fn void Camera.fromJson(&self, Object* json) {
     }
 }
 
-fn void? Material.fromJson(&self, Object* json, Gltf data) {
+fn void? Material.from_json(&self, Object* json, Gltf data) {
     String? alphaMode = json.get_string("alphaMode");
     Object*? pbrMetallicRoughness = json.get("pbrMetallicRoughness");
     Object*? occlusionTexture = json.get("occlusionTexture");
@@ -711,9 +711,9 @@ fn void? Material.fromJson(&self, Object* json, Gltf data) {
     self.roughnessFactor = 0;
     self.metallicFactor = 0;
     self.emissiveStrength = 1.0;
-    self.occlusionTexture = self.occlusionTexture.fromJson(occlusionTexture) ?? default_texture;
-    self.normalTexture = self.normalTexture.fromJson(normalTexture) ?? default_texture;
-    self.emissiveTexture = self.emissiveTexture.fromJson(emissiveTexture) ?? default_texture;
+    self.occlusionTexture = self.occlusionTexture.from_json(occlusionTexture) ?? default_texture;
+    self.normalTexture = self.normalTexture.from_json(normalTexture) ?? default_texture;
+    self.emissiveTexture = self.emissiveTexture.from_json(emissiveTexture) ?? default_texture;
 
     self.alphaCutOff = (float)json.get_float("alphaCutoff") ?? 0.0;
     self.alphaMode = OPAQUE;
@@ -741,8 +741,8 @@ fn void? Material.fromJson(&self, Object* json, Gltf data) {
         Object*? baseColorFactor = pbrMetallicRoughness.get("baseColorFactor");
         Object*? metallicRoughnessTexture = pbrMetallicRoughness.get("metallicRoughnessTexture");
 
-        self.baseColorTexture = self.baseColorTexture.fromJson(baseColorTexture) ?? default_texture;
-        self.metallicRoughnessTexture = self.metallicRoughnessTexture.fromJson(metallicRoughnessTexture) ?? default_texture;
+        self.baseColorTexture = self.baseColorTexture.from_json(baseColorTexture) ?? default_texture;
+        self.metallicRoughnessTexture = self.metallicRoughnessTexture.from_json(metallicRoughnessTexture) ?? default_texture;
 
         if (try metallicFactor && try roughnessFactor) {
             self.metallicFactor = (float)metallicFactor;
@@ -785,13 +785,13 @@ fn void? Material.fromJson(&self, Object* json, Gltf data) {
     }
 }
 
-fn Texture Texture.fromJson(&self, Object* data) {
+fn Texture Texture.from_json(&self, Object* data) {
     self.sampler = data.get_int("sampler") ?? -1;
     self.source = data.get_int("source") ?? -1;
     return *self;
 }
 
-fn TextureInfo TextureInfo.fromJson(&self, Object* data) {
+fn TextureInfo TextureInfo.from_json(&self, Object* data) {
     TextureInfo info = {
         .source = -1,
         .sampler = -1,
@@ -815,7 +815,7 @@ fn TextureInfo TextureInfo.fromJson(&self, Object* data) {
     return info;
 }
 
-fn void Sampler.fromJson(&self, Object* json) {
+fn void Sampler.from_json(&self, Object* json) {
     uint? magFilter = json.get_int("magFilter");
     uint? minFilter = json.get_int("minFilter");
     uint? wrapS = json.get_int("wrapS");
@@ -870,7 +870,7 @@ fn void Sampler.fromJson(&self, Object* json) {
     }
 }
 
-fn void Animation.fromJson(&self, Object* json) {
+fn void Animation.from_json(&self, Object* json) {
     String? name = json.get_string("name");
     Object*? channels = json.get("channels");
     Object*? samplers = json.get("samplers");
@@ -936,7 +936,7 @@ fn void Animation.free(&self) {
 }
 
 
-fn void Skin.fromJson(&self, Object* json) {
+fn void Skin.from_json(&self, Object* json) {
     String? name = json.get_string("name");
     Object*? joints = json.get("joints");
 
@@ -957,7 +957,7 @@ fn void Skin.free(&self) {
     self.name.free(mem);
 }
 
-fn void Light.fromJson(&self, Object* json) {
+fn void Light.from_json(&self, Object* json) {
     String? name = json.get_string("name");
     String? type = json.get_string("type");
     float? intensity = (float)json.get_float("intensity");
@@ -1091,7 +1091,7 @@ fn Gltf? parse(InStream stream) {
         if (try lights) {
             foreach (light: lights.array) {
                 Light data;
-                data.fromJson(light);
+                data.from_json(light);
                 content.lights.push(data);
             }
         }
@@ -1101,7 +1101,7 @@ fn Gltf? parse(InStream stream) {
     if (try scenes) {
         foreach (scene : scenes.array) {
             Scene data;
-            data.fromJson(scene);
+            data.from_json(scene);
             content.scenes.push(data);
         }
     }
@@ -1110,10 +1110,10 @@ fn Gltf? parse(InStream stream) {
     if (try nodes) {
         foreach (uint i, node : nodes.array) {
            Node data;
-           data.fromJson(node);
+           data.from_json(node);
            content.nodes.push(data);
 
-           if (data.hasLight()) {
+           if (data.has_light()) {
                 Light* light = &content.lights[data.light];
                 light.position = data.translation;
                 // light.position = data.translation.transform(data.rotation.to_matrixf());
@@ -1124,7 +1124,7 @@ fn Gltf? parse(InStream stream) {
     if (try bufferViews) {
         foreach (bufferView : bufferViews.array) {
             BufferView data;
-            data.fromJson(bufferView);
+            data.from_json(bufferView);
             content.bufferViews.push(data);
         }
     }
@@ -1133,7 +1133,7 @@ fn Gltf? parse(InStream stream) {
     if (try accessors) {
         foreach (accessor : accessors.array) {
             Accessor data;
-            data.fromJson(accessor);
+            data.from_json(accessor);
             content.accessors.push(data);
         }
     }
@@ -1142,7 +1142,7 @@ fn Gltf? parse(InStream stream) {
     if (try cameras) {
         foreach (camera : cameras.array) {
             Camera data;
-            data.fromJson(camera);
+            data.from_json(camera);
             content.cameras.push(data);
         }
     }
@@ -1150,7 +1150,7 @@ fn Gltf? parse(InStream stream) {
     if (try samplers) {
         foreach (sampler : samplers.array) {
             Sampler data;
-            data.fromJson(sampler);
+            data.from_json(sampler);
             content.samplers.push(data);
         }
     }
@@ -1158,7 +1158,7 @@ fn Gltf? parse(InStream stream) {
     if (try textures) {
         foreach (texture : textures.array) {
             Texture data;
-            data.fromJson(texture);
+            data.from_json(texture);
             content.textures.push(data);
         }
     }
@@ -1167,7 +1167,7 @@ fn Gltf? parse(InStream stream) {
     if (try materials) {
         foreach (json : materials.array) {
             Material material;
-            material.fromJson(json, content)!;
+            material.from_json(json, content)!;
             content.materials.push(material);
         }
     }
@@ -1176,7 +1176,7 @@ fn Gltf? parse(InStream stream) {
     if (try meshes) {
         foreach (mesh : meshes.array) {
             Mesh data;
-            data.fromJson(mesh);
+            data.from_json(mesh);
             content.meshes.push(data);
         }
     }
@@ -1185,7 +1185,7 @@ fn Gltf? parse(InStream stream) {
     if (try buffers) {
         foreach (buffer : buffers.array) {
             Buffer data;
-            data.fromJson(buffer)!;
+            data.from_json(buffer)!;
             content.buffers.push(data);
         }
 
@@ -1199,7 +1199,7 @@ fn Gltf? parse(InStream stream) {
     if (try images) {
         foreach (image : images.array) {
             Image data;
-            data.fromJson(image)!;
+            data.from_json(image)!;
             content.images.push(data);
         }
     }
@@ -1208,7 +1208,7 @@ fn Gltf? parse(InStream stream) {
     if (try animations) {
        foreach (animation : animations.array) {
             Animation data;
-            data.fromJson(animation);
+            data.from_json(animation);
             content.animations.push(data);
         }
     }
@@ -1217,7 +1217,7 @@ fn Gltf? parse(InStream stream) {
     if (try skins) {
        foreach (skin : skins.array) {
             Skin data;
-            data.fromJson(skin);
+            data.from_json(skin);
             content.skins.push(data);
         }
     }
@@ -1228,7 +1228,7 @@ fn Gltf? parse(InStream stream) {
         if (node.children.len() > 0) {
             foreach (child: node.children) {
                 Node* child_node = content.nodes.get_ref(child);
-                if (!child_node.hasSkin()) {
+                if (!child_node.has_skin()) {
                     child_node.parent = parent_node;
                 }
                 else {
@@ -1242,7 +1242,7 @@ fn Gltf? parse(InStream stream) {
     foreach (&skin: content.skins) {
         Accessor skin_accessor = content.accessors[skin.inverseBindAccessor];
         for (uint i; i < skin_accessor.count; i++) {
-            Matrix4f matrix = content.@castBuffer(skin_accessor, i, Matrix4f).transpose();
+            Matrix4f matrix = content.@cast_buffer(skin_accessor, i, Matrix4f).transpose();
             skin.inverseBindMatrices.push(matrix);
         }
     }
@@ -1273,7 +1273,7 @@ fn void Gltf.free(Gltf* self) {
     self.extensions.free();
 }
 
-fn Node? Gltf.getNode(Gltf* self, String name) {
+fn Node? Gltf.find_node(Gltf* self, String name) {
     foreach (data : self.nodes) {
         if (data.name == name) {
             return data;
@@ -1283,7 +1283,7 @@ fn Node? Gltf.getNode(Gltf* self, String name) {
 }
 
 
-fn Mesh? Gltf.findMesh(Gltf* self, String name) {
+fn Mesh? Gltf.find_mesh(Gltf* self, String name) {
     foreach (data : self.meshes) {
         if (data.name == name) {
             return data;
@@ -1292,7 +1292,7 @@ fn Mesh? Gltf.findMesh(Gltf* self, String name) {
     return KEY_NOT_FOUND?;
 }
 
-fn Skin? Gltf.findSkin(Gltf* self, String name) {
+fn Skin? Gltf.find_skin(Gltf* self, String name) {
     foreach (data : self.skins) {
         if (data.name == name) {
             return data;
@@ -1301,7 +1301,7 @@ fn Skin? Gltf.findSkin(Gltf* self, String name) {
     return KEY_NOT_FOUND?;
 }
 
-fn Animation? Gltf.findAnimation(Gltf* self, String name) {
+fn Animation? Gltf.find_animation(Gltf* self, String name) {
     foreach (data : self.animations) {
         if (data.name == name) {
             return data;
@@ -1351,8 +1351,8 @@ fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
 
             for (ulong i; i < time_accessor.count; i++) {
                 frame.values.push({
-                    .time = self.@castBuffer(time_accessor, i, float),
-                    .value = self.@castBuffer(value_accessor, i, Vec4f),
+                    .time = self.@cast_buffer(time_accessor, i, float),
+                    .value = self.@cast_buffer(value_accessor, i, Vec4f),
                 });
             }
             channels.push(frame);
@@ -1480,7 +1480,7 @@ fn uint Accessor.dataSize(Accessor* self) {
 }
 
 // Returns matrix from node transform, scale, rotation
-fn Matrix4f Node.localMatrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
+fn Matrix4f Node.local_matrix(&self) => to_matrix(self.translation, self.scale, self.rotation);
 
 fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
     return (Matrix4f) {
@@ -1491,20 +1491,12 @@ fn Matrix4f to_matrix(Vec3f translation, Vec3f scale, Quaternionf rotation) {
     };
 }
 
-fn void Node.mapValues(&self, Gltf* data) @private {
-    foreach (node_index : self.children) {
-        Node* node = &data.nodes[node_index];
-        node.parent = self;
-        node.mapValues(data);
-    }
-}
-
-fn Matrix4f Node.globalMatrix(self) {
-    Matrix4f global_matrix = self.localMatrix();
+fn Matrix4f Node.global_matrix(self) {
+    Matrix4f global_matrix = self.local_matrix();
     Node* node = &self;
  
     while (node.parent != null) {
-        global_matrix = node.parent.localMatrix().mul(global_matrix);
+        global_matrix = node.parent.local_matrix().mul(global_matrix);
         node = node.parent;
     }
 
@@ -1530,7 +1522,7 @@ fn char[]? Buffer.from_binary(self, InStream stream) {
     return data;
 }
 
-macro Gltf.@castBuffer(&self, Accessor accessor, usz index, #type) {
+macro Gltf.@cast_buffer(&self, Accessor accessor, usz index, #type) {
     BufferView bufferView = self.bufferViews[accessor.view];
     Buffer buffer = self.buffers[bufferView.buffer];
     usz index_offset = bufferView.byteStride > 0 ? bufferView.byteStride : accessor.stride();
@@ -1567,7 +1559,7 @@ fn List{uint} flatten_nodes(List{uint} nodes, Gltf data, List{uint}* list = null
     return *list;
 }
 
-fn void Gltf.debugBuffer(Gltf* self, Accessor accessor) {
+fn void Gltf.debug_buffer(Gltf* self, Accessor accessor) {
     BufferView bufferView = self.bufferViews[accessor.view];
     Buffer buffer = self.buffers[bufferView.buffer];
 

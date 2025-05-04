@@ -506,7 +506,7 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
         };
 
         for (usz i; i < index_accessor.count; i++) {
-            index_data.push(gltf.@castBuffer(index_accessor, i, ushort));
+            index_data.push(gltf.@cast_buffer(index_accessor, i, ushort));
         }
 
         for (usz i; i < pos_accessor.count; i++) {
@@ -520,7 +520,7 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
                 usz? attribute = primitive.attributes["TEXCOORD_0"];
                 if (try attribute) {   
                     Accessor accessor = gltf.accessors[attribute];
-                    tex_cord = gltf.@castBuffer(accessor, i, Vec2f); 
+                    tex_cord = gltf.@cast_buffer(accessor, i, Vec2f); 
                 }
             }
 
@@ -528,7 +528,7 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
                 usz? attribute = primitive.attributes["NORMAL"];
                 if (try attribute) {   
                     Accessor accessor = gltf.accessors[attribute];
-                    normal = gltf.@castBuffer(accessor, i, Vec3f); 
+                    normal = gltf.@cast_buffer(accessor, i, Vec3f); 
                 }
             }
 
@@ -536,7 +536,7 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
                 usz? attribute = primitive.attributes["TANGENT"];
                 if (try attribute) {   
                     Accessor accessor = gltf.accessors[attribute];
-                    tangent = gltf.@castBuffer(accessor, i, Vec4f); 
+                    tangent = gltf.@cast_buffer(accessor, i, Vec4f); 
                 }
             }
 
@@ -546,12 +546,12 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
                     Accessor accessor = gltf.accessors[attribute];
 
                     if (accessor.data_type == DataType.USHORT) {
-                        short[4] array = gltf.@castBuffer(accessor, i, short[4]);
+                        short[4] array = gltf.@cast_buffer(accessor, i, short[4]);
                         skin_pos = (uint[4]){array[0], array[1], array[2], array[3]};
                     };
 
                     if (accessor.data_type == DataType.CHAR) {
-                        char[4] array = gltf.@castBuffer(accessor, i, char[4]);
+                        char[4] array = gltf.@cast_buffer(accessor, i, char[4]);
                         skin_pos = (uint[4]){array[0], array[1], array[2], array[3]};
                     };
                 }
@@ -561,11 +561,11 @@ macro void? @parse_mesh(Gltf gltf, EntityManager manager, Component* vertices, C
                 usz? attribute = primitive.attributes["WEIGHTS_0"];
                 if (try attribute) {   
                     Accessor accessor = gltf.accessors[attribute];
-                    skin_weight = gltf.@castBuffer(accessor, i, Vec4f); 
+                    skin_weight = gltf.@cast_buffer(accessor, i, Vec4f); 
                 }
             }
 
-            Vec3f position = gltf.@castBuffer(pos_accessor, i, Vec3f);
+            Vec3f position = gltf.@cast_buffer(pos_accessor, i, Vec3f);
 
             vertex_data.push({
                 .pos = position,
@@ -707,7 +707,7 @@ fn AnimationSkin load_skin_data(gltf::Skin skin, Gltf gltf) {
     }
 
     for (uint i = 0; i < skin_accessor.count; i++) {
-        Matrix4f matrix = gltf.@castBuffer(skin_accessor, i, Matrix4f).transpose();
+        Matrix4f matrix = gltf.@cast_buffer(skin_accessor, i, Matrix4f).transpose();
         inverseBindMatrices.push(matrix);
     }
 
@@ -747,8 +747,8 @@ fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSki
 
         for (ulong i; i < time_accessor.count; i++) {
             values.push({
-                .time = gltf.@castBuffer(time_accessor, i, float),
-                .value = gltf.@castBuffer(value_accessor, i, Vec4f),
+                .time = gltf.@cast_buffer(time_accessor, i, float),
+                .value = gltf.@cast_buffer(value_accessor, i, Vec4f),
             });
         }
         response.push(frame);
