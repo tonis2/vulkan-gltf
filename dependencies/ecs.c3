@@ -471,7 +471,7 @@ struct MeshData {
 struct AnimationInfo {
     gltf::Skin skin;
     uint buffer_index;
-    uint[] channels;
+    gltf::Animation[] channels;
 }
 
 struct MeshInfo {
@@ -604,10 +604,9 @@ fn Animations? create_animation(AnimationInfo info, Gltf gltf, EntityManager man
         .component = manager.@create_component(size: (uint)animations.skin.nodes.len() * Matrix4f.sizeof, buffer_index: info.buffer_index),
     };
 
-    foreach (channel_index: info.channels) {
-        gltf::Animation animation = gltf.animations[channel_index];
+    foreach (index, animation: info.channels) {
         char[20] buffer;
-        String animation_name = animation.name.len > 0 ? animation.name : (String)io::bprintf(buffer[..], "%s", channel_index)!!;
+        String animation_name = animation.name.len > 0 ? animation.name : (String)io::bprintf(buffer[..], "%s", index)!!;
 
         io::printfn("animation %s loaded", animation_name);
         animations.channels[animation_name] = load_animation_data(animation, animations.skin, gltf, &animations.values)!;
@@ -738,8 +737,8 @@ fn AnimationChannel? load_animation_data(gltf::Animation animation, AnimationSki
             .value_count = time_accessor.count
         };
 
-        if (time_accessor.max.len() > 0) {
-            frame.max_time = time_accessor.max[0];
+        if (time_accessor.max.x > 0) {
+            frame.max_time = time_accessor.max.x;
         } else {
             frame.max_time = 1;
             io::printfn("Animation has no max time");

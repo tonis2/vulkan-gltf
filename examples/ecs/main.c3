@@ -153,7 +153,9 @@ fn void main()
     Animations char_animation = ecs::create_animation({
             .skin = gltf.skins[0],
             .buffer_index = 0,
-            .channels = { 0 },
+            .channels = { 
+                gltf.find_animation("Walk")
+             },
         },
         gltf,
         manager,
@@ -218,10 +220,11 @@ fn void main()
                     render_data.firstInstance = 1;
 
                     for (uint i = 0; i < translation_accessor.count; i++) {
-                        Vec3f translation = gltf.@cast_buffer(translation_accessor, i, Vec3f);
-                        Quaternionf rotation = gltf.@cast_buffer(rotation_accessor, i, Quaternionf);
-                        Vec3f scale = gltf.@cast_buffer(scale_accessor, i, Vec3f);
-                        Matrix4f instance_matrix = gltf::to_matrix(translation, scale, rotation).transpose();
+                        Matrix4f instance_matrix = gltf::to_matrix(
+                            gltf.@cast_buffer(translation_accessor, i, Vec3f), 
+                            gltf.@cast_buffer(scale_accessor, i, Vec3f), 
+                            gltf.@cast_buffer(rotation_accessor, i, Quaternionf)
+                        ).transpose();
                         ecs::@upload(manager, instances, &instance_matrix, size: Matrix4f.sizeof, offset: instances.used_size);
                         instances.used_size += Matrix4f.sizeof;
                     }
@@ -419,7 +422,7 @@ fn void main()
 
         EventMap[] event_map = win.getEvent();
 
-        char_animation.run_animation("Attack", animation_time.mark().to_sec())!!;
+        char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
         foreach (event: event_map) {
             switch {

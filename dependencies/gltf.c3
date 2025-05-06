@@ -273,8 +273,8 @@ struct Accessor {
     Mode mode;
     DataType data_type;
     AccessorType type;
-    List{float} min;
-    List{float} max;
+    Vec4f min;
+    Vec4f max;
 }
 
 struct BufferView {
@@ -571,19 +571,13 @@ fn void Accessor.from_json(&self, Object* json) {
         }
 
         if (try max) {
-            foreach (value : max.array) self.max.push((float)value.f);
+            foreach (i, value : max.array) self.max[i] = (float)value.f;
         }
 
         if (try min) {
-            foreach (value : min.array) self.min.push((float)value.f);
+            foreach (i, value : min.array) self.min[i] = (float)value.f;
         }
     }
-}
-
-
-fn void Accessor.free(&self) {
-    self.min.free();
-    self.max.free();
 }
 
 fn void? Image.from_json(&self, Object* json) {
@@ -1256,7 +1250,7 @@ fn void Gltf.free(Gltf* self) {
     foreach (buffer : self.buffers) buffer.free();
     foreach (scene : self.scenes) scene.free();
     foreach (animation : self.animations) animation.free();
-    foreach (accessor : self.accessors) accessor.free();
+    // foreach (accessor : self.accessors) accessor.free();
 
     self.cameras.free();
     self.accessors.free();
@@ -1342,8 +1336,8 @@ fn AnimationChannels Gltf.load_animations(&self, uint[] indexes) {
                 mem::free(pointer_values);
             }
 
-            if (time_accessor.max.len() > 0) {
-                frame.max_time = time_accessor.max[0];
+            if (time_accessor.max.x > 0) {
+                frame.max_time = time_accessor.max.x;
             } else {
                 frame.max_time = 1;
                 io::printfn("Animation has no max time");
