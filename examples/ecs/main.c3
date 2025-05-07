@@ -419,31 +419,29 @@ fn void main()
 
     while (running) {
         NanoDuration start_time = render_time.mark();
-
-        EventMap[] event_map = win.getEvent();
-
+        
+        EventMap event = win.getEvent();
         char_animation.run_animation("Walk", animation_time.mark().to_sec())!!;
 
-        foreach (event: event_map) {
-            switch {
-                case event.is_pressed(LEFT_MOUSE): {
-                    Vec2f mouse_pos = win.getMousePos();
-                    camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
-                    ecs::@upload(manager, scene, &&camera.data());
-                    prev_mouse = mouse_pos;
-                }
-                case event.is_pressed(MOUSE_SCROLL_DOWN): {
-                    camera.zoom(-2);
-                    ecs::@upload(manager, scene, &&camera.data());
-                }
-                case event.is_pressed(MOUSE_SCROLL_UP): {
-                    camera.zoom(2);
-                    ecs::@upload(manager, scene, &&camera.data());
-                }
-                case event.is_pressed(ESCAPE): {
-                    running = false;
-                }
-            }
+        if (event.is_pressed(LEFT_MOUSE)) {
+            Vec2f mouse_pos = win.getMousePos();
+            camera.rotate(mouse_pos.x - prev_mouse.x, (mouse_pos.y - prev_mouse.y));
+            ecs::@upload(manager, scene, &&camera.data());
+            prev_mouse = mouse_pos;
+        }
+
+        if (event.is_pressed(MOUSE_SCROLL_DOWN)) {
+            camera.zoom(-2);
+            ecs::@upload(manager, scene, &&camera.data());
+        }
+
+        if (event.is_pressed(MOUSE_SCROLL_UP)) {
+            camera.zoom(2);
+            ecs::@upload(manager, scene, &&camera.data());
+        }
+
+        if (event.is_pressed(ESCAPE)) {
+            running = false;
         }
 
         uint next_image = context.next_image()!!;
@@ -520,6 +518,16 @@ fn void main()
         rendering_info.setDepthAttachment(&main_depth_target);
 
         vk::cmdBeginRendering(command_buffer, &rendering_info);
+
+        // manager.@query("Render"; Entity entity) {
+        //     Render render_data = @get(manager, entity, Render);
+
+
+        //     @upload(manager, entity, (Position) {
+        //         .translation = {5.0, 5.0, 5.0},
+        //         .scale = {5.0, 5.0, 5.0}
+        //     });
+        // };
 
         for (uint i = 0; i < (uint)render_memory.used_size / Render.sizeof; i++) {
             PushConstantData constant_data = {
